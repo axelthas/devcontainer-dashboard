@@ -45,10 +45,9 @@
 	const stoppedCount = $derived(containers.filter((c) => c.state !== 'running').length);
 </script>
 
+<div class={dark ? 'dark' : ''}>
 <div
-	class="{dark
-		? 'dark'
-		: ''} min-h-screen bg-[#eceff4] text-[#2e3440] dark:bg-[#2e3440] dark:text-[#d8dee9] font-sans pb-12 transition-colors duration-300"
+	class="min-h-screen bg-[#eceff4] text-[#2e3440] dark:bg-[#2e3440] dark:text-[#d8dee9] font-sans pb-12 transition-colors duration-300"
 >
 	<!-- Header -->
 	<header
@@ -157,4 +156,5 @@
 			{/if}
 		</section>
 	</main>
+</div>
 </div>
