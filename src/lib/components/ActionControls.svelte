@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Play, Square, RotateCcw, Loader2 } from 'lucide-svelte';
+	import { Play, Square, RotateCw, Loader2 } from 'lucide-svelte';
 
 	interface Props {
 		id: string;
@@ -24,51 +24,46 @@
 	const isRunning = $derived(containerState === 'running');
 </script>
 
-<div class="flex gap-1.5">
-	{#if !isRunning}
+<div
+	class="flex items-center gap-1.5 p-1 rounded-xl border shadow-sm bg-[#eceff4] dark:bg-[#2e3440] border-[#d8dee9] dark:border-[#434c5e]"
+>
+	{#if isRunning}
 		<button
-			class="flex items-center gap-1 rounded px-2 py-1 text-sm font-medium text-white transition-colors
-				bg-[#a3be8c] hover:bg-[#a3be8c]/80 disabled:cursor-not-allowed disabled:opacity-50"
+			class="p-1.5 rounded-lg transition-colors text-[#4c566a] dark:text-[#d8dee9] hover:text-[#ebcb8b] dark:hover:text-[#ebcb8b] hover:bg-[#e5e9f0] dark:hover:bg-[#3b4252] disabled:opacity-50 disabled:cursor-not-allowed"
 			disabled={loadingAction !== null}
-			onclick={() => handleAction('start')}
-			title="Start"
+			onclick={() => handleAction('restart')}
+			title="Restart"
 		>
-			{#if loadingAction === 'start'}
-				<Loader2 size={14} class="animate-spin" />
+			{#if loadingAction === 'restart'}
+				<Loader2 size={16} class="animate-spin" />
 			{:else}
-				<Play size={14} />
+				<RotateCw size={16} />
 			{/if}
-			Start
 		</button>
-	{:else}
 		<button
-			class="flex items-center gap-1 rounded px-2 py-1 text-sm font-medium text-white transition-colors
-				bg-[#bf616a] hover:bg-[#bf616a]/80 disabled:cursor-not-allowed disabled:opacity-50"
+			class="p-1.5 rounded-lg transition-colors text-[#4c566a] dark:text-[#d8dee9] hover:text-[#bf616a] dark:hover:text-[#bf616a] hover:bg-[#e5e9f0] dark:hover:bg-[#3b4252] disabled:opacity-50 disabled:cursor-not-allowed"
 			disabled={loadingAction !== null}
 			onclick={() => handleAction('stop')}
 			title="Stop"
 		>
 			{#if loadingAction === 'stop'}
-				<Loader2 size={14} class="animate-spin" />
+				<Loader2 size={16} class="animate-spin" />
 			{:else}
-				<Square size={14} />
+				<Square size={16} class="fill-current" />
 			{/if}
-			Stop
+		</button>
+	{:else}
+		<button
+			class="p-1.5 rounded-lg transition-colors text-[#4c566a] dark:text-[#d8dee9] hover:text-[#a3be8c] dark:hover:text-[#a3be8c] hover:bg-[#e5e9f0] dark:hover:bg-[#3b4252] disabled:opacity-50 disabled:cursor-not-allowed"
+			disabled={loadingAction !== null}
+			onclick={() => handleAction('start')}
+			title="Start"
+		>
+			{#if loadingAction === 'start'}
+				<Loader2 size={16} class="animate-spin" />
+			{:else}
+				<Play size={16} class="fill-current" />
+			{/if}
 		</button>
 	{/if}
-
-	<button
-		class="flex items-center gap-1 rounded px-2 py-1 text-sm font-medium transition-colors
-			bg-[#ebcb8b] hover:bg-[#d08770] disabled:cursor-not-allowed disabled:opacity-50 text-[#2e3440]"
-		disabled={loadingAction !== null}
-		onclick={() => handleAction('restart')}
-		title="Restart"
-	>
-		{#if loadingAction === 'restart'}
-			<Loader2 size={14} class="animate-spin" />
-		{:else}
-			<RotateCcw size={14} />
-		{/if}
-		Restart
-	</button>
 </div>

@@ -11,31 +11,37 @@
 	let { container, onRefresh }: Props = $props();
 
 	const isRunning = $derived(container.state === 'running');
-	const stateColor = $derived(isRunning ? 'text-[#a3be8c]' : 'text-[#bf616a]');
 </script>
 
 <div
-	class="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-center sm:gap-4
-		border-[#434c5e] bg-[#3b4252]"
+	class="p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-colors
+		{isRunning
+			? 'hover:bg-[#eceff4]/50 dark:hover:bg-[#434c5e]/50'
+			: 'bg-[#e5e9f0]/50 dark:bg-[#2e3440]/30 opacity-80 hover:bg-[#e5e9f0] dark:hover:bg-[#2e3440]/50'}"
 >
-	<!-- Name & state -->
-	<div class="flex min-w-0 flex-1 items-center gap-3">
-		<span class="h-2 w-2 shrink-0 rounded-full {isRunning ? 'bg-[#a3be8c]' : 'bg-[#bf616a]'}"></span>
+	<!-- Identifier -->
+	<div class="flex items-center gap-4 w-full md:w-1/3">
+		<div class="w-2 h-2 rounded-full shrink-0 {isRunning ? 'bg-[#a3be8c]' : 'bg-[#4c566a]'}"></div>
 		<div class="min-w-0">
-			<span class="block truncate font-medium text-[#eceff4]">{container.projectName}</span>
-			<span class="block truncate text-xs {stateColor}">{container.state}</span>
+			<h4
+				class="text-sm font-bold truncate
+					{isRunning ? 'text-[#2e3440] dark:text-[#eceff4]' : 'text-[#4c566a] dark:text-[#d8dee9]/70'}"
+			>
+				{container.projectName}
+			</h4>
+			<p class="text-xs font-mono truncate text-[#4c566a] dark:text-[#d8dee9]/60">{container.name}</p>
 		</div>
 	</div>
 
-	<!-- Service buttons -->
-	<div class="flex flex-wrap gap-1.5">
+	<!-- Exposed Services -->
+	<div class="flex flex-wrap gap-2 flex-grow">
 		{#each Object.entries(container.ports) as [containerPort, hostPort]}
-			<ServiceButton {containerPort} {hostPort} running={isRunning} />
+			<ServiceButton {containerPort} {hostPort} running={isRunning} variant="row" />
 		{/each}
 	</div>
 
-	<!-- Action controls -->
-	<div class="shrink-0">
+	<!-- Actions -->
+	<div class="shrink-0 flex items-center justify-end">
 		<ActionControls id={container.id} containerState={container.state} {onRefresh} />
 	</div>
 </div>
