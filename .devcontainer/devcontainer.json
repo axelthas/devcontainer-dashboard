@@ -1,0 +1,60 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://github.com/devcontainers/templates/tree/main/src/typescript-node
+{
+	"name": "Devcontainer Dashboard",
+	// Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
+	"dockerFile": "Dockerfile",
+	"build": {
+		"args": {
+			"USERNAME": "${localEnv:USER}"
+		}
+	},
+	"remoteUser": "${localEnv:USER}",
+	"updateRemoteUserUID": true,
+
+	"features": {
+		"ghcr.io/devcontainers/features/copilot-cli:1": {},
+		"ghcr.io/devcontainers/features/docker-outside-of-docker:1": {},
+		"ghcr.io/devcontainers/features/common-utils:2": {
+			"configureZshAsDefaultShell": true
+		}
+	},
+
+	"mounts": [
+		"source=ddash-zsh-history,target=/home/${localEnv:USER}/.zsh_data,type=volume",
+		"source=ddash-copilot-cli,target=/home/${localEnv:USER}/.copilot,type=volume"
+	],
+
+    "containerEnv": {
+        "HOST_HOSTNAME": "${localEnv:HOSTNAME}"
+    },
+	"postCreateCommand": "sudo chown ${localEnv:User}:${localEnv:USER} -R /home/${localEnv:USER}/.zsh_data /home/${localEnv:USER}/.copilot",
+
+	// Use 'forwardPorts' to make a list of ports inside the container available locally.
+	"forwardPorts": [5173],
+
+	// Configure tool-specific properties.
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"dbaeumer.vscode-eslint",
+				"esbenp.prettier-vscode",
+				"ms-azuretools.vscode-docker",
+				"fill-labs.dependi",
+				"mads-hartmann.bash-ide-vscode",
+				"ms-azuretools.vscode-containers",
+				"eamodio.gitlens",
+				"ms-vscode.js-debug-nightly",
+				"yzhang.markdown-all-in-one",
+				"mathematic.vscode-pdf",
+				"jebbs.plantuml",
+				"Postman.postman-for-vscode",
+				"Prisma.prisma",
+				"timonwong.shellcheck",
+				"svelte.svelte-vscode",
+				"vitest.explorer",
+				"sst-dev.opencode"
+			]
+		}
+	}
+}
