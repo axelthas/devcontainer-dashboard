@@ -16,9 +16,29 @@
 		hostname: string;
 		running: boolean;
 		variant?: 'card' | 'row';
+		containerName?: string;
+		projectName?: string;
+		workspacePath?: string;
 	}
 
-	let { containerPort, hostPort, hostname, running, variant = 'card' }: Props = $props();
+	let { containerPort, hostPort, hostname, running, variant = 'card', containerName, projectName, workspacePath }: Props = $props();
+
+	function openService() {
+		if (!running) return;
+		const serviceUrl = `http://${hostname}:${hostPort}`;
+		if (containerName || projectName) {
+			const params = new URLSearchParams({
+				url: serviceUrl,
+				label,
+				...(projectName ? { project: projectName } : {}),
+				...(containerName ? { container: containerName } : {}),
+				...(workspacePath ? { path: workspacePath } : {})
+			});
+			window.open(`/service?${params}`, '_blank');
+		} else {
+			window.open(serviceUrl, '_blank');
+		}
+	}
 
 	const PORT_MAP: Record<string, PortConfig> = {
 		'6904': {
@@ -99,9 +119,7 @@
 		class="flex items-center gap-2.5 p-3 rounded-xl border transition-all text-left w-full
 			{running ? `${colorClass} hover:shadow-sm active:scale-95 cursor-pointer` : disabledClass}"
 		disabled={!running}
-		onclick={() => {
-			if (running) window.open(`http://${hostname}:${hostPort}`, '_blank');
-		}}
+		onclick={openService}
 	>
 		<IconComponent size={20} class="shrink-0" />
 		<div class="overflow-hidden">
@@ -114,9 +132,7 @@
 		class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all
 			{running ? `${colorClass} active:scale-95 cursor-pointer` : disabledClass}"
 		disabled={!running}
-		onclick={() => {
-			if (running) window.open(`http://${hostname}:${hostPort}`, '_blank');
-		}}
+		onclick={openService}
 	>
 		<IconComponent size={14} />
 		<span>{label}</span>

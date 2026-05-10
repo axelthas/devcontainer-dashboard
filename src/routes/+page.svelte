@@ -17,6 +17,17 @@
 	const hostname = data.hostname;
 	let dark = $state(true);
 
+	const THEME_KEY = 'devcontainer-dashboard-theme';
+
+	$effect(() => {
+		const stored = localStorage.getItem(THEME_KEY);
+		if (stored !== null) dark = stored === 'dark';
+	});
+
+	$effect(() => {
+		localStorage.setItem(THEME_KEY, dark ? 'dark' : 'light');
+	});
+
 	// Poll every 5 seconds
 	$effect(() => {
 		const interval = setInterval(async () => {

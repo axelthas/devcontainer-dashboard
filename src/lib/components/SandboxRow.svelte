@@ -37,7 +37,16 @@
 	<!-- Exposed Services -->
 	<div class="flex flex-wrap gap-2 flex-grow">
 		{#each Object.entries(container.ports) as [containerPort, hostPort]}
-			<ServiceButton {containerPort} {hostPort} {hostname} running={isRunning} variant="row" />
+			<ServiceButton
+				{containerPort}
+				{hostPort}
+				{hostname}
+				running={isRunning}
+				variant="row"
+				containerName={container.name}
+				projectName={container.projectName}
+				workspacePath={container.localWorkspacePath}
+			/>
 		{/each}
 	</div>
 

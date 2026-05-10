@@ -58,7 +58,16 @@
 	<div class="p-5 flex-grow">
 		<div class="grid grid-cols-2 gap-3">
 			{#each Object.entries(container.ports) as [containerPort, hostPort]}
-				<ServiceButton {containerPort} {hostPort} {hostname} running={isRunning} variant="card" />
+				<ServiceButton
+					{containerPort}
+					{hostPort}
+					{hostname}
+					running={isRunning}
+					variant="card"
+					containerName={container.name}
+					projectName={container.projectName}
+					workspacePath={container.localWorkspacePath}
+				/>
 			{/each}
 		</div>
 	</div>
