@@ -25,6 +25,9 @@
 		"source=ddash-copilot-cli,target=/home/${localEnv:USER}/.copilot,type=volume"
 	],
 
+    "containerEnv": {
+        "HOST_HOSTNAME": "${localEnv:HOSTNAME}"
+    },
 	"postCreateCommand": "sudo chown ${localEnv:User}:${localEnv:USER} -R /home/${localEnv:USER}/.zsh_data /home/${localEnv:USER}/.copilot",
 
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.

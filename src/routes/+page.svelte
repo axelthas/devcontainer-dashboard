@@ -6,7 +6,7 @@
 	import SandboxRow from '$lib/components/SandboxRow.svelte';
 
 	interface Props {
-		data: { containers: ContainerData[] };
+		data: { containers: ContainerData[]; hostname: string };
 	}
 
 	let { data }: Props = $props();
@@ -14,6 +14,7 @@
 	// untrack prevents svelte from treating data.containers as a reactive dep;
 	// polling handles subsequent updates
 	let containers = $state<ContainerData[]>(untrack(() => data.containers));
+	const hostname = data.hostname;
 	let dark = $state(true);
 
 	// Poll every 5 seconds
@@ -117,7 +118,7 @@
 			{:else}
 				<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
 					{#each devcontainers as container (container.id)}
-						<DevcontainerCard {container} onRefresh={refreshContainers} />
+						<DevcontainerCard {container} {hostname} onRefresh={refreshContainers} />
 					{/each}
 				</div>
 			{/if}
@@ -149,7 +150,7 @@
 				>
 					<div class="divide-y divide-[#d8dee9] dark:divide-[#4c566a]">
 						{#each sandboxes as container (container.id)}
-							<SandboxRow {container} onRefresh={refreshContainers} />
+							<SandboxRow {container} {hostname} onRefresh={refreshContainers} />
 						{/each}
 					</div>
 				</div>

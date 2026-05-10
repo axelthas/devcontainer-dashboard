@@ -1,4 +1,5 @@
 import { basename } from 'node:path';
+import { hostname } from 'node:os';
 import docker from '$lib/server/docker';
 import type { ContainerData } from '$lib/types';
 import type { PageServerLoad } from './$types';
@@ -51,5 +52,8 @@ export const load: PageServerLoad = async () => {
 		});
 	}
 
-	return { containers };
+	const raw = process.env.HOST_HOSTNAME ?? hostname();
+	const hostName = raw.split('.')[0];
+
+	return { containers, hostname: hostName };
 };

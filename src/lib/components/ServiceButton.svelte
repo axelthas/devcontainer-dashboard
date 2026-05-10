@@ -13,11 +13,12 @@
 	interface Props {
 		containerPort: string;
 		hostPort: string;
+		hostname: string;
 		running: boolean;
 		variant?: 'card' | 'row';
 	}
 
-	let { containerPort, hostPort, running, variant = 'card' }: Props = $props();
+	let { containerPort, hostPort, hostname, running, variant = 'card' }: Props = $props();
 
 	const PORT_MAP: Record<string, PortConfig> = {
 		'6904': {
@@ -99,7 +100,7 @@
 			{running ? `${colorClass} hover:shadow-sm active:scale-95 cursor-pointer` : disabledClass}"
 		disabled={!running}
 		onclick={() => {
-			if (running) window.open(`http://localhost:${hostPort}`, '_blank');
+			if (running) window.open(`http://${hostname}:${hostPort}`, '_blank');
 		}}
 	>
 		<IconComponent size={20} class="shrink-0" />
@@ -114,7 +115,7 @@
 			{running ? `${colorClass} active:scale-95 cursor-pointer` : disabledClass}"
 		disabled={!running}
 		onclick={() => {
-			if (running) window.open(`http://localhost:${hostPort}`, '_blank');
+			if (running) window.open(`http://${hostname}:${hostPort}`, '_blank');
 		}}
 	>
 		<IconComponent size={14} />

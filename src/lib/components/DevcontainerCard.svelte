@@ -5,10 +5,11 @@
 
 	interface Props {
 		container: ContainerData;
+		hostname: string;
 		onRefresh: () => Promise<void>;
 	}
 
-	let { container, onRefresh }: Props = $props();
+	let { container, hostname, onRefresh }: Props = $props();
 
 	const isRunning = $derived(container.state === 'running');
 </script>
@@ -57,7 +58,7 @@
 	<div class="p-5 flex-grow">
 		<div class="grid grid-cols-2 gap-3">
 			{#each Object.entries(container.ports) as [containerPort, hostPort]}
-				<ServiceButton {containerPort} {hostPort} running={isRunning} variant="card" />
+				<ServiceButton {containerPort} {hostPort} {hostname} running={isRunning} variant="card" />
 			{/each}
 		</div>
 	</div>
