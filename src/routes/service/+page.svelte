@@ -33,33 +33,37 @@
 
 <div class="frame" class:dark>
 	<header class="bar">
-		<div class="bar-main">
-			<div class="identity">
-				{#if project}
-					<span class="project">{project}</span>
-				{/if}
-				{#if container}
-					<span class="sep">·</span>
-					<span class="container-name">{container}</span>
-				{/if}
-			</div>
-			<div class="actions">
-				<a href="/" class="btn">
-					<LayoutDashboard size={14} />
-					Dashboard
-				</a>
-				<button class="btn btn-primary" onclick={() => window.open(url, '_blank')}>
-					<ExternalLink size={14} />
-					Open directly
-				</button>
-			</div>
-		</div>
-		{#if workspacePath}
-			<div class="path-row">
+		<!-- Left: workspace path -->
+		<div class="bar-left">
+			{#if workspacePath}
 				<FolderOpen size={12} class="path-icon" />
 				<span class="path" title={workspacePath}>{workspacePath}</span>
-			</div>
-		{/if}
+			{/if}
+		</div>
+
+		<!-- Center: status dot + project + container -->
+		<div class="bar-center">
+			<span class="dot"></span>
+			{#if project}
+				<span class="project">{project}</span>
+			{/if}
+			{#if container}
+				<span class="sep">·</span>
+				<span class="container-name">{container}</span>
+			{/if}
+		</div>
+
+		<!-- Right: actions -->
+		<div class="bar-right">
+			<a href="/" class="btn">
+				<LayoutDashboard size={14} />
+				Dashboard
+			</a>
+			<button class="btn btn-primary" onclick={() => window.open(url, '_blank')}>
+				<ExternalLink size={14} />
+				Open directly
+			</button>
+		</div>
 	</header>
 
 	{#if url}
@@ -74,8 +78,6 @@
 	.frame {
 		--bar-bg: #e5e9f0;
 		--bar-border: #d8dee9;
-		--path-bg: #eceff4;
-		--path-border: #d8dee9;
 		--text-primary: #2e3440;
 		--text-mono: #5e81ac;
 		--text-muted: #4c566a;
@@ -92,8 +94,6 @@
 	.frame.dark {
 		--bar-bg: #3b4252;
 		--bar-border: #434c5e;
-		--path-bg: #2e3440;
-		--path-border: #3b4252;
 		--text-primary: #eceff4;
 		--text-mono: #81a1c1;
 		--text-muted: #7b88a1;
@@ -114,69 +114,29 @@
 	}
 
 	.bar {
+		display: grid;
+		grid-template-columns: 1fr auto 1fr;
+		align-items: center;
+		height: 44px;
+		padding: 0 1rem;
+		gap: 1rem;
 		flex-shrink: 0;
 		background: var(--bar-bg);
 		border-bottom: 1px solid var(--bar-border);
 		transition: background 0.2s, border-color 0.2s;
-	}
-
-	.bar-main {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 1rem;
-		height: 40px;
-		padding: 0 1rem;
 		overflow: hidden;
 	}
 
-	.identity {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		min-width: 0;
-		overflow: hidden;
-	}
-
-	.project {
-		font-size: 0.8rem;
-		font-weight: 700;
-		color: var(--text-primary);
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		flex-shrink: 0;
-	}
-
-	.container-name {
-		font-size: 0.75rem;
-		font-family: ui-monospace, monospace;
-		color: var(--text-mono);
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		flex-shrink: 1;
-		min-width: 0;
-	}
-
-	.sep {
-		font-size: 0.75rem;
-		color: var(--text-muted);
-		flex-shrink: 0;
-	}
-
-	.path-row {
+	/* Left */
+	.bar-left {
 		display: flex;
 		align-items: center;
 		gap: 0.4rem;
-		height: 24px;
-		padding: 0 1rem;
-		background: var(--path-bg);
-		border-top: 1px solid var(--path-border);
-		transition: background 0.2s, border-color 0.2s;
+		min-width: 0;
+		overflow: hidden;
 	}
 
-	.path-row :global(.path-icon) {
+	.bar-left :global(.path-icon) {
 		color: var(--text-muted);
 		flex-shrink: 0;
 	}
@@ -190,10 +150,46 @@
 		text-overflow: ellipsis;
 	}
 
-	.actions {
+	/* Center */
+	.bar-center {
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
+		white-space: nowrap;
+	}
+
+	.dot {
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		flex-shrink: 0;
+		background: #a3be8c;
+		box-shadow: 0 0 6px rgba(163, 190, 140, 0.55);
+	}
+
+	.project {
+		font-size: 0.8rem;
+		font-weight: 700;
+		color: var(--text-primary);
+	}
+
+	.container-name {
+		font-size: 0.75rem;
+		font-family: ui-monospace, monospace;
+		color: var(--text-mono);
+	}
+
+	.sep {
+		font-size: 0.75rem;
+		color: var(--text-muted);
+	}
+
+	/* Right */
+	.bar-right {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		justify-content: flex-end;
 		flex-shrink: 0;
 	}
 
@@ -210,7 +206,8 @@
 		background: transparent;
 		color: var(--btn-color);
 		text-decoration: none;
-		transition: background 0.15s, color 0.15s;
+		transition: background 0.15s;
+		white-space: nowrap;
 	}
 
 	.btn:hover {
