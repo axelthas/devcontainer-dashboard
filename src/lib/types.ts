@@ -5,4 +5,6 @@ export interface ContainerData {
 	state: 'running' | 'exited' | 'created' | string;
 	isDevcontainer: boolean;
 	ports: Record<string, string>;
+	image: string;
+	localWorkspacePath?: string;
 }

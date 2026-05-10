@@ -1,3 +1,4 @@
+import { basename } from 'node:path';
 import { json } from '@sveltejs/kit';
 import docker from '$lib/server/docker';
 import type { ContainerData } from '$lib/types';
@@ -7,10 +8,10 @@ function cleanProjectName(rawName: string): string {
 	return rawName
 		.replace(/^\//, '')
 		.replace(/^vsc-/, '')
-		.replace(/-[a-f0-9]{64}$/, '')
 		.replace(/-features-uid$/, '')
 		.replace(/-uid$/, '')
-		.replace(/-features$/, '');
+		.replace(/-features$/, '')
+		.replace(/-[a-f0-9]{64}$/, '');
 }
 
 function isDevcontainer(name: string, image: string): boolean {
@@ -39,14 +40,19 @@ export const GET: RequestHandler = async () => {
 
 		const rawName = c.Names?.[0] ?? c.Id;
 		const image = c.Image ?? '';
+		const labels = c.Labels ?? {};
+		const localWorkspacePath = labels['devcontainer.local_folder'] ?? undefined;
+		const projectName = localWorkspacePath ? basename(localWorkspacePath) : cleanProjectName(rawName);
 
 		containers.push({
 			id: c.Id.substring(0, 12),
 			name: rawName,
-			projectName: cleanProjectName(rawName),
+			projectName,
 			state: c.State ?? 'unknown',
 			isDevcontainer: isDevcontainer(rawName, image),
-			ports
+			ports,
+			image,
+			localWorkspacePath
 		});
 	}
 

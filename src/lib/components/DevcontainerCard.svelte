@@ -35,17 +35,20 @@
 							: 'bg-[#4c566a]'}"
 				></span>
 				<h3
-					class="text-lg font-bold truncate max-w-[12rem]
+					class="text-lg font-bold
 						{isRunning
 							? 'text-[#2e3440] dark:text-[#eceff4]'
 							: 'text-[#4c566a] dark:text-[#d8dee9]/70'}"
 				>
 					{container.projectName}
+					<span class="text-sm font-normal text-[#4c566a] dark:text-[#d8dee9]/50">({container.name.replace(/^\//, '')})</span>
 				</h3>
 			</div>
-			<p class="text-xs font-mono truncate max-w-[12rem] text-[#4c566a] dark:text-[#d8dee9]/60">
-				{container.name}
-			</p>
+			{#if container.localWorkspacePath}
+				<p class="text-xs font-mono break-all text-[#4c566a] dark:text-[#d8dee9]/50 mt-0.5">
+					{container.localWorkspacePath}
+				</p>
+			{/if}
 		</div>
 		<ActionControls id={container.id} containerState={container.state} {onRefresh} />
 	</div>
