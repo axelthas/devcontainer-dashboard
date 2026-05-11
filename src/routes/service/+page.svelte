@@ -1,12 +1,37 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import { ExternalLink, LayoutDashboard, FolderOpen } from 'lucide-svelte';
+	import { goto } from '$app/navigation';
+	import { ExternalLink, LayoutDashboard, FolderOpen, Server } from 'lucide-svelte';
+	import { PORT_MAP } from '$lib/portConfig';
 
 	const url = $derived(page.url.searchParams.get('url') ?? '');
 	const label = $derived(page.url.searchParams.get('label') ?? 'Service');
 	const project = $derived(page.url.searchParams.get('project') ?? '');
 	const container = $derived(page.url.searchParams.get('container') ?? '');
 	const workspacePath = $derived(page.url.searchParams.get('path') ?? '');
+	const hostnameParam = $derived(page.url.searchParams.get('hostname') ?? '');
+
+	const allPorts = $derived.by(() => {
+		const raw = page.url.searchParams.get('ports');
+		if (!raw) return null;
+		try {
+			return JSON.parse(raw) as Record<string, string>;
+		} catch {
+			return null;
+		}
+	});
+
+	const portEntries = $derived(allPorts ? Object.entries(allPorts) : []);
+
+	function switchService(containerPort: string, hostPort: string) {
+		const config = PORT_MAP[containerPort];
+		const newLabel = config?.label ?? `Port ${containerPort}`;
+		const newUrl = `http://${hostnameParam}:${hostPort}`;
+		const params = new URLSearchParams(page.url.searchParams);
+		params.set('url', newUrl);
+		params.set('label', newLabel);
+		goto(`/service?${params}`, { replaceState: true });
+	}
 
 	const THEME_KEY = 'devcontainer-dashboard-theme';
 
@@ -55,6 +80,24 @@
 
 		<!-- Right: actions -->
 		<div class="bar-right">
+			{#if portEntries.length > 1}
+				<div class="switcher">
+					{#each portEntries as [containerPort, hostPort]}
+						{@const config = PORT_MAP[containerPort]}
+						{@const portLabel = config?.label ?? `Port ${containerPort}`}
+						{@const IconComponent = config?.icon ?? Server}
+						{@const isActive = url === `http://${hostnameParam}:${hostPort}`}
+						<button
+							class="btn {isActive ? 'btn-active' : ''}"
+							onclick={() => switchService(containerPort, hostPort)}
+						>
+							<IconComponent size={14} />
+							{portLabel}
+						</button>
+					{/each}
+				</div>
+				<span class="divider"></span>
+			{/if}
 			<a href="/" class="btn">
 				<LayoutDashboard size={14} />
 				Dashboard
@@ -214,6 +257,17 @@
 		background: var(--btn-hover-bg);
 	}
 
+	.btn-active {
+		border-color: var(--btn-primary-border);
+		color: var(--btn-primary-color);
+		background: var(--btn-primary-hover-bg);
+	}
+
+	.btn-active:hover {
+		background: var(--btn-primary-hover-bg);
+		opacity: 0.85;
+	}
+
 	.btn-primary {
 		border-color: var(--btn-primary-border);
 		color: var(--btn-primary-color);
@@ -221,6 +275,21 @@
 
 	.btn-primary:hover {
 		background: var(--btn-primary-hover-bg);
+	}
+
+	.switcher {
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+	}
+
+	.divider {
+		display: inline-block;
+		width: 1px;
+		height: 18px;
+		background: var(--bar-border);
+		margin: 0 0.25rem;
+		flex-shrink: 0;
 	}
 
 	iframe {

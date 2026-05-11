@@ -46,6 +46,7 @@
 				containerName={container.name}
 				projectName={container.projectName}
 				workspacePath={container.localWorkspacePath}
+				allPorts={container.ports}
 			/>
 		{/each}
 	</div>
