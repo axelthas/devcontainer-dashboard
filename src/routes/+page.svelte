@@ -4,6 +4,7 @@
 	import type { ContainerData } from '$lib/types';
 	import DevcontainerCard from '$lib/components/DevcontainerCard.svelte';
 	import SandboxRow from '$lib/components/SandboxRow.svelte';
+	import ComposeGroupRow from '$lib/components/ComposeGroupRow.svelte';
 
 	interface Props {
 		data: { containers: ContainerData[]; hostname: string };
@@ -53,6 +54,23 @@
 
 	const devcontainers = $derived(sortContainers(containers.filter((c) => c.isDevcontainer)));
 	const sandboxes = $derived(sortContainers(containers.filter((c) => !c.isDevcontainer)));
+	const standaloneSandboxes = $derived(sandboxes.filter((c) => !c.composeProject));
+	const composeGroups = $derived.by(() => {
+		const map = new Map<string, ContainerData[]>();
+		for (const c of sandboxes) {
+			if (!c.composeProject) continue;
+			const list = map.get(c.composeProject);
+			if (list) list.push(c);
+			else map.set(c.composeProject, [c]);
+		}
+		return [...map.entries()]
+			.map(([name, ctrs]) => ({ projectName: name, containers: ctrs }))
+			.sort((a, b) => {
+				const aRunning = a.containers.filter((c) => c.state === 'running').length;
+				const bRunning = b.containers.filter((c) => c.state === 'running').length;
+				return bRunning - aRunning;
+			});
+	});
 	const runningCount = $derived(containers.filter((c) => c.state === 'running').length);
 	const stoppedCount = $derived(containers.filter((c) => c.state !== 'running').length);
 </script>
@@ -147,7 +165,7 @@
 				>
 			</div>
 
-			{#if sandboxes.length === 0}
+			{#if composeGroups.length === 0 && standaloneSandboxes.length === 0}
 				<div
 					class="rounded-xl border shadow-sm overflow-hidden bg-white dark:bg-[#3b4252] border-[#d8dee9] dark:border-[#4c566a]"
 				>
@@ -160,7 +178,15 @@
 					class="rounded-xl border shadow-sm overflow-hidden bg-white dark:bg-[#3b4252] border-[#d8dee9] dark:border-[#4c566a]"
 				>
 					<div class="divide-y divide-[#d8dee9] dark:divide-[#4c566a]">
-						{#each sandboxes as container (container.id)}
+						{#each composeGroups as group (group.projectName)}
+							<ComposeGroupRow
+								projectName={group.projectName}
+								containers={group.containers}
+								{hostname}
+								onRefresh={refreshContainers}
+							/>
+						{/each}
+						{#each standaloneSandboxes as container (container.id)}
 							<SandboxRow {container} {hostname} onRefresh={refreshContainers} />
 						{/each}
 					</div>

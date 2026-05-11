@@ -7,4 +7,5 @@ export interface ContainerData {
 	ports: Record<string, string>;
 	image: string;
 	localWorkspacePath?: string;
+	composeProject?: string;
 }

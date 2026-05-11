@@ -59,12 +59,14 @@ export const GET: RequestHandler = async () => {
 			}
 		}
 
-		// Exclude containers with no exposed host ports
-		if (Object.keys(ports).length === 0) continue;
-
 		const rawName = c.Names?.[0] ?? c.Id;
 		const image = c.Image ?? '';
 		const labels = c.Labels ?? {};
+		const composeProject = labels['com.docker.compose.project'] ?? undefined;
+
+		// Exclude containers with no exposed host ports, unless they belong to a compose project
+		if (Object.keys(ports).length === 0 && !composeProject) continue;
+
 		const localWorkspacePath = labels['devcontainer.local_folder'] ?? undefined;
 		const projectName = localWorkspacePath ? basename(localWorkspacePath) : cleanProjectName(rawName);
 
@@ -76,7 +78,8 @@ export const GET: RequestHandler = async () => {
 			isDevcontainer: isDevcontainer(rawName, image),
 			ports,
 			image,
-			localWorkspacePath
+			localWorkspacePath,
+			composeProject
 		});
 	}
 
