@@ -22,6 +22,15 @@ function isDevcontainer(name: string, image: string): boolean {
 export const GET: RequestHandler = async () => {
 	const rawContainers = await docker.listContainers({ all: true });
 
+	// For stopped containers, listContainers returns an empty Ports array.
+	// Fetch HostConfig.PortBindings via inspect to get the configured port bindings.
+	const inspectResults = await Promise.all(
+		rawContainers
+			.filter((c) => c.State !== 'running')
+			.map((c) => docker.getContainer(c.Id).inspect())
+	);
+	const inspectMap = new Map(inspectResults.map((info) => [info.Id, info]));
+
 	const containers: ContainerData[] = [];
 
 	for (const c of rawContainers) {
@@ -32,6 +41,21 @@ export const GET: RequestHandler = async () => {
 				if (p.PublicPort && p.PrivatePort) {
 					ports[String(p.PrivatePort)] = String(p.PublicPort);
 				}
+			}
+		}
+
+		// Fallback for stopped containers: read configured bindings from inspect
+		if (Object.keys(ports).length === 0 && c.State !== 'running') {
+			const info = inspectMap.get(c.Id);
+			const bindings = (info?.HostConfig?.PortBindings ?? {}) as Record<
+				string,
+				Array<{ HostPort?: string }> | null
+			>;
+			for (const [portProto, hostBindings] of Object.entries(bindings)) {
+				const containerPort = portProto.split('/')[0];
+				if (!containerPort) continue;
+				const hostPort = hostBindings?.[0]?.HostPort;
+				ports[containerPort] = hostPort || containerPort;
 			}
 		}
 
