@@ -1,13 +1,15 @@
 # Build stage
 FROM node:22-alpine AS builder
 
+RUN apk add --no-cache python3 make g++
+
 WORKDIR /app
 
 COPY package*.json ./
 RUN npm ci
 
 COPY . .
-RUN npm run build
+RUN npm run build && npm run build:server
 
 # Run stage
 FROM node:22-alpine
@@ -20,4 +22,4 @@ COPY --from=builder /app/package.json ./package.json
 
 EXPOSE 3000
 
-CMD ["node", "build/index.js"]
+CMD ["node", "build/server.js"]

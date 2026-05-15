@@ -22,7 +22,8 @@
 
 	"mounts": [
 		"source=ddash-zsh-history,target=/home/${localEnv:USER}/.zsh_data,type=volume",
-		"source=ddash-copilot-cli,target=/home/${localEnv:USER}/.copilot,type=volume"
+		"source=ddash-copilot-cli,target=/home/${localEnv:USER}/.copilot,type=volume",
+        "source=${localEnv:HOME}/git.workspaces/,target=/bootstrap_workspaces,type=bind"
 	],
 
     "containerEnv": {

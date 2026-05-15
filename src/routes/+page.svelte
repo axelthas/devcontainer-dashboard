@@ -1,10 +1,13 @@
 <script lang="ts">
-	import { Sun, Moon, Layers, Box, Cpu, Power } from 'lucide-svelte';
+	import { Sun, Moon, Layers, Box, Cpu, Power, Play } from 'lucide-svelte';
 	import { untrack } from 'svelte';
 	import type { ContainerData } from '$lib/types';
 	import DevcontainerCard from '$lib/components/DevcontainerCard.svelte';
 	import SandboxRow from '$lib/components/SandboxRow.svelte';
 	import ComposeGroupRow from '$lib/components/ComposeGroupRow.svelte';
+	import LocalWorkspaces from '$lib/components/LocalWorkspaces.svelte';
+	import BootstrapModal from '$lib/components/BootstrapModal.svelte';
+	import TerminalManager from '$lib/components/TerminalManager.svelte';
 
 	interface Props {
 		data: { containers: ContainerData[]; hostname: string };
@@ -73,11 +76,59 @@
 	});
 	const runningCount = $derived(containers.filter((c) => c.state === 'running').length);
 	const stoppedCount = $derived(containers.filter((c) => c.state !== 'running').length);
+
+	// Bootstrap modal
+	let bootstrapModalOpen = $state(false);
+
+	// Terminal manager state
+	const WORKSPACE_ROOT = '/bootstrap_workspaces';
+	const ROOT_TERMINAL_ID = 'root-terminal';
+
+	interface TerminalSessionState {
+		id: string;
+		name: string;
+		command?: string;
+		cwd?: string;
+		permanent?: boolean;
+	}
+
+	let terminalOpen = $state(false);
+	let terminalSessions = $state<TerminalSessionState[]>([
+		{ id: ROOT_TERMINAL_ID, name: 'Root Terminal', cwd: WORKSPACE_ROOT, permanent: true }
+	]);
+	let activeTerminalId = $state<string | null>(ROOT_TERMINAL_ID);
+
+	function openTerminalWith(id: string) {
+		terminalOpen = true;
+		activeTerminalId = id;
+	}
+
+	function addTerminalSession(session: TerminalSessionState) {
+		terminalSessions = [...terminalSessions, session];
+	}
+
+	function removeTerminalSession(id: string) {
+		terminalSessions = terminalSessions.filter((s) => s.id !== id);
+		if (activeTerminalId === id) {
+			activeTerminalId = terminalSessions[terminalSessions.length - 1]?.id ?? null;
+		}
+	}
+
+	function handleRunInTerminal(command: string, name: string) {
+		const id = crypto.randomUUID();
+		addTerminalSession({ id, name, command, cwd: WORKSPACE_ROOT });
+		openTerminalWith(id);
+	}
+
+	function handleOpenTerminal(id: string, command: string, name: string, cwd: string) {
+		addTerminalSession({ id, name, command, cwd });
+		openTerminalWith(id);
+	}
 </script>
 
 <div class={dark ? 'dark' : ''}>
 <div
-	class="min-h-screen bg-[#eceff4] text-[#2e3440] dark:bg-[#2e3440] dark:text-[#d8dee9] font-sans pb-12 transition-colors duration-300"
+	class="min-h-screen bg-[#eceff4] text-[#2e3440] dark:bg-[#2e3440] dark:text-[#d8dee9] font-sans pb-40 transition-colors duration-300"
 >
 	<!-- Header -->
 	<header
@@ -116,6 +167,16 @@
 					</div>
 				</div>
 
+				<!-- Run Bootstrap button -->
+				<button
+					onclick={() => (bootstrapModalOpen = true)}
+					class="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#88c0d0] hover:bg-[#81a1c1] text-[#2e3440] font-semibold text-sm transition-colors"
+					type="button"
+				>
+					<Play size={16} />
+					Run Bootstrap
+				</button>
+
 				<!-- Theme toggle -->
 				<button
 					onclick={() => (dark = !dark)}
@@ -133,13 +194,13 @@
 	</header>
 
 	<main class="max-w-7xl mx-auto px-6 mt-8 space-y-12">
-		<!-- Section 1: Devcontainers -->
+		<!-- Section 1: Active Devcontainers -->
 		<section>
 			<div
 				class="flex items-center gap-2 mb-6 border-b border-[#d8dee9] dark:border-[#4c566a] pb-2"
 			>
 				<Box size={20} class="text-[#5e81ac] dark:text-[#81a1c1]" />
-				<h2 class="text-xl font-extrabold text-[#2e3440] dark:text-[#eceff4]">Devcontainers</h2>
+				<h2 class="text-xl font-extrabold text-[#2e3440] dark:text-[#eceff4]">Active Devcontainers</h2>
 			</div>
 
 			{#if devcontainers.length === 0}
@@ -153,7 +214,10 @@
 			{/if}
 		</section>
 
-		<!-- Section 2: Sandbox Services -->
+		<!-- Section 2: Local Workspaces -->
+		<LocalWorkspaces workspaceRoot={WORKSPACE_ROOT} onOpenTerminal={handleOpenTerminal} />
+
+		<!-- Section 3: Sandbox Services -->
 		<section>
 			<div
 				class="flex items-center gap-2 mb-6 border-b border-[#d8dee9] dark:border-[#4c566a] pb-2"
@@ -195,4 +259,24 @@
 		</section>
 	</main>
 </div>
+
+<!-- Bootstrap Modal -->
+{#if bootstrapModalOpen}
+	<BootstrapModal
+		onClose={() => (bootstrapModalOpen = false)}
+		onRunInTerminal={handleRunInTerminal}
+	/>
+{/if}
+
+<!-- Terminal Drawer -->
+<TerminalManager
+	open={terminalOpen}
+	sessions={terminalSessions}
+	activeId={activeTerminalId}
+	workspaceRoot={WORKSPACE_ROOT}
+	onToggle={() => (terminalOpen = !terminalOpen)}
+	onAddSession={addTerminalSession}
+	onRemoveSession={removeTerminalSession}
+	onSetActive={(id) => (activeTerminalId = id)}
+/>
 </div>

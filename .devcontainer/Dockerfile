@@ -41,6 +41,8 @@ RUN apt-get update && apt-get install -y \
     unzip \
     vim \
     zsh \
+    build-essential \
+    python3 \
     && rm -rf /var/lib/apt/lists/*
 
 
