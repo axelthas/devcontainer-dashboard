@@ -41,17 +41,18 @@ The Node.js backend must handle local file system operations and terminal proces
 
 ### **GET /api/workspaces**
 
-* **Action:** Scans the designated "Root Workspace" directory (e.g., /workspaces mapped to the host).  
-* **Processing Rules:**  
-  1. Read the Root directory to find Task subdirectories.  
-  2. For each Task subdirectory, find immediate child subdirectories (Git Repositories).  
-  3. Check if a .devcontainer folder exists within each repository directory.  
-  4. Cross-reference running Docker containers to determine if a specific repository's devcontainer is currently active (setting isRunning).
+* **Action:** Scans the "Root Workspace" directory, configured via the `WORKSPACE_ROOT` environment variable (default: `/bootstrap_workspaces`). This directory is bind-mounted from the host machine.
+* **Processing Rules:**
+  1. Read `WORKSPACE_ROOT` to find immediate child subdirectories — these are **Task Workspaces** (e.g., `TASK-4042`).
+  2. For each Task subdirectory, find immediate child subdirectories that contain a `.git` folder — these are **Git Repositories**. Subdirectories without `.git` are skipped.
+  3. Check if a `.devcontainer` folder exists within each repository directory (`hasDevcontainer`).
+  4. For `isRunning`: compare `repo.path` against the `devcontainer.local_folder` Docker label of all running containers. A repo is considered running if any running container's label value matches.
+  5. Task Workspaces with zero qualifying repositories are excluded from the response.
 
 ### **GET /api/presets**
 
 * **Action:** Returns the saved Bootstrap presets.  
-* **Storage:** Can be stored in a local JSON file (e.g., presets.json in the app's persistent volume) or a lightweight local database (SQLite/LowDB).
+* **Storage:** Stored in a JSON file at a path configured via the `PRESETS_FILE` environment variable (default: `/data/presets.json`). The `docker-compose.yml` must mount a named volume or host directory to `/data` for persistence across container restarts. If the file does not exist on startup, the backend initialises it with an empty array (no crash on first run).
 
 ### **POST /api/presets**
 
@@ -59,20 +60,26 @@ The Node.js backend must handle local file system operations and terminal proces
 
 ### **WebSocket Integration: Terminal Sessions (/api/terminal)**
 
-Due to the interactive, streaming nature of terminals, standard HTTP routes are insufficient. The backend must implement WebSockets (e.g., using ws or socket.io within the SvelteKit Node server) to handle bidirectional communication.
+Due to the interactive, streaming nature of terminals, standard HTTP routes are insufficient. The backend must implement WebSockets via a **custom server entry point** — SvelteKit's `build/index.js` manages its own HTTP server and cannot be directly extended.
 
-* **Connection:** Frontend establishes a WebSocket connection for a specific terminal session (UUID).  
-* **Spawn (node-pty):** The backend uses a library like node-pty to spawn a pseudo-terminal process (e.g., /bin/bash or sh) on the host system.  
-* **Data Stream:**  
-  * Backend \-\> Frontend: Standard output (stdout/stderr) from the process.  
-  * Frontend \-\> Backend: Standard input (stdin) from the user's keystrokes.  
-* **Execution:** The backend must be able to accept a specific command string upon session initialization to automatically run scripts (like dev-bootstrap or devcontainer up).
+* **Custom Server Entry (`src/server.ts`):** Must be created to:
+  1. Create a Node `http.Server` instance.
+  2. Attach the SvelteKit `handler` (from `build/handler.js`) to handle all HTTP requests.
+  3. Attach a `ws.Server` to handle WebSocket upgrades on the same port.
+  4. The Dockerfile `CMD` must change from `node build/index.js` to `node build/server.js`.
+* **Connection:** Frontend establishes a WebSocket connection for a specific terminal session (UUID).
+* **Spawn (node-pty):** The backend uses `node-pty` to spawn a pseudo-terminal process (`/bin/bash` or `sh`). **Note:** `node-pty` is a native addon requiring `python3`, `make`, and `g++` at compile time. The Dockerfile build stage must include these tools.
+* **Data Stream:**
+  * Backend → Frontend: stdout/stderr from the pty process.
+  * Frontend → Backend: stdin keystrokes from the user.
+* **Execution:** Upon WebSocket connection, an optional `command` parameter triggers automatic script execution (e.g., `dev-bootstrap` or `devcontainer up`). **Prerequisite:** the `devcontainer` CLI must be installed and in PATH for "Build & Start" actions.
+* **Session Lifetime:** pty sessions are tied to the WebSocket connection. Navigating away from the page terminates all active processes.
 
 ## **4\. Frontend Specification Additions (Svelte 5\)**
 
 ### **4.1 Local Workspaces UI (Section 2\)**
 
-* **Structure:** Expandable accordion list. Task Workspaces are headers; expanding reveals child Git Repositories.  
+* **Structure:** Expandable accordion list. Task Workspaces are headers; expanding reveals child Git Repositories. The section heading displays the configured `WORKSPACE_ROOT` path (e.g., `Local Workspaces (/bootstrap_workspaces)`).
 * **Repo Actions:**  
   * If hasDevcontainer is true AND \!isRunning: Show "Build & Start" button.  
   * If hasDevcontainer is true AND isRunning: Show "Active Above" status.  
@@ -81,21 +88,31 @@ Due to the interactive, streaming nature of terminals, standard HTTP routes are 
 
 ### **4.2 Multi-Tab Terminal UI**
 
-* **State Management:** Maintain an array of active terminal sessions (ID, Name, Logs/Buffer).  
-* **Tab Bar:** Horizontal scrollable area. Clicking a tab switches the active view. Includes a \+ button to request a new generic shell session from the backend. Includes an x on non-root tabs to terminate the session/WebSocket.  
-* **Terminal View:** A dedicated area for the active session's output. Must auto-scroll to the bottom on new output.  
-* **Input:** An input field (or full terminal emulator integration like xterm.js) tied to the active session's WebSocket input stream.
+* **Layout:** A **bottom-anchored collapsible drawer** within `+page.svelte`. A toggle button in the header shows/hides the drawer. Any action that spawns a terminal (Bootstrap modal, "Build & Start") automatically opens the drawer.
+* **Root Terminal:** On first open, a **Root Terminal** tab is automatically created. It spawns a generic shell (`/bin/bash`) with the working directory set to `WORKSPACE_ROOT`. This tab is **permanent and cannot be closed**.
+* **State Management:** Maintain an array of active terminal sessions (`{ id, name, socket }`). The Root Terminal is always index 0.
+* **Tab Bar:** Horizontal scrollable area. Clicking a tab switches the active view. A `+` button opens a new generic shell session. All tabs except Root Terminal include an `×` button to terminate the session.
+* **Terminal View:** Uses **xterm.js** with `xterm-addon-fit` for full ANSI rendering and correct sizing. Must auto-scroll to bottom on new output. The xterm.js `Terminal` instance must be initialised inside a Svelte `$effect` after its DOM container is mounted.
+* **Session Lifetime:** pty sessions terminate when the WebSocket closes (tab closed or page navigation).
 
 ### **4.3 Bootstrap Modal**
 
-* **Fields:** Dropdown for Presets, Text Input for Full Command.  
-* **Behavior:**  
-  * Selecting a preset populates the Command input.  
-  * Editing the Command input switches the dropdown to "Custom".  
-  * Clicking "Save as Preset" triggers a save prompt and calls POST /api/presets.  
-* **Action Handler:** Clicking "Run in Terminal" requests a new Terminal session from the backend, passing the value of the Command input, and automatically opens the Terminal UI to that new tab.
+* **Trigger:** A **"Run Bootstrap" button** is placed in the top header of `+page.svelte`, alongside the existing theme toggle. Clicking it opens the modal.
+* **Fields:** Dropdown for Presets, Text Input for Full Command.
+* **Behavior:**
+  * Selecting a preset populates the Command input.
+  * Editing the Command input switches the dropdown to "Custom".
+  * Clicking "Save as Preset" triggers a save prompt and calls `POST /api/presets`.
+* **Action Handler:** Clicking "Run in Terminal" requests a new Terminal session, passing the Command input value, and automatically opens the Terminal drawer to that new tab.
 
 ## **5\. Implementation Plan (For Svelte 5 Integration)**
+
+**Phase 0: Infrastructure & Configuration**
+
+1. Update `.devcontainer/devcontainer.json`: add `source=${localEnv:HOME}/git.workspaces,target=/bootstrap_workspaces,type=bind` to `mounts`; add `WORKSPACE_ROOT=/bootstrap_workspaces` to `containerEnv`.
+2. Update `docker-compose.yml`: add a bind mount of the host workspaces directory to `/bootstrap_workspaces`; add a named volume for `/data` (preset storage); add env vars `WORKSPACE_ROOT=/bootstrap_workspaces` and `PRESETS_FILE=/data/presets.json`.
+3. Create `src/server.ts` — the custom Node entry point that creates `http.Server`, attaches the SvelteKit `handler`, and registers `ws.Server` for WebSocket upgrades.
+4. Update `Dockerfile`: add `python3 make g++` to the build stage (required by `node-pty`); change `CMD` to `node build/server.js`.
 
 **Phase 1: Backend File System & Presets API**
 
@@ -110,9 +127,9 @@ Due to the interactive, streaming nature of terminals, standard HTTP routes are 
 
 **Phase 3: WebSocket & Pseudo-Terminal Backend (node-pty)**
 
-1. Add node-pty to the project dependencies (Note: Requires native compilation on the host/container).  
-2. Configure a WebSocket server alongside the SvelteKit Node adapter.  
-3. Implement connection handling: Upon connection, spawn a node-pty instance. Route pty.onData to the WebSocket, and route WebSocket messages to pty.write.
+1. Install `node-pty` and `ws` as production dependencies; add `@types/ws` as a dev dependency.
+2. Create `src/lib/server/terminal.ts` to manage WebSocket connections: on connection, spawn a `node-pty` instance, route `pty.onData` to the WebSocket and WebSocket messages to `pty.write`. Support an optional `command` parameter for script execution.
+3. Register the WebSocket upgrade handler from `terminal.ts` in `src/server.ts` (created in Phase 0).
 
 **Phase 4: Frontend Terminal Emulator (xterm.js)**
 
