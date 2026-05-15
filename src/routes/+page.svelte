@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Sun, Moon, Layers, Box, Cpu, Power, Play } from 'lucide-svelte';
 	import { untrack } from 'svelte';
-	import type { ContainerData } from '$lib/types';
+	import type { ContainerData, LocalWorkspaceData } from '$lib/types';
 	import DevcontainerCard from '$lib/components/DevcontainerCard.svelte';
 	import SandboxRow from '$lib/components/SandboxRow.svelte';
 	import ComposeGroupRow from '$lib/components/ComposeGroupRow.svelte';
@@ -10,7 +10,7 @@
 	import TerminalManager from '$lib/components/TerminalManager.svelte';
 
 	interface Props {
-		data: { containers: ContainerData[]; hostname: string };
+		data: { containers: ContainerData[]; hostname: string; workspaces: LocalWorkspaceData[] };
 	}
 
 	let { data }: Props = $props();
@@ -19,6 +19,7 @@
 	// polling handles subsequent updates
 	let containers = $state<ContainerData[]>(untrack(() => data.containers));
 	const hostname = data.hostname;
+	const initialWorkspaces = untrack(() => data.workspaces);
 	let dark = $state(true);
 
 	const THEME_KEY = 'devcontainer-dashboard-theme';
@@ -82,21 +83,17 @@
 
 	// Terminal manager state
 	const WORKSPACE_ROOT = '/bootstrap_workspaces';
-	const ROOT_TERMINAL_ID = 'root-terminal';
 
 	interface TerminalSessionState {
 		id: string;
 		name: string;
 		command?: string;
 		cwd?: string;
-		permanent?: boolean;
 	}
 
 	let terminalOpen = $state(false);
-	let terminalSessions = $state<TerminalSessionState[]>([
-		{ id: ROOT_TERMINAL_ID, name: 'Root Terminal', cwd: WORKSPACE_ROOT, permanent: true }
-	]);
-	let activeTerminalId = $state<string | null>(ROOT_TERMINAL_ID);
+	let terminalSessions = $state<TerminalSessionState[]>([]);
+	let activeTerminalId = $state<string | null>(null);
 
 	function openTerminalWith(id: string) {
 		terminalOpen = true;
@@ -112,6 +109,7 @@
 		if (activeTerminalId === id) {
 			activeTerminalId = terminalSessions[terminalSessions.length - 1]?.id ?? null;
 		}
+		if (terminalSessions.length === 0) terminalOpen = false;
 	}
 
 	function handleRunInTerminal(command: string, name: string) {
@@ -215,7 +213,7 @@
 		</section>
 
 		<!-- Section 2: Local Workspaces -->
-		<LocalWorkspaces workspaceRoot={WORKSPACE_ROOT} onOpenTerminal={handleOpenTerminal} />
+		<LocalWorkspaces workspaceRoot={WORKSPACE_ROOT} workspaces={initialWorkspaces} onOpenTerminal={handleOpenTerminal} />
 
 		<!-- Section 3: Sandbox Services -->
 		<section>

@@ -2,9 +2,23 @@ import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vitest/config';
 import { playwright } from '@vitest/browser-playwright';
 import { sveltekit } from '@sveltejs/kit/vite';
+import type { Plugin } from 'vite';
+import { attachTerminalServer } from './src/lib/server/terminal.js';
+
+function terminalDevPlugin(): Plugin {
+	return {
+		name: 'terminal-ws-dev',
+		configureServer(server) {
+			server.httpServer?.once('listening', () => {
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				attachTerminalServer(server.httpServer as any);
+			});
+		}
+	};
+}
 
 export default defineConfig({
-	plugins: [tailwindcss(), sveltekit()],
+	plugins: [tailwindcss(), sveltekit(), terminalDevPlugin()],
 	server: {
 		host: '0.0.0.0'
 	},

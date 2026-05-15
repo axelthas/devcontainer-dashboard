@@ -11,8 +11,7 @@ export function attachTerminalServer(httpServer: Server): void {
 	httpServer.on('upgrade', (request: IncomingMessage, socket: Duplex, head: Buffer) => {
 		const url = new URL(request.url ?? '/', `http://localhost`);
 		if (url.pathname !== '/api/terminal') {
-			socket.destroy();
-			return;
+			return; // let other handlers (e.g. Vite HMR) deal with their own upgrades
 		}
 		wss.handleUpgrade(request, socket, head, (ws) => {
 			wss.emit('connection', ws, request);

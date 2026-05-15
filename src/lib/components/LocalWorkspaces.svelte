@@ -1,30 +1,28 @@
 <script lang="ts">
-	import { ChevronRight, ChevronDown, FolderGit2, GitBranch, Play, Loader } from 'lucide-svelte';
+	import { ChevronRight, ChevronDown, FolderGit2, GitBranch, Play, Loader, RefreshCw } from 'lucide-svelte';
+	import { untrack } from 'svelte';
 	import type { LocalWorkspaceData } from '$lib/types';
 
 	interface Props {
 		workspaceRoot: string;
+		workspaces: LocalWorkspaceData[];
 		onOpenTerminal: (id: string, command: string, name: string, cwd: string) => void;
 	}
 
-	let { workspaceRoot, onOpenTerminal }: Props = $props();
+	let { workspaceRoot, workspaces: initialWorkspaces, onOpenTerminal }: Props = $props();
 
-	let workspaces = $state<LocalWorkspaceData[]>([]);
+	let workspaces = $state<LocalWorkspaceData[]>(untrack(() => initialWorkspaces));
 	let expanded = $state<Set<string>>(new Set());
-	let loading = $state(false);
+	let refreshing = $state(false);
 	let buildingRepos = $state<Set<string>>(new Set());
 
-	$effect(() => {
-		fetchWorkspaces();
-	});
-
-	async function fetchWorkspaces() {
-		loading = true;
+	async function refresh() {
+		refreshing = true;
 		try {
 			const res = await fetch('/api/workspaces');
 			if (res.ok) workspaces = await res.json();
 		} finally {
-			loading = false;
+			refreshing = false;
 		}
 	}
 
@@ -54,14 +52,18 @@
 		<span class="text-sm font-medium text-[#4c566a] dark:text-[#d8dee9]/60 ml-1"
 			>({workspaceRoot})</span
 		>
+		<button
+			onclick={refresh}
+			disabled={refreshing}
+			type="button"
+			class="ml-auto p-1.5 rounded text-[#4c566a] dark:text-[#d8dee9]/60 hover:text-[#2e3440] dark:hover:text-[#eceff4] hover:bg-[#e5e9f0] dark:hover:bg-[#4c566a] transition-colors disabled:opacity-40"
+			aria-label="Refresh workspaces"
+		>
+			<RefreshCw size={15} class={refreshing ? 'animate-spin' : ''} />
+		</button>
 	</div>
 
-	{#if loading}
-		<div class="flex items-center gap-2 text-[#4c566a] dark:text-[#d8dee9]/60 italic">
-			<Loader size={16} class="animate-spin" />
-			<span>Scanning workspaces…</span>
-		</div>
-	{:else if workspaces.length === 0}
+	{#if workspaces.length === 0}
 		<p class="text-[#4c566a] dark:text-[#d8dee9]/60 italic">
 			No workspaces found in {workspaceRoot}.
 		</p>

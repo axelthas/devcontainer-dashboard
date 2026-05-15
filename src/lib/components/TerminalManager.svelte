@@ -6,7 +6,6 @@
 	interface TerminalSessionState extends TerminalSession {
 		command?: string;
 		cwd?: string;
-		permanent?: boolean;
 	}
 
 	interface Props {
@@ -26,6 +25,7 @@
 		const id = crypto.randomUUID();
 		onAddSession({ id, name: 'Shell', cwd: workspaceRoot });
 		onSetActive(id);
+		if (!open) onToggle();
 	}
 
 	function closeSession(id: string) {
@@ -55,16 +55,14 @@
 					<Terminal size={12} />
 					<span class="max-w-28 truncate">{session.name}</span>
 				</button>
-				{#if !session.permanent}
-					<button
-						class="pr-2 text-[#d8dee9]/40 hover:text-[#bf616a] transition-colors"
-						onclick={() => closeSession(session.id)}
-						type="button"
-						aria-label="Close tab"
-					>
-						<X size={11} />
-					</button>
-				{/if}
+				<button
+					class="pr-2 text-[#d8dee9]/40 hover:text-[#bf616a] transition-colors"
+					onclick={() => closeSession(session.id)}
+					type="button"
+					aria-label="Close tab"
+				>
+					<X size={11} />
+				</button>
 			</div>
 		{/each}
 

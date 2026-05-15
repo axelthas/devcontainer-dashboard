@@ -1,6 +1,7 @@
 import { basename } from 'node:path';
 import { hostname } from 'node:os';
 import docker from '$lib/server/docker';
+import { loadWorkspaces } from '$lib/server/workspaces';
 import type { ContainerData } from '$lib/types';
 import type { PageServerLoad } from './$types';
 
@@ -85,5 +86,7 @@ export const load: PageServerLoad = async () => {
 	const raw = process.env.HOST_HOSTNAME ?? hostname();
 	const hostName = raw.split('.')[0];
 
-	return { containers, hostname: hostName };
+	const workspaces = await loadWorkspaces();
+
+	return { containers, hostname: hostName, workspaces };
 };
