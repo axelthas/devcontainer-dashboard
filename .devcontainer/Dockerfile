@@ -43,6 +43,7 @@ RUN apt-get update && apt-get install -y \
     zsh \
     build-essential \
     python3 \
+    python3.12-venv \
     && rm -rf /var/lib/apt/lists/*
 
 
