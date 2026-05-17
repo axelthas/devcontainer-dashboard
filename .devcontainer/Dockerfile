@@ -61,7 +61,8 @@ USER ${USERNAME}
 RUN mkdir -p /home/${USERNAME}/.npm-global \
     && npm config set prefix "/home/${USERNAME}/.npm-global"
 
-RUN npm install -g npm@latest opencode-ai 
+RUN npm install -g npm@latest opencode-ai @devcontainers/cli
+
 # prisma vite vitest svelte @sveltejs/kit create-svelte 
 
 # Install Oh My Zsh for the valas user

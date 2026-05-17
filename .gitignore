@@ -25,3 +25,6 @@ vite.config.ts.timestamp-*
 test-results
 
 .devcontainer/devcontainr-lock.json
+
+# Operator-supplied hook scripts (local only, never committed)
+.devcontainer/hooks.d/

@@ -29,7 +29,7 @@
     "containerEnv": {
         "HOST_HOSTNAME": "${localEnv:HOSTNAME}"
     },
-	"postCreateCommand": "sudo chown ${localEnv:User}:${localEnv:USER} -R /home/${localEnv:USER}/.zsh_data /home/${localEnv:USER}/.copilot",
+	"postCreateCommand": "sudo chown ${localEnv:USER}:${localEnv:USER} -R /home/${localEnv:USER}/.zsh_data /home/${localEnv:USER}/.copilot && if [ -d .devcontainer/hooks.d ]; then for f in .devcontainer/hooks.d/*.sh; do [ -f \"$f\" ] && sh \"$f\"; done; fi",
 
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
 	"forwardPorts": [5173],

@@ -13,6 +13,9 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${HOME:-/root}/git.workspaces:/bootstrap_workspaces:rw
       - dashboard_data:/data
+      # Operator hooks (optional): mount a local directory of executable .sh scripts.
+      # Scripts run in alphabetical order before the server starts.
+      # Example: - ${HOME}/my-dashboard-hooks:/docker-entrypoint.d:ro
     restart: unless-stopped
 
 volumes:
