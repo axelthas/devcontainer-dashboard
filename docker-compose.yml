@@ -4,11 +4,12 @@ services:
   dashboard:
     build: .
     ports:
-      - "3000:3000"
+      - '3000:3000'
     environment:
       HOST_HOSTNAME: ${HOSTNAME:-}
       WORKSPACE_ROOT: /bootstrap_workspaces
       PRESETS_FILE: /data/presets.json
+      VSCODE_SSH_HOST: ${VSCODE_SSH_HOST:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${HOME:-/root}/git.workspaces:/bootstrap_workspaces:rw

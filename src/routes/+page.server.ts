@@ -68,7 +68,9 @@ export const load: PageServerLoad = async () => {
 		if (Object.keys(ports).length === 0 && !composeProject) continue;
 
 		const localWorkspacePath = labels['devcontainer.local_folder'] ?? undefined;
-		const projectName = localWorkspacePath ? basename(localWorkspacePath) : cleanProjectName(rawName);
+		const projectName = localWorkspacePath
+			? basename(localWorkspacePath)
+			: cleanProjectName(rawName);
 
 		containers.push({
 			id: c.Id.substring(0, 12),
@@ -85,8 +87,15 @@ export const load: PageServerLoad = async () => {
 
 	const raw = process.env.HOST_HOSTNAME ?? hostname();
 	const hostName = raw.split('.')[0];
+	const vscodeSshHost = process.env.VSCODE_SSH_HOST ?? '';
 
 	const workspaces = await loadWorkspaces();
 
-	return { containers, hostname: hostName, workspaces, workspaceRoot: WORKSPACE_ROOT };
+	return {
+		containers,
+		hostname: hostName,
+		workspaces,
+		workspaceRoot: WORKSPACE_ROOT,
+		vscodeSshHost
+	};
 };
