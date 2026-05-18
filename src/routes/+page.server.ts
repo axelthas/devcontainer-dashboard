@@ -1,7 +1,7 @@
 import { basename } from 'node:path';
 import { hostname } from 'node:os';
 import docker from '$lib/server/docker';
-import { loadWorkspaces } from '$lib/server/workspaces';
+import { loadWorkspaces, WORKSPACE_ROOT } from '$lib/server/workspaces';
 import type { ContainerData } from '$lib/types';
 import type { PageServerLoad } from './$types';
 
@@ -88,5 +88,5 @@ export const load: PageServerLoad = async () => {
 
 	const workspaces = await loadWorkspaces();
 
-	return { containers, hostname: hostName, workspaces };
+	return { containers, hostname: hostName, workspaces, workspaceRoot: WORKSPACE_ROOT };
 };

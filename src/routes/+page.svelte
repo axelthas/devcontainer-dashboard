@@ -10,7 +10,7 @@
 	import TerminalManager from '$lib/components/TerminalManager.svelte';
 
 	interface Props {
-		data: { containers: ContainerData[]; hostname: string; workspaces: LocalWorkspaceData[] };
+		data: { containers: ContainerData[]; hostname: string; workspaces: LocalWorkspaceData[]; workspaceRoot: string };
 	}
 
 	let { data }: Props = $props();
@@ -82,7 +82,7 @@
 	let bootstrapModalOpen = $state(false);
 
 	// Terminal manager state
-	const WORKSPACE_ROOT = '/bootstrap_workspaces';
+	const WORKSPACE_ROOT = data.workspaceRoot;
 
 	interface TerminalSessionState {
 		id: string;

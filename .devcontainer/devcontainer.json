@@ -29,7 +29,7 @@
 
     "containerEnv": {
         "HOST_HOSTNAME": "${localEnv:HOSTNAME}",
-        "PRESETS_FILE": "/bootstrap_workspaces/bootstrap.presets.json",
+        "PRESETS_FILE": "${localEnv:HOME}/bootstrap.presets.json",
         "WORKSPACE_ROOT": "${localEnv:HOME}/git.workspaces"
     },
 	"postCreateCommand": "sudo chown ${localEnv:USER}:${localEnv:USER} -R /home/${localEnv:USER}/.zsh_data /home/${localEnv:USER}/.copilot && if [ -d .devcontainer/hooks.d ]; then for f in .devcontainer/hooks.d/*.sh; do [ -f \"$f\" ] && sh \"$f\"; done; fi",

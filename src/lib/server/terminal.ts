@@ -3,7 +3,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import type { IncomingMessage, Server } from 'node:http';
 import type { Duplex } from 'node:stream';
 
-const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT ?? '/bootstrap_workspaces';
+const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT ?? '/workspaces';
 
 export function attachTerminalServer(httpServer: Server): void {
 	const wss = new WebSocketServer({ noServer: true });
@@ -25,12 +25,24 @@ export function attachTerminalServer(httpServer: Server): void {
 
 		const shell = process.env.SHELL ?? '/bin/bash';
 
+		// Filter env to prevent VS Code shell-integration scripts from emitting
+		// OSC 633 sequences that xterm.js cannot handle (renders as garbage)
+		const filteredEnv: Record<string, string> = {};
+		for (const [key, value] of Object.entries(process.env)) {
+			if (value === undefined) continue;
+			if (key.startsWith('VSCODE_')) continue;
+			if (key === 'TERM_PROGRAM' || key === 'TERM_PROGRAM_VERSION') continue;
+			if (key === 'GIT_ASKPASS' || key === 'BROWSER') continue;
+			filteredEnv[key] = value;
+		}
+		filteredEnv['TERM'] = 'xterm-256color';
+
 		const ptyProcess = pty.spawn(shell, [], {
-			name: 'xterm-color',
+			name: 'xterm-256color',
 			cols: 80,
 			rows: 24,
 			cwd,
-			env: process.env as Record<string, string>
+			env: filteredEnv
 		});
 
 		ptyProcess.onData((data: string) => {

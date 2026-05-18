@@ -56,8 +56,6 @@
 			fitAddon = new FitAddon();
 			terminal.loadAddon(fitAddon);
 			terminal.open(node);
-			fitAddon.fit();
-			initialized = true;
 
 			const proto = location.protocol === 'https:' ? 'wss' : 'ws';
 			const params = new URLSearchParams({ sessionId });
@@ -67,6 +65,29 @@
 
 			socket = new WebSocket(wsUrl);
 
+			// Register onResize BEFORE any fit() call so the event is never dropped
+			terminal.onResize(({ cols, rows }) => {
+				if (socket?.readyState === WebSocket.OPEN) {
+					socket.send(JSON.stringify({ type: 'resize', cols, rows }));
+				}
+			});
+
+			terminal.onData((data) => {
+				if (socket?.readyState === WebSocket.OPEN) {
+					socket.send(JSON.stringify({ type: 'data', data }));
+				}
+			});
+
+			socket.onopen = () => {
+				fitAddon!.fit();
+				// Send initial size explicitly in case onResize didn't fire
+				const dims = fitAddon!.proposeDimensions();
+				if (dims) {
+					socket!.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }));
+				}
+				initialized = true;
+			};
+
 			socket.onmessage = (evt) => {
 				try {
 					const msg = JSON.parse(evt.data as string);
@@ -75,18 +96,6 @@
 					terminal?.write(evt.data as string);
 				}
 			};
-
-			terminal.onData((data) => {
-				if (socket?.readyState === WebSocket.OPEN) {
-					socket.send(JSON.stringify({ type: 'data', data }));
-				}
-			});
-
-			terminal.onResize(({ cols, rows }) => {
-				if (socket?.readyState === WebSocket.OPEN) {
-					socket.send(JSON.stringify({ type: 'resize', cols, rows }));
-				}
-			});
 		}
 
 		init();
@@ -99,9 +108,9 @@
 	}
 
 	$effect(() => {
-		// fitAddon.fit() is a pure DOM resize — does not modify reactive state
+		// Delay must exceed the 300ms CSS drawer animation so fitAddon measures final height
 		if (active && fitAddon && initialized) {
-			setTimeout(() => fitAddon?.fit(), 50);
+			setTimeout(() => fitAddon?.fit(), 350);
 		}
 	});
 </script>

@@ -5,7 +5,7 @@ import { Buffer } from 'node:buffer';
 import docker from '$lib/server/docker';
 import type { LocalWorkspaceData } from '$lib/types';
 
-export const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT ?? '/bootstrap_workspaces';
+export const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT ?? '/workspaces';
 
 export async function loadWorkspaces(): Promise<LocalWorkspaceData[]> {
 	// Gather running container local_folder labels
