@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { X, Plus, Terminal, ChevronDown, ChevronUp } from 'lucide-svelte';
+	import { X, Plus, Terminal, ChevronDown, ChevronUp, Maximize2, Minimize2 } from 'lucide-svelte';
 	import TerminalTab from './TerminalTab.svelte';
 	import type { TerminalSession } from '$lib/types';
 
@@ -21,6 +21,13 @@
 
 	let { open, sessions, activeId, workspaceRoot, onToggle, onAddSession, onRemoveSession, onSetActive }: Props = $props();
 
+	let height = $state(320);
+	let maximized = $state(false);
+	let dragging = $state(false);
+
+	const MIN_HEIGHT = 150;
+	const DEFAULT_HEIGHT = 320;
+
 	function addGenericShell() {
 		const id = crypto.randomUUID();
 		onAddSession({ id, name: 'Shell', cwd: workspaceRoot });
@@ -31,14 +38,49 @@
 	function closeSession(id: string) {
 		onRemoveSession(id);
 	}
+
+	function toggleMaximize() {
+		maximized = !maximized;
+	}
+
+	function onResizeStart(e: MouseEvent) {
+		if (maximized) return;
+		e.preventDefault();
+		dragging = true;
+		const startY = e.clientY;
+		const startHeight = height;
+
+		function onMouseMove(ev: MouseEvent) {
+			const delta = startY - ev.clientY;
+			const newHeight = Math.max(MIN_HEIGHT, startHeight + delta);
+			height = Math.min(newHeight, window.innerHeight - 50);
+		}
+
+		function onMouseUp() {
+			dragging = false;
+			window.removeEventListener('mousemove', onMouseMove);
+			window.removeEventListener('mouseup', onMouseUp);
+		}
+
+		window.addEventListener('mousemove', onMouseMove);
+		window.addEventListener('mouseup', onMouseUp);
+	}
 </script>
 
 <!-- Terminal drawer — fixed bottom -->
 <div
-	class="fixed bottom-0 left-0 right-0 z-40 flex flex-col border-t border-[#4c566a] bg-[#2e3440] transition-all duration-300 {open
-		? 'h-80'
-		: 'h-10'}"
+	class="fixed bottom-0 left-0 right-0 z-40 flex flex-col border-t border-[#4c566a] bg-[#2e3440] {dragging ? '' : 'transition-all duration-300'}"
+	style="height: {open ? (maximized ? '100vh' : `${height}px`) : '2.5rem'}"
 >
+	<!-- Resize handle -->
+	{#if open && !maximized}
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div
+			class="absolute top-0 left-0 right-0 h-1.5 cursor-ns-resize hover:bg-[#88c0d0]/30 active:bg-[#88c0d0]/50 z-50"
+			onmousedown={onResizeStart}
+		></div>
+	{/if}
+
 	<!-- Tab bar -->
 	<div class="flex items-center h-10 px-2 gap-1 border-b border-[#4c566a] shrink-0 overflow-x-auto">
 		{#each sessions as session (session.id)}
@@ -77,6 +119,22 @@
 
 		<!-- Spacer -->
 		<div class="flex-1"></div>
+
+		<!-- Maximize/Restore -->
+		{#if open}
+			<button
+				onclick={toggleMaximize}
+				class="p-1 rounded text-[#d8dee9]/60 hover:text-[#eceff4] hover:bg-[#3b4252]/60 shrink-0 transition-colors"
+				type="button"
+				aria-label={maximized ? 'Restore terminal' : 'Maximize terminal'}
+			>
+				{#if maximized}
+					<Minimize2 size={14} />
+				{:else}
+					<Maximize2 size={14} />
+				{/if}
+			</button>
+		{/if}
 
 		<!-- Toggle drawer -->
 		<button

@@ -108,15 +108,26 @@
 	}
 
 	$effect(() => {
-		// Delay must exceed the 300ms CSS drawer animation so fitAddon measures final height
 		if (active && fitAddon && initialized) {
+			// Delay to let CSS transitions finish on initial open
 			setTimeout(() => fitAddon?.fit(), 350);
 		}
 	});
+
+	function resizeObserverAction(node: HTMLDivElement) {
+		const ro = new ResizeObserver(() => {
+			if (active && fitAddon && initialized) {
+				fitAddon.fit();
+			}
+		});
+		ro.observe(node);
+		return () => ro.disconnect();
+	}
 </script>
 
 <div
 	{@attach terminalAttachment}
+	{@attach resizeObserverAction}
 	class="w-full h-full"
 	style="display: {active ? 'block' : 'none'}"
 ></div>
