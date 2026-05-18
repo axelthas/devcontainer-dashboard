@@ -28,7 +28,8 @@
 	],
 
     "containerEnv": {
-        "HOST_HOSTNAME": "${localEnv:HOSTNAME}"
+        "HOST_HOSTNAME": "${localEnv:HOSTNAME}",
+        "BOOTSTRAP_PRESETS_PATH": "/bootstrap_workspaces/bootstrap.presets.json"
     },
 	"postCreateCommand": "sudo chown ${localEnv:USER}:${localEnv:USER} -R /home/${localEnv:USER}/.zsh_data /home/${localEnv:USER}/.copilot && if [ -d .devcontainer/hooks.d ]; then for f in .devcontainer/hooks.d/*.sh; do [ -f \"$f\" ] && sh \"$f\"; done; fi",
 

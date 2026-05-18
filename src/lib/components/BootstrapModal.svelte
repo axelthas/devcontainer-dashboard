@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { X, Save, Play, ChevronDown } from 'lucide-svelte';
+	import { X, Play, ChevronDown } from 'lucide-svelte';
 	import type { BootstrapPreset } from '$lib/types';
 
 	interface Props {
@@ -12,9 +12,7 @@
 	let presets = $state<BootstrapPreset[]>([]);
 	let selectedPresetId = $state<string>('custom');
 	let command = $state('');
-	let savePromptVisible = $state(false);
-	let savePresetName = $state('');
-	let saving = $state(false);
+	let destDir = $state('');
 
 	$effect(() => {
 		fetch('/api/presets')
@@ -26,7 +24,9 @@
 		selectedPresetId = id;
 		if (id === 'custom') return;
 		const preset = presets.find((p) => p.id === id);
-		if (preset) command = preset.command;
+		if (preset) {
+			command = preset.command;
+		}
 	}
 
 	function onCommandInput(val: string) {
@@ -35,30 +35,11 @@
 		selectedPresetId = match ? match.id : 'custom';
 	}
 
-	async function saveAsPreset() {
-		if (!savePresetName.trim() || !command.trim()) return;
-		saving = true;
-		try {
-			await fetch('/api/presets', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ name: savePresetName.trim(), command })
-			});
-			const res = await fetch('/api/presets');
-			presets = await res.json();
-			const saved = presets.find((p) => p.command === command && p.name === savePresetName.trim());
-			if (saved) selectedPresetId = saved.id;
-			savePromptVisible = false;
-			savePresetName = '';
-		} finally {
-			saving = false;
-		}
-	}
-
 	function runInTerminal() {
 		if (!command.trim()) return;
 		const name = presets.find((p) => p.id === selectedPresetId)?.name ?? 'Bootstrap';
-		onRunInTerminal(command.trim(), name);
+		const resolved = command.trim().replaceAll('{destDir}', destDir.trim());
+		onRunInTerminal(resolved, name);
 		onClose();
 	}
 </script>
@@ -114,52 +95,26 @@
 			<input
 				type="text"
 				class="w-full bg-[#2e3440] border border-[#4c566a] text-[#a3be8c] font-mono rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[#88c0d0] placeholder:text-[#4c566a]"
-				placeholder="dev-bootstrap init git@github.com:org/repo.git --all"
+				placeholder="dev-bootstrap init git@github.com:org/repo.git {destDir}"
 				value={command}
 				oninput={(e) => onCommandInput((e.target as HTMLInputElement).value)}
 			/>
 		</label>
 
-		<!-- Save as Preset -->
-		{#if savePromptVisible}
-			<div class="flex gap-2 mb-4">
-				<input
-					type="text"
-					class="flex-1 bg-[#2e3440] border border-[#4c566a] text-[#eceff4] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#88c0d0] placeholder:text-[#4c566a]"
-					placeholder="Preset name…"
-					bind:value={savePresetName}
-					onkeydown={(e) => e.key === 'Enter' && saveAsPreset()}
-				/>
-				<button
-					onclick={saveAsPreset}
-					disabled={saving || !savePresetName.trim()}
-					class="px-4 py-2 rounded-lg bg-[#5e81ac] hover:bg-[#81a1c1] text-white text-sm font-medium transition-colors disabled:opacity-60"
-					type="button"
-				>
-					{saving ? 'Saving…' : 'Save'}
-				</button>
-				<button
-					onclick={() => (savePromptVisible = false)}
-					class="px-3 py-2 rounded-lg text-[#d8dee9]/60 hover:bg-[#4c566a] transition-colors"
-					type="button"
-				>
-					Cancel
-				</button>
-			</div>
-		{/if}
+		<!-- Destination Directory -->
+		<label class="block mb-4">
+			<span class="text-sm font-medium text-[#d8dee9] block mb-1.5">Destination Directory</span>
+			<input
+				type="text"
+				class="w-full bg-[#2e3440] border border-[#4c566a] text-[#eceff4] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[#88c0d0] placeholder:text-[#4c566a]"
+				placeholder="my-project"
+				bind:value={destDir}
+			/>
+			<span class="text-xs text-[#d8dee9]/50 mt-1 block">Replaces <code class="font-mono">{'{destDir}'}</code> in the command</span>
+		</label>
 
 		<!-- Footer actions -->
-		<div class="flex items-center justify-between mt-2">
-			<button
-				onclick={() => (savePromptVisible = true)}
-				disabled={!command.trim()}
-				class="flex items-center gap-1.5 text-sm text-[#88c0d0] hover:text-[#81a1c1] disabled:opacity-40 disabled:cursor-default transition-colors"
-				type="button"
-			>
-				<Save size={14} />
-				Save as Preset
-			</button>
-
+		<div class="flex items-center justify-end mt-2">
 			<button
 				onclick={runInTerminal}
 				disabled={!command.trim()}
