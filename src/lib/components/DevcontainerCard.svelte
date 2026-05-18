@@ -15,11 +15,29 @@
 
 	const isRunning = $derived(container.state === 'running');
 
+	/** Hex-encode a string (UTF-8 bytes → hex), matching xxd/od output used by VS Code. */
+	function hexEncode(str: string): string {
+		return Array.from(new TextEncoder().encode(str))
+			.map((b) => b.toString(16).padStart(2, '0'))
+			.join('');
+	}
+
 	const vscodeUri = $derived.by(() => {
-		if (!container.localWorkspacePath) return '';
-		const params = new URLSearchParams({ hostPath: container.localWorkspacePath });
-		if (vscodeSshHost) params.set('host', vscodeSshHost);
-		return `vscode://ms-vscode-remote.remote-containers/openDevContainer?${params.toString()}`;
+		if (!container.localWorkspacePath) {
+			// No workspace path label: fall back to attach-by-name for local running containers.
+			if (!isRunning) return '';
+			const containerName = container.name.startsWith('/') ? container.name : `/${container.name}`;
+			return `vscode://ms-vscode-remote.remote-containers/attachToRunningContainer?containerName=${containerName}`;
+		}
+		// Use the vscode-remote:// scheme with hex-encoded host path, matching the format
+		// VS Code uses internally: vscode-remote://dev-container+<hex>[@ssh-remote+<host>]<container-path>
+		const hexPath = hexEncode(container.localWorkspacePath);
+		const basename = container.localWorkspacePath.split('/').filter(Boolean).at(-1) ?? '';
+		const containerWorkspace = `/workspace/${basename}`;
+		if (vscodeSshHost) {
+			return `vscode-remote://dev-container+${hexPath}@ssh-remote+${vscodeSshHost}${containerWorkspace}`;
+		}
+		return `vscode-remote://dev-container+${hexPath}${containerWorkspace}`;
 	});
 </script>
 
@@ -52,20 +70,23 @@
 					>
 				</h3>
 			</div>
-			{#if container.localWorkspacePath}
-				<div class="mt-0.5 flex items-center gap-1.5">
+			<div class="mt-0.5 flex items-center gap-1.5">
+				{#if container.localWorkspacePath}
 					<p class="font-mono text-xs break-all text-[#4c566a] dark:text-[#d8dee9]/50">
 						{container.localWorkspacePath}
 					</p>
+				{/if}
+				{#if vscodeUri}
 					<a
 						href={vscodeUri}
-						title="Open in VS Code"
+						rel="external"
+						title={vscodeSshHost ? 'Open devcontainer in VS Code via SSH' : 'Attach to container in VS Code'}
 						class="shrink-0 rounded p-1 text-[#4c566a] transition-colors hover:bg-[#d8dee9] hover:text-[#5e81ac] dark:text-[#d8dee9]/50 dark:hover:bg-[#4c566a]/50 dark:hover:text-[#81a1c1]"
 					>
 						<Code size={14} />
 					</a>
-				</div>
-			{/if}
+				{/if}
+			</div>
 		</div>
 		<ActionControls id={container.id} containerState={container.state} {onRefresh} />
 	</div>
