@@ -27,17 +27,18 @@
 			// No workspace path label: fall back to attach-by-name for local running containers.
 			if (!isRunning) return '';
 			const containerName = container.name.startsWith('/') ? container.name : `/${container.name}`;
-			return `vscode://ms-vscode-remote.remote-containers/attachToRunningContainer?containerName=${containerName}`;
+			return `vscode://ms-vscode-remote.remote-containers/attachToRunningContainer?containerName=${containerName}&windowId=_blank`;
 		}
 		// Use vscode://vscode-remote/ which is browser-clickable (vscode:// is an OS protocol handler).
 		// VS Code internally resolves this to vscode-remote://dev-container+<hex>[...]<path>
+		// windowId=_blank forces a new VS Code window instead of reusing an existing one.
 		const hexPath = hexEncode(container.localWorkspacePath);
 		const basename = container.localWorkspacePath.split('/').filter(Boolean).at(-1) ?? '';
-		const containerWorkspace = `/workspaces/${basename}`;
+		const containerWorkspace = `/workspace/${basename}`;
 		if (vscodeSshHost) {
-			return `vscode://vscode-remote/dev-container+${hexPath}@ssh-remote+${vscodeSshHost}${containerWorkspace}`;
+			return `vscode://vscode-remote/dev-container+${hexPath}@ssh-remote+${vscodeSshHost}${containerWorkspace}?windowId=_blank`;
 		}
-		return `vscode://vscode-remote/dev-container+${hexPath}${containerWorkspace}`;
+		return `vscode://vscode-remote/dev-container+${hexPath}${containerWorkspace}?windowId=_blank`;
 	});
 </script>
 
