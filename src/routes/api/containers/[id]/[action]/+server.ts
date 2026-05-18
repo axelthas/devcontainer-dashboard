@@ -2,7 +2,7 @@ import { json, error } from '@sveltejs/kit';
 import docker from '$lib/server/docker';
 import type { RequestHandler } from './$types';
 
-const ALLOWED_ACTIONS = ['start', 'stop', 'restart'] as const;
+const ALLOWED_ACTIONS = ['start', 'stop', 'restart', 'delete'] as const;
 type Action = (typeof ALLOWED_ACTIONS)[number];
 
 export const POST: RequestHandler = async ({ params }) => {
@@ -21,6 +21,8 @@ export const POST: RequestHandler = async ({ params }) => {
 			await container.stop();
 		} else if (action === 'restart') {
 			await container.restart();
+		} else if (action === 'delete') {
+			await container.remove({ force: true, v: true });
 		}
 	} catch (err: unknown) {
 		const message = err instanceof Error ? err.message : 'Unknown error';

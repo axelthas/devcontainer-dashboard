@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Play, Square, RotateCw, Loader2 } from 'lucide-svelte';
+	import { Play, Square, RotateCw, Loader2, Trash2 } from 'lucide-svelte';
 
 	interface Props {
 		id: string;
@@ -11,7 +11,10 @@
 
 	let loadingAction = $state<string | null>(null);
 
-	async function handleAction(action: 'start' | 'stop' | 'restart') {
+	async function handleAction(action: 'start' | 'stop' | 'restart' | 'delete') {
+		if (action === 'delete' && !confirm('Delete this container? This cannot be undone.')) {
+			return;
+		}
 		loadingAction = action;
 		try {
 			await fetch(`/api/containers/${id}/${action}`, { method: 'POST' });
@@ -66,4 +69,16 @@
 			{/if}
 		</button>
 	{/if}
+	<button
+		class="p-1.5 rounded-lg transition-colors text-[#4c566a] dark:text-[#d8dee9] hover:text-[#bf616a] dark:hover:text-[#bf616a] hover:bg-[#e5e9f0] dark:hover:bg-[#3b4252] disabled:opacity-50 disabled:cursor-not-allowed"
+		disabled={loadingAction !== null}
+		onclick={() => handleAction('delete')}
+		title="Delete container"
+	>
+		{#if loadingAction === 'delete'}
+			<Loader2 size={16} class="animate-spin" />
+		{:else}
+			<Trash2 size={16} />
+		{/if}
+	</button>
 </div>

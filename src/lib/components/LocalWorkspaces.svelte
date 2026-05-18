@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ChevronRight, ChevronDown, FolderGit2, GitBranch, Play, Loader, RefreshCw } from 'lucide-svelte';
+	import { ChevronRight, ChevronDown, FolderGit2, GitBranch, Play, Loader, RefreshCw, Trash2, Loader2 } from 'lucide-svelte';
 	import { untrack } from 'svelte';
 	import type { LocalWorkspaceData } from '$lib/types';
 
@@ -15,6 +15,7 @@
 	let expanded = $state<Set<string>>(new Set());
 	let refreshing = $state(false);
 	let buildingRepos = $state<Set<string>>(new Set());
+	let deletingWorkspaces = $state<Set<string>>(new Set());
 
 	async function refresh() {
 		refreshing = true;
@@ -41,6 +42,23 @@
 			onOpenTerminal(id, command, repoName, repoPath);
 		} finally {
 			buildingRepos = new Set([...buildingRepos].filter((p) => p !== repoPath));
+		}
+	}
+
+	async function deleteWorkspace(ws: LocalWorkspaceData) {
+		if (!confirm(`Delete workspace "${ws.name}" at ${ws.path}? This cannot be undone.`)) return;
+		deletingWorkspaces = new Set([...deletingWorkspaces, ws.id]);
+		try {
+			const res = await fetch('/api/workspaces', {
+				method: 'DELETE',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ path: ws.path })
+			});
+			if (res.ok) {
+				workspaces = workspaces.filter((w) => w.id !== ws.id);
+			}
+		} finally {
+			deletingWorkspaces = new Set([...deletingWorkspaces].filter((id) => id !== ws.id));
 		}
 	}
 </script>
@@ -73,10 +91,12 @@
 		>
 			{#each workspaces as ws (ws.id)}
 				<!-- Task Workspace header -->
-				<button
-					class="w-full flex items-center justify-between px-5 py-3 hover:bg-[#e5e9f0] dark:hover:bg-[#434c5e] transition-colors border-b border-[#d8dee9] dark:border-[#4c566a] last:border-b-0"
+				<div
+					class="w-full flex items-center justify-between px-5 py-3 hover:bg-[#e5e9f0] dark:hover:bg-[#434c5e] transition-colors border-b border-[#d8dee9] dark:border-[#4c566a] last:border-b-0 cursor-pointer"
 					onclick={() => toggleExpand(ws.id)}
-					type="button"
+					onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleExpand(ws.id); }}
+					role="button"
+					tabindex="0"
 				>
 					<div class="flex items-center gap-3">
 						{#if expanded.has(ws.id)}
@@ -87,13 +107,28 @@
 						<span class="font-semibold text-[#2e3440] dark:text-[#eceff4]">{ws.name}</span>
 						<span class="text-xs text-[#4c566a] dark:text-[#d8dee9]/60">{ws.path}</span>
 					</div>
-					<span
-						class="text-xs font-medium bg-[#d8dee9] dark:bg-[#4c566a] text-[#4c566a] dark:text-[#d8dee9] px-2 py-0.5 rounded-full"
-					>
-						{ws.repos.length}
-						{ws.repos.length === 1 ? 'Repo' : 'Repos'}
-					</span>
-				</button>
+					<div class="flex items-center gap-2">
+						<span
+							class="text-xs font-medium bg-[#d8dee9] dark:bg-[#4c566a] text-[#4c566a] dark:text-[#d8dee9] px-2 py-0.5 rounded-full"
+						>
+							{ws.repos.length}
+							{ws.repos.length === 1 ? 'Repo' : 'Repos'}
+						</span>
+						<button
+							onclick={(e) => { e.stopPropagation(); deleteWorkspace(ws); }}
+							disabled={deletingWorkspaces.has(ws.id)}
+							class="p-1.5 rounded-lg transition-colors text-[#4c566a] dark:text-[#d8dee9]/60 hover:text-[#bf616a] dark:hover:text-[#bf616a] hover:bg-[#e5e9f0] dark:hover:bg-[#3b4252] disabled:opacity-50 disabled:cursor-not-allowed"
+							title="Delete workspace"
+							type="button"
+						>
+							{#if deletingWorkspaces.has(ws.id)}
+								<Loader2 size={14} class="animate-spin" />
+							{:else}
+								<Trash2 size={14} />
+							{/if}
+						</button>
+					</div>
+				</div>
 
 				{#if expanded.has(ws.id)}
 					<div class="bg-[#f0f4f8] dark:bg-[#2e3440]">
