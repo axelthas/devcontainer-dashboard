@@ -20,7 +20,8 @@ function terminalDevPlugin(): Plugin {
 export default defineConfig({
 	plugins: [tailwindcss(), sveltekit(), terminalDevPlugin()],
 	server: {
-		host: '0.0.0.0'
+		host: '0.0.0.0',
+        allowedHosts: true
 	},
 	test: {
 		expect: { requireAssertions: true },

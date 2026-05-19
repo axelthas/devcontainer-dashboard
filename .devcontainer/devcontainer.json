@@ -35,6 +35,7 @@
 	"postCreateCommand": "sudo chown ${localEnv:USER}:${localEnv:USER} -R /home/${localEnv:USER}/.zsh_data /home/${localEnv:USER}/.copilot && if [ -d .devcontainer/hooks.d ]; then for f in .devcontainer/hooks.d/*.sh; do [ -f \"$f\" ] && sh \"$f\"; done; fi",
 
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
+    "appPort": ["5174:5173"],
 	"forwardPorts": [5173],
 
 	// Configure tool-specific properties.
