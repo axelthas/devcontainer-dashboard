@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Sun, Moon, Layers, Box, Cpu, Power, Play, Server } from 'lucide-svelte';
 	import { untrack } from 'svelte';
+	import { generateId } from '$lib/index';
 	import type { ContainerData, LocalWorkspaceData } from '$lib/types';
 	import DevcontainerCard from '$lib/components/DevcontainerCard.svelte';
 	import SandboxRow from '$lib/components/SandboxRow.svelte';
@@ -131,7 +132,7 @@
 	}
 
 	function handleRunInTerminal(command: string, name: string) {
-		const id = crypto.randomUUID();
+		const id = generateId();
 		addTerminalSession({ id, name, command, cwd: WORKSPACE_ROOT });
 		openTerminalWith(id);
 	}

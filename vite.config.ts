@@ -21,7 +21,8 @@ export default defineConfig({
 	plugins: [tailwindcss(), sveltekit(), terminalDevPlugin()],
 	server: {
 		host: '0.0.0.0',
-        allowedHosts: true
+		allowedHosts: true,
+		cors: true
 	},
 	test: {
 		expect: { requireAssertions: true },

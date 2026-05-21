@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { X, Plus, Terminal, ChevronDown, ChevronUp, Maximize2, Minimize2 } from 'lucide-svelte';
 	import TerminalTab from './TerminalTab.svelte';
+	import { generateId } from '$lib/index';
 	import type { TerminalSession } from '$lib/types';
 
 	interface TerminalSessionState extends TerminalSession {
@@ -29,7 +30,7 @@
 	const DEFAULT_HEIGHT = 320;
 
 	function addGenericShell() {
-		const id = crypto.randomUUID();
+		const id = generateId();
 		onAddSession({ id, name: 'Shell', cwd: workspaceRoot });
 		onSetActive(id);
 		if (!open) onToggle();

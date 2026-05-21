@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { ChevronRight, ChevronDown, FolderGit2, GitBranch, Play, Loader, RefreshCw, Trash2, Loader2 } from 'lucide-svelte';
 	import { untrack } from 'svelte';
+	import { generateId } from '$lib/index';
 	import type { LocalWorkspaceData } from '$lib/types';
 
 	interface Props {
@@ -37,7 +38,7 @@
 	async function buildAndStart(repoPath: string, repoName: string) {
 		buildingRepos = new Set([...buildingRepos, repoPath]);
 		try {
-			const id = crypto.randomUUID();
+			const id = generateId();
 			const command = `devcontainer up --workspace-folder ${repoPath}`;
 			onOpenTerminal(id, command, repoName, repoPath);
 		} finally {
