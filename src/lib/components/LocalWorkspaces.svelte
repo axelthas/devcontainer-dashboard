@@ -246,39 +246,34 @@
 						{/if}
 						{#each ws.repos as repo}
 							<div
-								class="flex items-center px-8 py-2.5 border-b border-[#d8dee9]/60 dark:border-[#4c566a]/60 last:border-b-0"
+								class="flex items-center h-10 px-8 border-b border-[#d8dee9]/60 dark:border-[#4c566a]/60 last:border-b-0"
 							>
-								<div class="flex items-center gap-2 min-w-0 flex-grow">
+								<!-- Repo name: takes available space -->
+								<div class="flex items-center gap-2 min-w-0 w-[200px] shrink-0">
 									<GitBranch size={14} class="shrink-0 text-[#81a1c1] dark:text-[#88c0d0]" />
 									<span class="font-medium text-sm text-[#2e3440] dark:text-[#d8dee9] truncate"
 										>{repo.name}</span
 									>
 								</div>
 
-								<div class="shrink-0 flex items-center gap-3 ml-4">
-									{#if repo.hasDevcontainer}
-										<span
-											class="text-xs px-1.5 py-0.5 rounded bg-[#88c0d0]/20 text-[#5e81ac] dark:text-[#88c0d0] border border-[#88c0d0]/30"
-										>
-											devcontainer
-										</span>
-									{/if}
+								<!-- Branch column: fixed width, left-aligned so branches line up -->
+								<div class="w-[210px] shrink-0 flex items-center">
 									{#if repo.currentBranch}
 										<div class="relative">
 											<button
 												onclick={() => openBranchPicker(repo.path)}
 												class="flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-[#e5e9f0] dark:bg-[#434c5e] text-[#5e81ac] dark:text-[#88c0d0] hover:bg-[#d8dee9] dark:hover:bg-[#4c566a] transition-colors border border-[#d8dee9] dark:border-[#4c566a]"
 												type="button"
-												title="Switch branch"
+												title={repo.currentBranch}
 											>
 												{#if checkoutInProgress === repo.path}
 													<Loader size={10} class="animate-spin" />
 												{/if}
-												<span class="max-w-[120px] truncate">{repo.currentBranch}</span>
+												<span class="max-w-[180px] truncate">{repo.currentBranch}</span>
 												<ChevronDown size={10} />
 											</button>
 											{#if branchPickerRepo === repo.path}
-												<div class="absolute top-full right-0 mt-1 z-20 w-56 max-h-48 overflow-y-auto rounded-lg border border-[#d8dee9] dark:border-[#4c566a] bg-white dark:bg-[#3b4252] shadow-lg">
+												<div class="absolute top-full left-0 mt-1 z-20 w-56 max-h-48 overflow-y-auto rounded-lg border border-[#d8dee9] dark:border-[#4c566a] bg-white dark:bg-[#3b4252] shadow-lg">
 													{#if branchPickerLoading}
 														<div class="px-3 py-2 text-xs text-[#4c566a] dark:text-[#d8dee9]/60">Loading…</div>
 													{:else}
@@ -302,13 +297,17 @@
 											{/if}
 										</div>
 									{/if}
+								</div>
+
+								<!-- Action column: right-aligned -->
+								<div class="ml-auto shrink-0 flex items-center justify-end">
 									{#if !repo.hasDevcontainer}
-										<span class="text-xs text-[#4c566a] dark:text-[#d8dee9]/40 italic"
+										<span class="text-xs text-[#4c566a] dark:text-[#d8dee9]/40 italic whitespace-nowrap"
 											>No configuration</span
 										>
 									{:else if repo.isRunning}
 										<span
-											class="text-xs font-medium text-[#a3be8c] flex items-center gap-1.5 bg-[#a3be8c]/10 px-2 py-1 rounded-full border border-[#a3be8c]/20"
+											class="text-xs font-medium text-[#a3be8c] flex items-center gap-1.5 bg-[#a3be8c]/10 px-2 py-1 rounded-full border border-[#a3be8c]/20 whitespace-nowrap"
 										>
 											<span class="w-1.5 h-1.5 rounded-full bg-[#a3be8c] inline-block"></span>
 											Active Above
@@ -317,7 +316,7 @@
 										<button
 											onclick={() => buildAndStart(repo.path, repo.name)}
 											disabled={buildingRepos.has(repo.path)}
-											class="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-[#5e81ac] hover:bg-[#81a1c1] text-white transition-colors disabled:opacity-60 disabled:cursor-wait"
+											class="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-[#5e81ac] hover:bg-[#81a1c1] text-white transition-colors disabled:opacity-60 disabled:cursor-wait whitespace-nowrap"
 											type="button"
 										>
 											{#if buildingRepos.has(repo.path)}
