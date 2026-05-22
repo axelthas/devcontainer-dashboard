@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import { WORKSPACE_ROOT } from '$lib/server/workspaces';
-import { listLocalBranches, gitCheckout, isWorkingTreeDirty, readGitHead } from '$lib/server/git';
+import { listLocalBranches, listTags, gitCheckout, gitCheckoutTag, isWorkingTreeDirty, readGitHead, readCurrentTag } from '$lib/server/git';
 import type { RequestHandler } from './$types';
 
 function validateRepoPath(path: unknown): string {
@@ -15,18 +15,26 @@ function validateRepoPath(path: unknown): string {
 }
 
 export const POST: RequestHandler = async ({ request }) => {
-	const { path, branch, force } = await request.json();
+	const { path, branch, tag, force } = await request.json();
 
 	const repoPath = validateRepoPath(path);
 
-	if (typeof branch !== 'string' || !branch.trim()) {
-		throw error(400, 'Branch name is required');
+	const ref = branch || tag;
+	if (typeof ref !== 'string' || !ref.trim()) {
+		throw error(400, 'Branch or tag name is required');
 	}
 
-	// Validate branch against known branches
-	const availableBranches = await listLocalBranches(repoPath);
-	if (!availableBranches.includes(branch)) {
-		throw error(400, `Branch "${branch}" not found in repository`);
+	// Validate ref against known branches and tags
+	const [availableBranches, availableTags] = await Promise.all([
+		listLocalBranches(repoPath),
+		listTags(repoPath)
+	]);
+
+	const isBranch = availableBranches.includes(ref);
+	const isTag = availableTags.includes(ref);
+
+	if (!isBranch && !isTag) {
+		throw error(400, `Ref "${ref}" not found in repository`);
 	}
 
 	// Check for dirty working tree unless force is set
@@ -41,9 +49,15 @@ export const POST: RequestHandler = async ({ request }) => {
 	}
 
 	try {
-		await gitCheckout(repoPath, branch, availableBranches);
+		if (isBranch) {
+			await gitCheckout(repoPath, ref, availableBranches);
+		} else {
+			// Checkout tag (detached HEAD)
+			await gitCheckoutTag(repoPath, ref);
+		}
 		const currentBranch = await readGitHead(repoPath);
-		return json({ success: true, currentBranch });
+		const currentTag = !currentBranch ? await readCurrentTag(repoPath) : undefined;
+		return json({ success: true, currentBranch, currentTag });
 	} catch (err: unknown) {
 		const message = err instanceof Error ? err.message : 'Unknown error';
 		throw error(500, message);

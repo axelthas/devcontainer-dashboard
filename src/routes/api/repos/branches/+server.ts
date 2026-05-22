@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import { WORKSPACE_ROOT } from '$lib/server/workspaces';
-import { listLocalBranches, readGitHead } from '$lib/server/git';
+import { listLocalBranches, listTags, readGitHead, readCurrentTag } from '$lib/server/git';
 import type { RequestHandler } from './$types';
 
 function validateRepoPath(path: string | null): string {
@@ -18,11 +18,13 @@ export const GET: RequestHandler = async ({ url }) => {
 	const repoPath = validateRepoPath(url.searchParams.get('path'));
 
 	try {
-		const [branches, currentBranch] = await Promise.all([
+		const [branches, tags, currentBranch] = await Promise.all([
 			listLocalBranches(repoPath),
+			listTags(repoPath),
 			readGitHead(repoPath)
 		]);
-		return json({ branches, currentBranch });
+		const currentTag = !currentBranch ? await readCurrentTag(repoPath) : undefined;
+		return json({ branches, tags, currentBranch, currentTag });
 	} catch (err: unknown) {
 		const message = err instanceof Error ? err.message : 'Unknown error';
 		throw error(500, message);

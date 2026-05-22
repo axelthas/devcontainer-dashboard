@@ -22,6 +22,91 @@ export async function readGitHead(repoPath: string): Promise<string | undefined>
 }
 
 /**
+ * Read the current tag when HEAD is detached.
+ * Returns undefined if HEAD is on a branch or no tag points at HEAD.
+ */
+export async function readCurrentTag(repoPath: string): Promise<string | undefined> {
+	const headPath = join(repoPath, '.git', 'HEAD');
+	try {
+		const content = await readFile(headPath, 'utf-8');
+		const trimmed = content.trim();
+		// If HEAD is a ref (branch), not detached
+		if (trimmed.startsWith('ref:')) return undefined;
+		// HEAD is a raw commit SHA — check if any tag points to it
+		const headSha = trimmed;
+		const tags = await listTags(repoPath);
+		for (const tag of tags) {
+			const sha = await resolveTagSha(repoPath, tag);
+			if (sha === headSha) return tag;
+		}
+		return undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * Resolve a tag name to the commit SHA it points at.
+ */
+async function resolveTagSha(repoPath: string, tag: string): Promise<string | undefined> {
+	// Check lightweight tag in refs/tags/
+	const tagRefPath = join(repoPath, '.git', 'refs', 'tags', ...tag.split('/'));
+	try {
+		const content = await readFile(tagRefPath, 'utf-8');
+		return content.trim();
+	} catch {
+		// Fall through to packed-refs
+	}
+	// Check packed-refs
+	const packedRefsPath = join(repoPath, '.git', 'packed-refs');
+	try {
+		const content = await readFile(packedRefsPath, 'utf-8');
+		const lines = content.split('\n');
+		for (let i = 0; i < lines.length; i++) {
+			const line = lines[i];
+			if (line.startsWith('#') || line.startsWith('^')) continue;
+			const match = line.match(/^([0-9a-f]+) refs\/tags\/(.+)$/);
+			if (match && match[2] === tag) {
+				// If next line starts with ^, that's the dereferenced (commit) SHA for annotated tags
+				if (i + 1 < lines.length && lines[i + 1].startsWith('^')) {
+					return lines[i + 1].slice(1).trim();
+				}
+				return match[1];
+			}
+		}
+	} catch {
+		// packed-refs may not exist
+	}
+	return undefined;
+}
+
+/**
+ * List tag names from .git/refs/tags/ and packed-refs.
+ */
+export async function listTags(repoPath: string): Promise<string[]> {
+	const tags = new Set<string>();
+
+	// Read from refs/tags/ recursively
+	const tagsDir = join(repoPath, '.git', 'refs', 'tags');
+	await walkRefs(tagsDir, '', tags);
+
+	// Also read packed-refs for tags that have been packed
+	const packedRefsPath = join(repoPath, '.git', 'packed-refs');
+	try {
+		const content = await readFile(packedRefsPath, 'utf-8');
+		for (const line of content.split('\n')) {
+			if (line.startsWith('#') || line.startsWith('^')) continue;
+			const match = line.match(/^[0-9a-f]+ refs\/tags\/(.+)$/);
+			if (match) tags.add(match[1]);
+		}
+	} catch {
+		// packed-refs may not exist
+	}
+
+	return [...tags].sort();
+}
+
+/**
  * List local branch names from .git/refs/heads/ (recursive) and packed-refs.
  */
 export async function listLocalBranches(repoPath: string): Promise<string[]> {
@@ -135,6 +220,17 @@ export async function gitCheckout(
 		// Create local tracking branch from remote
 		await execFileAsync('git', ['-C', repoPath, 'checkout', '-b', branch, `origin/${branch}`]);
 	}
+}
+
+/**
+ * Checkout a tag (results in detached HEAD).
+ * Validates tag name format to prevent injection.
+ */
+export async function gitCheckoutTag(repoPath: string, tag: string): Promise<void> {
+	if (!/^[\w\-/.]+$/.test(tag)) {
+		throw new Error(`Invalid tag name: "${tag}"`);
+	}
+	await execFileAsync('git', ['-C', repoPath, 'checkout', `tags/${tag}`]);
 }
 
 /**

@@ -16,6 +16,8 @@ export interface RepositoryData {
 	hasDevcontainer: boolean;
 	isRunning: boolean;
 	currentBranch?: string;
+	/** Current tag when HEAD is detached on a tag */
+	currentTag?: string;
 	/** Matched container ID (short) when a container exists for this repo */
 	containerId?: string;
 	/** Container state when a container exists (e.g. 'running', 'exited') */

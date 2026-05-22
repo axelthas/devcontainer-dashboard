@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ChevronRight, ChevronDown, FolderGit2, GitBranch, Play, Loader, RefreshCw, Trash2, Loader2, RotateCcw, Package, ArrowUpRight } from 'lucide-svelte';
+	import { ChevronRight, ChevronDown, FolderGit2, GitBranch, Tag, Play, Loader, RefreshCw, Trash2, Loader2, RotateCcw, Package, ArrowUpRight } from 'lucide-svelte';
 	import { untrack } from 'svelte';
 	import { generateId } from '$lib/index';
 	import type { ContainerData, LocalWorkspaceData, RepositoryData } from '$lib/types';
@@ -29,6 +29,7 @@
 	// Branch picker state
 	let branchPickerRepo = $state<string | null>(null);
 	let branchPickerBranches = $state<string[]>([]);
+	let branchPickerTags = $state<string[]>([]);
 	let branchPickerLoading = $state(false);
 	let checkoutInProgress = $state<string | null>(null);
 	let startingRepos = $state<Set<string>>(new Set());
@@ -101,11 +102,13 @@
 		branchPickerRepo = repoPath;
 		branchPickerLoading = true;
 		branchPickerBranches = [];
+		branchPickerTags = [];
 		try {
 			const res = await fetch(`/api/repos/branches?path=${encodeURIComponent(repoPath)}`);
 			if (res.ok) {
 				const data = await res.json();
 				branchPickerBranches = data.branches;
+				branchPickerTags = data.tags ?? [];
 			}
 		} finally {
 			branchPickerLoading = false;
@@ -130,7 +133,7 @@
 				workspaces = workspaces.map((ws) => ({
 					...ws,
 					repos: ws.repos.map((r) =>
-						r.path === repo.path ? { ...r, currentBranch: data.currentBranch } : r
+						r.path === repo.path ? { ...r, currentBranch: data.currentBranch, currentTag: data.currentTag } : r
 					)
 				}));
 			} else if (res.status === 409) {
@@ -151,7 +154,59 @@
 								...ws,
 								repos: ws.repos.map((r) =>
 									r.path === repo.path
-										? { ...r, currentBranch: forceData.currentBranch }
+										? { ...r, currentBranch: forceData.currentBranch, currentTag: forceData.currentTag }
+										: r
+								)
+							}));
+						}
+					}
+				}
+			}
+		} finally {
+			checkoutInProgress = null;
+			branchPickerRepo = null;
+		}
+	}
+
+	async function checkoutTag(repo: RepositoryData, tag: string) {
+		if (tag === repo.currentTag) {
+			branchPickerRepo = null;
+			return;
+		}
+		checkoutInProgress = repo.path;
+		try {
+			const res = await fetch('/api/repos/checkout', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ path: repo.path, tag })
+			});
+			if (res.ok) {
+				const data = await res.json();
+				workspaces = workspaces.map((ws) => ({
+					...ws,
+					repos: ws.repos.map((r) =>
+						r.path === repo.path ? { ...r, currentBranch: data.currentBranch, currentTag: data.currentTag } : r
+					)
+				}));
+			} else if (res.status === 409) {
+				const data = await res.json();
+				if (data.error === 'dirty') {
+					const proceed = confirm(
+						'Working tree has uncommitted changes. Force checkout anyway?'
+					);
+					if (proceed) {
+						const forceRes = await fetch('/api/repos/checkout', {
+							method: 'POST',
+							headers: { 'Content-Type': 'application/json' },
+							body: JSON.stringify({ path: repo.path, tag, force: true })
+						});
+						if (forceRes.ok) {
+							const forceData = await forceRes.json();
+							workspaces = workspaces.map((ws) => ({
+								...ws,
+								repos: ws.repos.map((r) =>
+									r.path === repo.path
+										? { ...r, currentBranch: forceData.currentBranch, currentTag: forceData.currentTag }
 										: r
 								)
 							}));
@@ -287,39 +342,60 @@
 
 								<!-- Branch column: fixed width, left-aligned so branches line up -->
 								<div class="w-[210px] shrink-0 flex items-center">
-									{#if repo.currentBranch}
+									{#if repo.currentBranch || repo.currentTag}
 										<div class="relative">
 											<button
 												onclick={() => openBranchPicker(repo.path)}
-												class="flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-[#e5e9f0] dark:bg-[#434c5e] text-[#5e81ac] dark:text-[#88c0d0] hover:bg-[#d8dee9] dark:hover:bg-[#4c566a] transition-colors border border-[#d8dee9] dark:border-[#4c566a]"
+												class="flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-[#e5e9f0] dark:bg-[#434c5e] {repo.currentTag ? 'text-[#a3be8c] dark:text-[#a3be8c]' : 'text-[#5e81ac] dark:text-[#88c0d0]'} hover:bg-[#d8dee9] dark:hover:bg-[#4c566a] transition-colors border border-[#d8dee9] dark:border-[#4c566a]"
 												type="button"
-												title={repo.currentBranch}
+												title={repo.currentBranch ?? repo.currentTag}
 											>
 												{#if checkoutInProgress === repo.path}
 													<Loader size={10} class="animate-spin" />
+												{:else if repo.currentTag}
+													<Tag size={10} />
 												{/if}
-												<span class="max-w-[180px] truncate">{repo.currentBranch}</span>
+												<span class="max-w-[180px] truncate">{repo.currentBranch ?? repo.currentTag}</span>
 												<ChevronDown size={10} />
 											</button>
 											{#if branchPickerRepo === repo.path}
-												<div class="absolute top-full left-0 mt-1 z-20 w-56 max-h-48 overflow-y-auto rounded-lg border border-[#d8dee9] dark:border-[#4c566a] bg-white dark:bg-[#3b4252] shadow-lg">
+												<div class="absolute top-full left-0 mt-1 z-20 w-56 max-h-60 overflow-y-auto rounded-lg border border-[#d8dee9] dark:border-[#4c566a] bg-white dark:bg-[#3b4252] shadow-lg">
 													{#if branchPickerLoading}
 														<div class="px-3 py-2 text-xs text-[#4c566a] dark:text-[#d8dee9]/60">Loading…</div>
 													{:else}
-														{#each branchPickerBranches as branch}
-															<button
-																onclick={() => checkoutBranch(repo, branch)}
-																class="w-full text-left px-3 py-1.5 text-xs hover:bg-[#e5e9f0] dark:hover:bg-[#434c5e] transition-colors {branch === repo.currentBranch ? 'font-bold text-[#88c0d0]' : 'text-[#2e3440] dark:text-[#d8dee9]'}"
-																type="button"
-															>
-																{branch}
-																{#if branch === repo.currentBranch}
-																	<span class="text-[#a3be8c] ml-1">✓</span>
-																{/if}
-															</button>
-														{/each}
-														{#if branchPickerBranches.length === 0}
-															<div class="px-3 py-2 text-xs text-[#4c566a] dark:text-[#d8dee9]/60 italic">No branches found</div>
+														{#if branchPickerBranches.length > 0}
+															<div class="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-[#4c566a] dark:text-[#d8dee9]/50 border-b border-[#d8dee9] dark:border-[#4c566a]">Branches</div>
+															{#each branchPickerBranches as branch}
+																<button
+																	onclick={() => checkoutBranch(repo, branch)}
+																	class="w-full text-left px-3 py-1.5 text-xs hover:bg-[#e5e9f0] dark:hover:bg-[#434c5e] transition-colors {branch === repo.currentBranch ? 'font-bold text-[#88c0d0]' : 'text-[#2e3440] dark:text-[#d8dee9]'}"
+																	type="button"
+																>
+																	{branch}
+																	{#if branch === repo.currentBranch}
+																		<span class="text-[#a3be8c] ml-1">✓</span>
+																	{/if}
+																</button>
+															{/each}
+														{/if}
+														{#if branchPickerTags.length > 0}
+															<div class="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-[#4c566a] dark:text-[#d8dee9]/50 border-b border-[#d8dee9] dark:border-[#4c566a] {branchPickerBranches.length > 0 ? 'border-t' : ''}">Tags</div>
+															{#each branchPickerTags as tagName}
+																<button
+																	onclick={() => checkoutTag(repo, tagName)}
+																	class="w-full text-left px-3 py-1.5 text-xs hover:bg-[#e5e9f0] dark:hover:bg-[#434c5e] transition-colors flex items-center gap-1 {tagName === repo.currentTag ? 'font-bold text-[#a3be8c]' : 'text-[#2e3440] dark:text-[#d8dee9]'}"
+																	type="button"
+																>
+																	<Tag size={10} class="shrink-0" />
+																	{tagName}
+																	{#if tagName === repo.currentTag}
+																		<span class="text-[#a3be8c] ml-1">✓</span>
+																	{/if}
+																</button>
+															{/each}
+														{/if}
+														{#if branchPickerBranches.length === 0 && branchPickerTags.length === 0}
+															<div class="px-3 py-2 text-xs text-[#4c566a] dark:text-[#d8dee9]/60 italic">No branches or tags found</div>
 														{/if}
 													{/if}
 												</div>
