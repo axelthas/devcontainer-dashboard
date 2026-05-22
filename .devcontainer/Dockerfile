@@ -44,6 +44,7 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     python3 \
     python3.12-venv \
+    python3-pip-whl \
     && rm -rf /var/lib/apt/lists/*
 
 
