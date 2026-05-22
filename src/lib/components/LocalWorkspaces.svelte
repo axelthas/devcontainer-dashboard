@@ -1,19 +1,24 @@
 <script lang="ts">
-	import { ChevronRight, ChevronDown, FolderGit2, GitBranch, Play, Loader, RefreshCw, Trash2, Loader2, RotateCcw, Package } from 'lucide-svelte';
+	import { ChevronRight, ChevronDown, FolderGit2, GitBranch, Play, Loader, RefreshCw, Trash2, Loader2, RotateCcw, Package, ArrowUpRight } from 'lucide-svelte';
 	import { untrack } from 'svelte';
 	import { generateId } from '$lib/index';
-	import type { LocalWorkspaceData, RepositoryData } from '$lib/types';
+	import type { ContainerData, LocalWorkspaceData, RepositoryData } from '$lib/types';
 	import BootstrapStatus from './BootstrapStatus.svelte';
+	import ServiceButton from './ServiceButton.svelte';
 
 	interface Props {
 		workspaceRoot: string;
 		workspaces: LocalWorkspaceData[];
+		containers: ContainerData[];
+		hostname: string;
 		onOpenTerminal: (id: string, command: string, name: string, cwd: string) => void;
 		onRunInTerminal: (command: string, name: string) => void;
 		onBootstrap?: () => void;
+		onScrollToContainer?: (containerId: string) => void;
+		onRefreshContainers?: () => Promise<void>;
 	}
 
-	let { workspaceRoot, workspaces: initialWorkspaces, onOpenTerminal, onRunInTerminal, onBootstrap }: Props = $props();
+	let { workspaceRoot, workspaces: initialWorkspaces, containers, hostname, onOpenTerminal, onRunInTerminal, onBootstrap, onScrollToContainer, onRefreshContainers }: Props = $props();
 
 	let workspaces = $state<LocalWorkspaceData[]>(untrack(() => initialWorkspaces));
 	let expanded = $state<Set<string>>(new Set());
@@ -26,6 +31,12 @@
 	let branchPickerBranches = $state<string[]>([]);
 	let branchPickerLoading = $state(false);
 	let checkoutInProgress = $state<string | null>(null);
+	let startingRepos = $state<Set<string>>(new Set());
+
+	/** Find matching container for a repo by localWorkspacePath */
+	function findContainerForRepo(repoPath: string): ContainerData | undefined {
+		return containers.find((c) => c.isDevcontainer && c.localWorkspacePath === repoPath);
+	}
 
 	async function refresh() {
 		refreshing = true;
@@ -52,6 +63,16 @@
 			onOpenTerminal(id, command, repoName, repoPath);
 		} finally {
 			buildingRepos = new Set([...buildingRepos].filter((p) => p !== repoPath));
+		}
+	}
+
+	async function startContainer(repoPath: string, containerId: string) {
+		startingRepos = new Set([...startingRepos, repoPath]);
+		try {
+			await fetch(`/api/containers/${containerId}/start`, { method: 'POST' });
+			if (onRefreshContainers) await onRefreshContainers();
+		} finally {
+			startingRepos = new Set([...startingRepos].filter((p) => p !== repoPath));
 		}
 	}
 
@@ -252,8 +273,9 @@
 							</div>
 						{/if}
 						{#each ws.repos as repo}
+							{@const matchedContainer = findContainerForRepo(repo.path)}
 							<div
-								class="flex items-center h-10 px-8 border-b border-[#d8dee9]/60 dark:border-[#4c566a]/60 last:border-b-0"
+								class="flex items-center min-h-[2.5rem] py-1.5 px-8 border-b border-[#d8dee9]/60 dark:border-[#4c566a]/60 last:border-b-0"
 							>
 								<!-- Repo name: takes available space -->
 								<div class="flex items-center gap-2 min-w-0 w-[200px] shrink-0">
@@ -306,19 +328,57 @@
 									{/if}
 								</div>
 
+								<!-- Service buttons (when container exists) -->
+								{#if matchedContainer && Object.keys(matchedContainer.ports).length > 0}
+									<div class="flex flex-wrap gap-1.5 mx-3">
+										{#each Object.entries(matchedContainer.ports) as [containerPort, hostPort]}
+											<ServiceButton
+												{containerPort}
+												{hostPort}
+												{hostname}
+												running={matchedContainer.state === 'running'}
+												variant="row"
+												containerName={matchedContainer.name}
+												projectName={matchedContainer.projectName}
+												workspacePath={matchedContainer.localWorkspacePath}
+												allPorts={matchedContainer.ports}
+											/>
+										{/each}
+									</div>
+								{/if}
+
 								<!-- Action column: right-aligned -->
-								<div class="ml-auto shrink-0 flex items-center justify-end">
+								<div class="ml-auto shrink-0 flex items-center justify-end gap-2">
 									{#if !repo.hasDevcontainer}
 										<span class="text-xs text-[#4c566a] dark:text-[#d8dee9]/40 italic whitespace-nowrap"
 											>No configuration</span
 										>
-									{:else if repo.isRunning}
-										<span
-											class="text-xs font-medium text-[#a3be8c] flex items-center gap-1.5 bg-[#a3be8c]/10 px-2 py-1 rounded-full border border-[#a3be8c]/20 whitespace-nowrap"
+									{:else if matchedContainer && matchedContainer.state === 'running'}
+										<button
+											onclick={() => onScrollToContainer?.(matchedContainer.id)}
+											class="text-xs font-medium text-[#a3be8c] flex items-center gap-1.5 bg-[#a3be8c]/10 px-2 py-1 rounded-full border border-[#a3be8c]/20 whitespace-nowrap hover:bg-[#a3be8c]/20 transition-colors cursor-pointer"
+											type="button"
+											title="Scroll to devcontainer"
 										>
 											<span class="w-1.5 h-1.5 rounded-full bg-[#a3be8c] inline-block"></span>
-											Active Above
-										</span>
+											Running
+											<ArrowUpRight size={12} />
+										</button>
+									{:else if matchedContainer && matchedContainer.state !== 'running'}
+										<button
+											onclick={() => startContainer(repo.path, matchedContainer.id)}
+											disabled={startingRepos.has(repo.path)}
+											class="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-[#a3be8c] hover:bg-[#a3be8c]/80 text-white transition-colors disabled:opacity-60 disabled:cursor-wait whitespace-nowrap"
+											type="button"
+										>
+											{#if startingRepos.has(repo.path)}
+												<Loader size={12} class="animate-spin" />
+												Starting…
+											{:else}
+												<Play size={12} />
+												Start
+											{/if}
+										</button>
 									{:else}
 										<button
 											onclick={() => buildAndStart(repo.path, repo.name)}
@@ -328,7 +388,7 @@
 										>
 											{#if buildingRepos.has(repo.path)}
 												<Loader size={12} class="animate-spin" />
-												Starting…
+												Building…
 											{:else}
 												<Play size={12} />
 												Build &amp; Start

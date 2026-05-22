@@ -42,6 +42,7 @@
 </script>
 
 <div
+	data-container-id={container.id}
 	class="flex flex-col rounded-2xl border transition-all duration-300
 		{isRunning
 		? 'border-[#d8dee9] bg-white shadow-md hover:border-[#81a1c1] hover:shadow-lg dark:border-[#4c566a] dark:bg-[#3b4252] dark:hover:border-[#81a1c1]/50'

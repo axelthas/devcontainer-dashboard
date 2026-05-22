@@ -155,6 +155,14 @@
 		addTerminalSession({ id, name, command, cwd });
 		openTerminalWith(id);
 	}
+
+	function scrollToContainer(containerId: string) {
+		const el = document.querySelector(`[data-container-id="${containerId}"]`);
+		if (!el) return;
+		el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+		el.classList.add('highlight-flash');
+		setTimeout(() => el.classList.remove('highlight-flash'), 1500);
+	}
 </script>
 
 <div class={dark ? 'dark' : ''}>
@@ -290,9 +298,13 @@
 			<LocalWorkspaces
 				workspaceRoot={WORKSPACE_ROOT}
 				workspaces={initialWorkspaces}
+				{containers}
+				{hostname}
 				onOpenTerminal={handleOpenTerminal}
 				onRunInTerminal={handleRunInTerminal}
 				onBootstrap={() => (bootstrapModalOpen = true)}
+				onScrollToContainer={scrollToContainer}
+				onRefreshContainers={refreshContainers}
 			/>
 
 			<!-- Section 3: Sandbox Services -->

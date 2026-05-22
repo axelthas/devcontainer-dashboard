@@ -13,3 +13,13 @@
 .animate-spin {
 	animation: spin 1s linear infinite;
 }
+
+@keyframes highlight-flash-anim {
+	0% { box-shadow: 0 0 0 0 rgba(136, 192, 208, 0); }
+	20% { box-shadow: 0 0 0 4px rgba(136, 192, 208, 0.5); }
+	100% { box-shadow: 0 0 0 0 rgba(136, 192, 208, 0); }
+}
+
+.highlight-flash {
+	animation: highlight-flash-anim 1.5s ease-out;
+}

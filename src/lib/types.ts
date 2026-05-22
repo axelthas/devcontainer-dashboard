@@ -16,6 +16,12 @@ export interface RepositoryData {
 	hasDevcontainer: boolean;
 	isRunning: boolean;
 	currentBranch?: string;
+	/** Matched container ID (short) when a container exists for this repo */
+	containerId?: string;
+	/** Container state when a container exists (e.g. 'running', 'exited') */
+	containerState?: string;
+	/** Port mappings from the matched container */
+	containerPorts?: Record<string, string>;
 }
 
 export interface LocalWorkspaceData {
