@@ -57,7 +57,7 @@
 				>
 			</h4>
 			{#if container.localWorkspacePath}
-				<p class="text-xs font-mono truncate text-[#4c566a] dark:text-[#d8dee9]/50">{container.localWorkspacePath}</p>
+				<p class="text-xs font-mono truncate text-[#4c566a] dark:text-[#d8dee9]/50">{container.localWorkspacePath.split('/').filter(Boolean).at(-2) ?? container.localWorkspacePath}</p>
 			{/if}
 		</div>
 	</div>
