@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { Sun, Moon, Layers, Box, Cpu, Power, Server, LayoutGrid, List } from 'lucide-svelte';
 	import { untrack } from 'svelte';
-	import { generateId } from '$lib/index';
 	import type { ContainerData, LocalWorkspaceData } from '$lib/types';
 	import DevcontainerCard from '$lib/components/DevcontainerCard.svelte';
 	import DevcontainerRow from '$lib/components/DevcontainerRow.svelte';
@@ -27,7 +26,7 @@
 	// polling handles subsequent updates
 	let containers = $state<ContainerData[]>(untrack(() => data.containers));
 	const hostname = data.hostname;
-	const initialWorkspaces = untrack(() => data.workspaces);
+	let workspaces = $state<LocalWorkspaceData[]>(untrack(() => data.workspaces));
 	let dark = $state(true);
 
 	const THEME_KEY = 'devcontainer-dashboard-theme';
@@ -80,6 +79,22 @@
 			containers = await res.json();
 		}
 	}
+
+	async function refreshWorkspaces() {
+		const res = await fetch('/api/workspaces');
+		if (res.ok) {
+			workspaces = await res.json();
+		}
+	}
+
+	// Auto-poll workspaces every 3 s while any bootstrap run is active
+	const hasActiveBuilds = $derived(workspaces.some((w) => w.buildSession?.status === 'running'));
+
+	$effect(() => {
+		if (!hasActiveBuilds) return;
+		const interval = setInterval(refreshWorkspaces, 3000);
+		return () => clearInterval(interval);
+	});
 
 	function sortContainers(list: ContainerData[]) {
 		return [...list].sort((a, b) => {
@@ -145,10 +160,9 @@
 		if (terminalSessions.length === 0) terminalOpen = false;
 	}
 
-	function handleRunInTerminal(command: string, name: string) {
-		const id = generateId();
-		addTerminalSession({ id, name, command, cwd: WORKSPACE_ROOT });
-		openTerminalWith(id);
+	function handleRunBackground(_id: string, _workspacePath: string, _name: string) {
+		// Workspace row is tracked server-side; refresh so it appears immediately
+		refreshWorkspaces();
 	}
 
 	function handleOpenTerminal(id: string, command: string, name: string, cwd: string) {
@@ -247,17 +261,23 @@
 							class="w-48 border-none bg-transparent text-xs text-[#4c566a] placeholder-[#4c566a]/50 outline-none dark:text-[#d8dee9]/70 dark:placeholder-[#d8dee9]/30"
 						/>
 					</div>
-					<div class="ml-auto flex items-center gap-1 rounded-lg border border-[#d8dee9] bg-[#eceff4] p-0.5 dark:border-[#434c5e] dark:bg-[#2e3440]">
+					<div
+						class="ml-auto flex items-center gap-1 rounded-lg border border-[#d8dee9] bg-[#eceff4] p-0.5 dark:border-[#434c5e] dark:bg-[#2e3440]"
+					>
 						<button
 							onclick={() => (devcontainerView = 'grid')}
-							class="rounded-md p-1.5 transition-colors {devcontainerView === 'grid' ? 'bg-white text-[#5e81ac] shadow-sm dark:bg-[#3b4252] dark:text-[#81a1c1]' : 'text-[#4c566a] hover:text-[#2e3440] dark:text-[#d8dee9]/60 dark:hover:text-[#eceff4]'}"
+							class="rounded-md p-1.5 transition-colors {devcontainerView === 'grid'
+								? 'bg-white text-[#5e81ac] shadow-sm dark:bg-[#3b4252] dark:text-[#81a1c1]'
+								: 'text-[#4c566a] hover:text-[#2e3440] dark:text-[#d8dee9]/60 dark:hover:text-[#eceff4]'}"
 							title="Grid view"
 						>
 							<LayoutGrid size={16} />
 						</button>
 						<button
 							onclick={() => (devcontainerView = 'list')}
-							class="rounded-md p-1.5 transition-colors {devcontainerView === 'list' ? 'bg-white text-[#5e81ac] shadow-sm dark:bg-[#3b4252] dark:text-[#81a1c1]' : 'text-[#4c566a] hover:text-[#2e3440] dark:text-[#d8dee9]/60 dark:hover:text-[#eceff4]'}"
+							class="rounded-md p-1.5 transition-colors {devcontainerView === 'list'
+								? 'bg-white text-[#5e81ac] shadow-sm dark:bg-[#3b4252] dark:text-[#81a1c1]'
+								: 'text-[#4c566a] hover:text-[#2e3440] dark:text-[#d8dee9]/60 dark:hover:text-[#eceff4]'}"
 							title="List view"
 						>
 							<List size={16} />
@@ -279,7 +299,9 @@
 						{/each}
 					</div>
 				{:else}
-					<div class="overflow-hidden rounded-xl border border-[#d8dee9] bg-white shadow-sm dark:border-[#4c566a] dark:bg-[#3b4252]">
+					<div
+						class="overflow-hidden rounded-xl border border-[#d8dee9] bg-white shadow-sm dark:border-[#4c566a] dark:bg-[#3b4252]"
+					>
 						<div class="divide-y divide-[#d8dee9] dark:divide-[#4c566a]">
 							{#each devcontainers as container (container.id)}
 								<DevcontainerRow
@@ -297,11 +319,11 @@
 			<!-- Section 2: Local Workspaces -->
 			<LocalWorkspaces
 				workspaceRoot={WORKSPACE_ROOT}
-				workspaces={initialWorkspaces}
+				{workspaces}
 				{containers}
 				{hostname}
 				onOpenTerminal={handleOpenTerminal}
-				onRunInTerminal={handleRunInTerminal}
+				onRefreshWorkspaces={refreshWorkspaces}
 				onBootstrap={() => (bootstrapModalOpen = true)}
 				onScrollToContainer={scrollToContainer}
 				onRefreshContainers={refreshContainers}
@@ -356,7 +378,7 @@
 	{#if bootstrapModalOpen}
 		<BootstrapModal
 			onClose={() => (bootstrapModalOpen = false)}
-			onRunInTerminal={handleRunInTerminal}
+			onRunBackground={handleRunBackground}
 		/>
 	{/if}
 

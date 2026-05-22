@@ -1,17 +1,23 @@
 [
-  {
-    "id": "preset-1",
-    "name": "My Bootstrap Repo",
-    "command": "dev-bootstrap init git@github.com:myorg/myrepo.git {destDir}"
-  },
-  {
-    "id": "preset-2",
-    "name": "Full Stack Template",
-    "command": "dev-bootstrap init git@github.com:myorg/fullstack.git --all {destDir}"
-  },
-  {
-    "id": "preset-3",
-    "name": "Minimal Setup",
-    "command": "dev-bootstrap init git@github.com:myorg/minimal.git {destDir}"
-  }
+	{
+		"id": "preset-1",
+		"name": "My Bootstrap Repo",
+		"command": "dev-bootstrap init git@github.com:myorg/myrepo.git {destDir}"
+	},
+	{
+		"id": "preset-2",
+		"name": "Full Stack Template",
+		"command": "dev-bootstrap init git@github.com:myorg/fullstack.git --all {destDir}"
+	},
+	{
+		"id": "preset-3",
+		"name": "Minimal Setup",
+		"command": "dev-bootstrap init git@github.com:myorg/minimal.git {destDir}"
+	},
+	{
+		"id": "preset-4",
+		"name": "Interactive Setup",
+		"command": "dev-bootstrap init --interactive git@github.com:myorg/wizard.git {destDir}",
+		"interactive": true
+	}
 ]

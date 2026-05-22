@@ -1,10 +1,26 @@
 <script lang="ts">
-	import { ChevronRight, ChevronDown, FolderGit2, GitBranch, Tag, Play, Loader, RefreshCw, Trash2, Loader2, RotateCcw, Package, ArrowUpRight } from 'lucide-svelte';
+	import {
+		ChevronRight,
+		ChevronDown,
+		FolderGit2,
+		GitBranch,
+		Tag,
+		Play,
+		Loader,
+		RefreshCw,
+		Trash2,
+		Loader2,
+		RotateCcw,
+		Package,
+		ArrowUpRight,
+		TriangleAlert
+	} from 'lucide-svelte';
 	import { untrack } from 'svelte';
 	import { generateId } from '$lib/index';
 	import type { ContainerData, LocalWorkspaceData, RepositoryData } from '$lib/types';
 	import BootstrapStatus from './BootstrapStatus.svelte';
 	import ServiceButton from './ServiceButton.svelte';
+	import TerminalTab from './TerminalTab.svelte';
 
 	interface Props {
 		workspaceRoot: string;
@@ -12,15 +28,30 @@
 		containers: ContainerData[];
 		hostname: string;
 		onOpenTerminal: (id: string, command: string, name: string, cwd: string) => void;
-		onRunInTerminal: (command: string, name: string) => void;
+		onRefreshWorkspaces: () => void;
 		onBootstrap?: () => void;
 		onScrollToContainer?: (containerId: string) => void;
 		onRefreshContainers?: () => Promise<void>;
 	}
 
-	let { workspaceRoot, workspaces: initialWorkspaces, containers, hostname, onOpenTerminal, onRunInTerminal, onBootstrap, onScrollToContainer, onRefreshContainers }: Props = $props();
+	let {
+		workspaceRoot,
+		workspaces: workspacesProp,
+		containers,
+		hostname,
+		onOpenTerminal,
+		onRefreshWorkspaces,
+		onBootstrap,
+		onScrollToContainer,
+		onRefreshContainers
+	}: Props = $props();
 
-	let workspaces = $state<LocalWorkspaceData[]>(untrack(() => initialWorkspaces));
+	let workspaces = $state<LocalWorkspaceData[]>(untrack(() => workspacesProp));
+
+	// Keep in sync with parent (active-build auto-polling, etc.)
+	$effect(() => {
+		workspaces = workspacesProp;
+	});
 	let expanded = $state<Set<string>>(new Set());
 	let refreshing = $state(false);
 	let buildingRepos = $state<Set<string>>(new Set());
@@ -42,8 +73,7 @@
 	async function refresh() {
 		refreshing = true;
 		try {
-			const res = await fetch('/api/workspaces');
-			if (res.ok) workspaces = await res.json();
+			onRefreshWorkspaces();
 		} finally {
 			refreshing = false;
 		}
@@ -133,15 +163,15 @@
 				workspaces = workspaces.map((ws) => ({
 					...ws,
 					repos: ws.repos.map((r) =>
-						r.path === repo.path ? { ...r, currentBranch: data.currentBranch, currentTag: data.currentTag } : r
+						r.path === repo.path
+							? { ...r, currentBranch: data.currentBranch, currentTag: data.currentTag }
+							: r
 					)
 				}));
 			} else if (res.status === 409) {
 				const data = await res.json();
 				if (data.error === 'dirty') {
-					const proceed = confirm(
-						'Working tree has uncommitted changes. Force checkout anyway?'
-					);
+					const proceed = confirm('Working tree has uncommitted changes. Force checkout anyway?');
 					if (proceed) {
 						const forceRes = await fetch('/api/repos/checkout', {
 							method: 'POST',
@@ -154,7 +184,11 @@
 								...ws,
 								repos: ws.repos.map((r) =>
 									r.path === repo.path
-										? { ...r, currentBranch: forceData.currentBranch, currentTag: forceData.currentTag }
+										? {
+												...r,
+												currentBranch: forceData.currentBranch,
+												currentTag: forceData.currentTag
+											}
 										: r
 								)
 							}));
@@ -185,15 +219,15 @@
 				workspaces = workspaces.map((ws) => ({
 					...ws,
 					repos: ws.repos.map((r) =>
-						r.path === repo.path ? { ...r, currentBranch: data.currentBranch, currentTag: data.currentTag } : r
+						r.path === repo.path
+							? { ...r, currentBranch: data.currentBranch, currentTag: data.currentTag }
+							: r
 					)
 				}));
 			} else if (res.status === 409) {
 				const data = await res.json();
 				if (data.error === 'dirty') {
-					const proceed = confirm(
-						'Working tree has uncommitted changes. Force checkout anyway?'
-					);
+					const proceed = confirm('Working tree has uncommitted changes. Force checkout anyway?');
 					if (proceed) {
 						const forceRes = await fetch('/api/repos/checkout', {
 							method: 'POST',
@@ -206,7 +240,11 @@
 								...ws,
 								repos: ws.repos.map((r) =>
 									r.path === repo.path
-										? { ...r, currentBranch: forceData.currentBranch, currentTag: forceData.currentTag }
+										? {
+												...r,
+												currentBranch: forceData.currentBranch,
+												currentTag: forceData.currentTag
+											}
 										: r
 								)
 							}));
@@ -220,25 +258,32 @@
 		}
 	}
 
+	function runInTerminal(command: string, name: string) {
+		const id = generateId();
+		onOpenTerminal(id, command, name, workspaceRoot);
+	}
+
 	function rerunBootstrap(ws: LocalWorkspaceData) {
 		const command = `devbootstrap --rerun -d ${ws.path}`;
 		const id = generateId();
 		onOpenTerminal(id, command, `Rerun: ${ws.name}`, ws.path);
 	}
+
+
 </script>
 
 <section>
-	<div class="flex items-center gap-2 mb-4 border-b border-[#d8dee9] dark:border-[#4c566a] pb-2">
+	<div class="mb-4 flex items-center gap-2 border-b border-[#d8dee9] pb-2 dark:border-[#4c566a]">
 		<FolderGit2 size={20} class="text-[#a3be8c] dark:text-[#a3be8c]" />
 		<h2 class="text-xl font-extrabold text-[#2e3440] dark:text-[#eceff4]">Local Workspaces</h2>
-		<span class="text-sm font-medium text-[#4c566a] dark:text-[#d8dee9]/60 ml-1"
+		<span class="ml-1 text-sm font-medium text-[#4c566a] dark:text-[#d8dee9]/60"
 			>({workspaceRoot})</span
 		>
 		<button
 			onclick={refresh}
 			disabled={refreshing}
 			type="button"
-			class="ml-auto p-1.5 rounded text-[#4c566a] dark:text-[#d8dee9]/60 hover:text-[#2e3440] dark:hover:text-[#eceff4] hover:bg-[#e5e9f0] dark:hover:bg-[#4c566a] transition-colors disabled:opacity-40"
+			class="ml-auto rounded p-1.5 text-[#4c566a] transition-colors hover:bg-[#e5e9f0] hover:text-[#2e3440] disabled:opacity-40 dark:text-[#d8dee9]/60 dark:hover:bg-[#4c566a] dark:hover:text-[#eceff4]"
 			aria-label="Refresh workspaces"
 		>
 			<RefreshCw size={15} class={refreshing ? 'animate-spin' : ''} />
@@ -247,23 +292,25 @@
 
 	<!-- Bootstrap tool info bar -->
 	<div class="mb-4">
-		<BootstrapStatus {onRunInTerminal} {onBootstrap} />
+		<BootstrapStatus onRunInTerminal={runInTerminal} {onBootstrap} />
 	</div>
 
 	{#if workspaces.length === 0}
-		<p class="text-[#4c566a] dark:text-[#d8dee9]/60 italic">
+		<p class="text-[#4c566a] italic dark:text-[#d8dee9]/60">
 			No workspaces found in {workspaceRoot}.
 		</p>
 	{:else}
 		<div
-			class="rounded-xl border border-[#d8dee9] dark:border-[#4c566a] bg-white dark:bg-[#3b4252] shadow-sm overflow-hidden"
+			class="overflow-hidden rounded-xl border border-[#d8dee9] bg-white shadow-sm dark:border-[#4c566a] dark:bg-[#3b4252]"
 		>
 			{#each workspaces as ws (ws.id)}
 				<!-- Task Workspace header -->
 				<div
-					class="w-full flex items-center justify-between px-5 py-3 hover:bg-[#e5e9f0] dark:hover:bg-[#434c5e] transition-colors border-b border-[#d8dee9] dark:border-[#4c566a] last:border-b-0 cursor-pointer"
+					class="flex w-full cursor-pointer items-center justify-between border-b border-[#d8dee9] px-5 py-3 transition-colors last:border-b-0 hover:bg-[#e5e9f0] dark:border-[#4c566a] dark:hover:bg-[#434c5e]"
 					onclick={() => toggleExpand(ws.id)}
-					onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleExpand(ws.id); }}
+					onkeydown={(e) => {
+						if (e.key === 'Enter' || e.key === ' ') toggleExpand(ws.id);
+					}}
 					role="button"
 					tabindex="0"
 				>
@@ -275,18 +322,36 @@
 						{/if}
 						<span class="font-semibold text-[#2e3440] dark:text-[#eceff4]">{ws.name}</span>
 						<span class="text-xs text-[#4c566a] dark:text-[#d8dee9]/60">{ws.path}</span>
+						{#if ws.buildSession?.status === 'running'}
+							<span
+								class="flex items-center gap-1 rounded-full border border-[#ebcb8b]/30 bg-[#ebcb8b]/10 px-2 py-0.5 text-xs font-medium text-[#ebcb8b]"
+							>
+								<Loader size={10} class="animate-spin" />
+								Building…
+							</span>
+						{:else if ws.buildSession?.status === 'failed'}
+							<span
+								class="flex items-center gap-1 rounded-full border border-[#bf616a]/30 bg-[#bf616a]/10 px-2 py-0.5 text-xs font-medium text-[#bf616a]"
+							>
+								<TriangleAlert size={10} />
+								Build Failed
+							</span>
+						{/if}
 					</div>
 					<div class="flex items-center gap-2">
 						<span
-							class="text-xs font-medium bg-[#d8dee9] dark:bg-[#4c566a] text-[#4c566a] dark:text-[#d8dee9] px-2 py-0.5 rounded-full"
+							class="rounded-full bg-[#d8dee9] px-2 py-0.5 text-xs font-medium text-[#4c566a] dark:bg-[#4c566a] dark:text-[#d8dee9]"
 						>
 							{ws.repos.length}
 							{ws.repos.length === 1 ? 'Repo' : 'Repos'}
 						</span>
 						<button
-							onclick={(e) => { e.stopPropagation(); deleteWorkspace(ws); }}
+							onclick={(e) => {
+								e.stopPropagation();
+								deleteWorkspace(ws);
+							}}
 							disabled={deletingWorkspaces.has(ws.id)}
-							class="p-1.5 rounded-lg transition-colors text-[#4c566a] dark:text-[#d8dee9]/60 hover:text-[#bf616a] dark:hover:text-[#bf616a] hover:bg-[#e5e9f0] dark:hover:bg-[#3b4252] disabled:opacity-50 disabled:cursor-not-allowed"
+							class="rounded-lg p-1.5 text-[#4c566a] transition-colors hover:bg-[#e5e9f0] hover:text-[#bf616a] disabled:cursor-not-allowed disabled:opacity-50 dark:text-[#d8dee9]/60 dark:hover:bg-[#3b4252] dark:hover:text-[#bf616a]"
 							title="Delete workspace"
 							type="button"
 						>
@@ -300,181 +365,242 @@
 				</div>
 
 				{#if expanded.has(ws.id)}
-					<div class="bg-[#f0f4f8] dark:bg-[#2e3440]">
-						{#if ws.solutionMetadata}
-							<!-- Solution metadata bar -->
-							<div class="px-8 py-3 border-b border-[#d8dee9]/60 dark:border-[#4c566a]/60 flex flex-wrap items-center gap-x-5 gap-y-2">
-								<div class="flex items-center gap-1.5">
-									<Package size={13} class="text-[#b48ead] dark:text-[#b48ead]" />
-									<span class="text-xs font-medium text-[#4c566a] dark:text-[#d8dee9]/70">Bootstrap:</span>
-									<span class="text-xs font-semibold text-[#2e3440] dark:text-[#eceff4]">{ws.solutionMetadata.bootstrap_version}</span>
-								</div>
-								<div class="flex items-center gap-1.5">
-									<span class="text-xs font-medium text-[#4c566a] dark:text-[#d8dee9]/70">Solution:</span>
-									<span class="text-xs font-semibold text-[#2e3440] dark:text-[#eceff4]">{ws.solutionMetadata.solution}</span>
-								</div>
-								<div class="flex items-center gap-1.5">
-									<span class="text-xs font-medium text-[#4c566a] dark:text-[#d8dee9]/70">Projects:</span>
-									<span class="text-xs font-semibold text-[#2e3440] dark:text-[#eceff4]">{ws.solutionMetadata.projects.length}</span>
-								</div>
-								<button
-									onclick={() => rerunBootstrap(ws)}
-									class="ml-auto flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-lg bg-[#b48ead]/15 text-[#b48ead] hover:bg-[#b48ead]/25 transition-colors border border-[#b48ead]/30"
-									type="button"
+					{#if ws.buildSession?.status === 'running' || ws.buildSession?.status === 'failed'}
+						<!-- Inline terminal view for running/failed bootstrap -->
+						<div class="border-b border-[#d8dee9] dark:border-[#4c566a]">
+							{#if ws.buildSession.status === 'failed'}
+								<div
+									class="flex items-center gap-2 border-b border-[#bf616a]/20 bg-[#bf616a]/10 px-5 py-2 text-[#bf616a]"
 								>
-									<RotateCcw size={12} />
-									Rerun Bootstrap
-								</button>
-							</div>
-						{/if}
-						{#each ws.repos as repo}
-							{@const matchedContainer = findContainerForRepo(repo.path)}
-							<div
-								class="flex items-center min-h-[2.5rem] py-1.5 px-8 border-b border-[#d8dee9]/60 dark:border-[#4c566a]/60 last:border-b-0"
-							>
-								<!-- Repo name: takes available space -->
-								<div class="flex items-center gap-2 min-w-0 w-[200px] shrink-0">
-									<GitBranch size={14} class="shrink-0 text-[#81a1c1] dark:text-[#88c0d0]" />
-									<span class="font-medium text-sm text-[#2e3440] dark:text-[#d8dee9] truncate"
-										>{repo.name}</span
-									>
+									<TriangleAlert size={14} />
+									<span class="text-sm font-medium">Bootstrap failed</span>
 								</div>
+							{/if}
+							<div class="h-64 overflow-hidden">
+								<TerminalTab sessionId={ws.buildSession.id} active={true} />
+							</div>
+						</div>
+					{:else}
+						<div class="bg-[#f0f4f8] dark:bg-[#2e3440]">
+							{#if ws.solutionMetadata}
+								<!-- Solution metadata bar -->
+								<div
+									class="flex flex-wrap items-center gap-x-5 gap-y-2 border-b border-[#d8dee9]/60 px-8 py-3 dark:border-[#4c566a]/60"
+								>
+									<div class="flex items-center gap-1.5">
+										<Package size={13} class="text-[#b48ead] dark:text-[#b48ead]" />
+										<span class="text-xs font-medium text-[#4c566a] dark:text-[#d8dee9]/70"
+											>Bootstrap:</span
+										>
+										<span class="text-xs font-semibold text-[#2e3440] dark:text-[#eceff4]"
+											>{ws.solutionMetadata.bootstrap_version}</span
+										>
+									</div>
+									<div class="flex items-center gap-1.5">
+										<span class="text-xs font-medium text-[#4c566a] dark:text-[#d8dee9]/70"
+											>Solution:</span
+										>
+										<span class="text-xs font-semibold text-[#2e3440] dark:text-[#eceff4]"
+											>{ws.solutionMetadata.solution}</span
+										>
+									</div>
+									<div class="flex items-center gap-1.5">
+										<span class="text-xs font-medium text-[#4c566a] dark:text-[#d8dee9]/70"
+											>Projects:</span
+										>
+										<span class="text-xs font-semibold text-[#2e3440] dark:text-[#eceff4]"
+											>{ws.solutionMetadata.projects.length}</span
+										>
+									</div>
+									<button
+										onclick={() => rerunBootstrap(ws)}
+										class="ml-auto flex items-center gap-1.5 rounded-lg border border-[#b48ead]/30 bg-[#b48ead]/15 px-2.5 py-1 text-xs font-medium text-[#b48ead] transition-colors hover:bg-[#b48ead]/25"
+										type="button"
+									>
+										<RotateCcw size={12} />
+										Rerun Bootstrap
+									</button>
+								</div>
+							{/if}
+							{#each ws.repos as repo}
+								{@const matchedContainer = findContainerForRepo(repo.path)}
+								<div
+									class="flex min-h-[2.5rem] items-center border-b border-[#d8dee9]/60 px-8 py-1.5 last:border-b-0 dark:border-[#4c566a]/60"
+								>
+									<!-- Repo name: takes available space -->
+									<div class="flex w-[200px] min-w-0 shrink-0 items-center gap-2">
+										<GitBranch size={14} class="shrink-0 text-[#81a1c1] dark:text-[#88c0d0]" />
+										<span class="truncate text-sm font-medium text-[#2e3440] dark:text-[#d8dee9]"
+											>{repo.name}</span
+										>
+									</div>
 
-								<!-- Branch column: fixed width, left-aligned so branches line up -->
-								<div class="w-[210px] shrink-0 flex items-center">
-									{#if repo.currentBranch || repo.currentTag}
-										<div class="relative">
-											<button
-												onclick={() => openBranchPicker(repo.path)}
-												class="flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-[#e5e9f0] dark:bg-[#434c5e] {repo.currentTag ? 'text-[#a3be8c] dark:text-[#a3be8c]' : 'text-[#5e81ac] dark:text-[#88c0d0]'} hover:bg-[#d8dee9] dark:hover:bg-[#4c566a] transition-colors border border-[#d8dee9] dark:border-[#4c566a]"
-												type="button"
-												title={repo.currentBranch ?? repo.currentTag}
-											>
-												{#if checkoutInProgress === repo.path}
-													<Loader size={10} class="animate-spin" />
-												{:else if repo.currentTag}
-													<Tag size={10} />
-												{/if}
-												<span class="max-w-[180px] truncate">{repo.currentBranch ?? repo.currentTag}</span>
-												<ChevronDown size={10} />
-											</button>
-											{#if branchPickerRepo === repo.path}
-												<div class="absolute top-full left-0 mt-1 z-20 w-56 max-h-60 overflow-y-auto rounded-lg border border-[#d8dee9] dark:border-[#4c566a] bg-white dark:bg-[#3b4252] shadow-lg">
-													{#if branchPickerLoading}
-														<div class="px-3 py-2 text-xs text-[#4c566a] dark:text-[#d8dee9]/60">Loading…</div>
-													{:else}
-														{#if branchPickerBranches.length > 0}
-															<div class="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-[#4c566a] dark:text-[#d8dee9]/50 border-b border-[#d8dee9] dark:border-[#4c566a]">Branches</div>
-															{#each branchPickerBranches as branch}
-																<button
-																	onclick={() => checkoutBranch(repo, branch)}
-																	class="w-full text-left px-3 py-1.5 text-xs hover:bg-[#e5e9f0] dark:hover:bg-[#434c5e] transition-colors {branch === repo.currentBranch ? 'font-bold text-[#88c0d0]' : 'text-[#2e3440] dark:text-[#d8dee9]'}"
-																	type="button"
-																>
-																	{branch}
-																	{#if branch === repo.currentBranch}
-																		<span class="text-[#a3be8c] ml-1">✓</span>
-																	{/if}
-																</button>
-															{/each}
-														{/if}
-														{#if branchPickerTags.length > 0}
-															<div class="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-[#4c566a] dark:text-[#d8dee9]/50 border-b border-[#d8dee9] dark:border-[#4c566a] {branchPickerBranches.length > 0 ? 'border-t' : ''}">Tags</div>
-															{#each branchPickerTags as tagName}
-																<button
-																	onclick={() => checkoutTag(repo, tagName)}
-																	class="w-full text-left px-3 py-1.5 text-xs hover:bg-[#e5e9f0] dark:hover:bg-[#434c5e] transition-colors flex items-center gap-1 {tagName === repo.currentTag ? 'font-bold text-[#a3be8c]' : 'text-[#2e3440] dark:text-[#d8dee9]'}"
-																	type="button"
-																>
-																	<Tag size={10} class="shrink-0" />
-																	{tagName}
-																	{#if tagName === repo.currentTag}
-																		<span class="text-[#a3be8c] ml-1">✓</span>
-																	{/if}
-																</button>
-															{/each}
-														{/if}
-														{#if branchPickerBranches.length === 0 && branchPickerTags.length === 0}
-															<div class="px-3 py-2 text-xs text-[#4c566a] dark:text-[#d8dee9]/60 italic">No branches or tags found</div>
-														{/if}
+									<!-- Branch column: fixed width, left-aligned so branches line up -->
+									<div class="flex w-[210px] shrink-0 items-center">
+										{#if repo.currentBranch || repo.currentTag}
+											<div class="relative">
+												<button
+													onclick={() => openBranchPicker(repo.path)}
+													class="flex items-center gap-1 rounded bg-[#e5e9f0] px-2 py-0.5 text-xs dark:bg-[#434c5e] {repo.currentTag
+														? 'text-[#a3be8c] dark:text-[#a3be8c]'
+														: 'text-[#5e81ac] dark:text-[#88c0d0]'} border border-[#d8dee9] transition-colors hover:bg-[#d8dee9] dark:border-[#4c566a] dark:hover:bg-[#4c566a]"
+													type="button"
+													title={repo.currentBranch ?? repo.currentTag}
+												>
+													{#if checkoutInProgress === repo.path}
+														<Loader size={10} class="animate-spin" />
+													{:else if repo.currentTag}
+														<Tag size={10} />
 													{/if}
-												</div>
-											{/if}
+													<span class="max-w-[180px] truncate"
+														>{repo.currentBranch ?? repo.currentTag}</span
+													>
+													<ChevronDown size={10} />
+												</button>
+												{#if branchPickerRepo === repo.path}
+													<div
+														class="absolute top-full left-0 z-20 mt-1 max-h-60 w-56 overflow-y-auto rounded-lg border border-[#d8dee9] bg-white shadow-lg dark:border-[#4c566a] dark:bg-[#3b4252]"
+													>
+														{#if branchPickerLoading}
+															<div class="px-3 py-2 text-xs text-[#4c566a] dark:text-[#d8dee9]/60">
+																Loading…
+															</div>
+														{:else}
+															{#if branchPickerBranches.length > 0}
+																<div
+																	class="border-b border-[#d8dee9] px-3 py-1.5 text-[10px] font-semibold tracking-wide text-[#4c566a] uppercase dark:border-[#4c566a] dark:text-[#d8dee9]/50"
+																>
+																	Branches
+																</div>
+																{#each branchPickerBranches as branch}
+																	<button
+																		onclick={() => checkoutBranch(repo, branch)}
+																		class="w-full px-3 py-1.5 text-left text-xs transition-colors hover:bg-[#e5e9f0] dark:hover:bg-[#434c5e] {branch ===
+																		repo.currentBranch
+																			? 'font-bold text-[#88c0d0]'
+																			: 'text-[#2e3440] dark:text-[#d8dee9]'}"
+																		type="button"
+																	>
+																		{branch}
+																		{#if branch === repo.currentBranch}
+																			<span class="ml-1 text-[#a3be8c]">✓</span>
+																		{/if}
+																	</button>
+																{/each}
+															{/if}
+															{#if branchPickerTags.length > 0}
+																<div
+																	class="border-b border-[#d8dee9] px-3 py-1.5 text-[10px] font-semibold tracking-wide text-[#4c566a] uppercase dark:border-[#4c566a] dark:text-[#d8dee9]/50 {branchPickerBranches.length >
+																	0
+																		? 'border-t'
+																		: ''}"
+																>
+																	Tags
+																</div>
+																{#each branchPickerTags as tagName}
+																	<button
+																		onclick={() => checkoutTag(repo, tagName)}
+																		class="flex w-full items-center gap-1 px-3 py-1.5 text-left text-xs transition-colors hover:bg-[#e5e9f0] dark:hover:bg-[#434c5e] {tagName ===
+																		repo.currentTag
+																			? 'font-bold text-[#a3be8c]'
+																			: 'text-[#2e3440] dark:text-[#d8dee9]'}"
+																		type="button"
+																	>
+																		<Tag size={10} class="shrink-0" />
+																		{tagName}
+																		{#if tagName === repo.currentTag}
+																			<span class="ml-1 text-[#a3be8c]">✓</span>
+																		{/if}
+																	</button>
+																{/each}
+															{/if}
+															{#if branchPickerBranches.length === 0 && branchPickerTags.length === 0}
+																<div
+																	class="px-3 py-2 text-xs text-[#4c566a] italic dark:text-[#d8dee9]/60"
+																>
+																	No branches or tags found
+																</div>
+															{/if}
+														{/if}
+													</div>
+												{/if}
+											</div>
+										{/if}
+									</div>
+
+									<!-- Service buttons (when container exists) -->
+									{#if matchedContainer && Object.keys(matchedContainer.ports).length > 0}
+										<div class="mx-3 flex flex-wrap gap-1.5">
+											{#each Object.entries(matchedContainer.ports) as [containerPort, hostPort]}
+												<ServiceButton
+													{containerPort}
+													{hostPort}
+													{hostname}
+													running={matchedContainer.state === 'running'}
+													variant="row"
+													containerName={matchedContainer.name}
+													projectName={matchedContainer.projectName}
+													workspacePath={matchedContainer.localWorkspacePath}
+													allPorts={matchedContainer.ports}
+												/>
+											{/each}
 										</div>
 									{/if}
-								</div>
 
-								<!-- Service buttons (when container exists) -->
-								{#if matchedContainer && Object.keys(matchedContainer.ports).length > 0}
-									<div class="flex flex-wrap gap-1.5 mx-3">
-										{#each Object.entries(matchedContainer.ports) as [containerPort, hostPort]}
-											<ServiceButton
-												{containerPort}
-												{hostPort}
-												{hostname}
-												running={matchedContainer.state === 'running'}
-												variant="row"
-												containerName={matchedContainer.name}
-												projectName={matchedContainer.projectName}
-												workspacePath={matchedContainer.localWorkspacePath}
-												allPorts={matchedContainer.ports}
-											/>
-										{/each}
+									<!-- Action column: right-aligned -->
+									<div class="ml-auto flex shrink-0 items-center justify-end gap-2">
+										{#if !repo.hasDevcontainer}
+											<span
+												class="text-xs whitespace-nowrap text-[#4c566a] italic dark:text-[#d8dee9]/40"
+												>No configuration</span
+											>
+										{:else if matchedContainer && matchedContainer.state === 'running'}
+											<button
+												onclick={() => onScrollToContainer?.(matchedContainer.id)}
+												class="flex cursor-pointer items-center gap-1.5 rounded-full border border-[#a3be8c]/20 bg-[#a3be8c]/10 px-2 py-1 text-xs font-medium whitespace-nowrap text-[#a3be8c] transition-colors hover:bg-[#a3be8c]/20"
+												type="button"
+												title="Scroll to devcontainer"
+											>
+												<span class="inline-block h-1.5 w-1.5 rounded-full bg-[#a3be8c]"></span>
+												Running
+												<ArrowUpRight size={12} />
+											</button>
+										{:else if matchedContainer && matchedContainer.state !== 'running'}
+											<button
+												onclick={() => startContainer(repo.path, matchedContainer.id)}
+												disabled={startingRepos.has(repo.path)}
+												class="flex items-center gap-1.5 rounded-lg bg-[#a3be8c] px-3 py-1.5 text-xs font-medium whitespace-nowrap text-white transition-colors hover:bg-[#a3be8c]/80 disabled:cursor-wait disabled:opacity-60"
+												type="button"
+											>
+												{#if startingRepos.has(repo.path)}
+													<Loader size={12} class="animate-spin" />
+													Starting…
+												{:else}
+													<Play size={12} />
+													Start
+												{/if}
+											</button>
+										{:else}
+											<button
+												onclick={() => buildAndStart(repo.path, repo.name)}
+												disabled={buildingRepos.has(repo.path)}
+												class="flex items-center gap-1.5 rounded-lg bg-[#5e81ac] px-3 py-1.5 text-xs font-medium whitespace-nowrap text-white transition-colors hover:bg-[#81a1c1] disabled:cursor-wait disabled:opacity-60"
+												type="button"
+											>
+												{#if buildingRepos.has(repo.path)}
+													<Loader size={12} class="animate-spin" />
+													Building…
+												{:else}
+													<Play size={12} />
+													Build &amp; Start
+												{/if}
+											</button>
+										{/if}
 									</div>
-								{/if}
-
-								<!-- Action column: right-aligned -->
-								<div class="ml-auto shrink-0 flex items-center justify-end gap-2">
-									{#if !repo.hasDevcontainer}
-										<span class="text-xs text-[#4c566a] dark:text-[#d8dee9]/40 italic whitespace-nowrap"
-											>No configuration</span
-										>
-									{:else if matchedContainer && matchedContainer.state === 'running'}
-										<button
-											onclick={() => onScrollToContainer?.(matchedContainer.id)}
-											class="text-xs font-medium text-[#a3be8c] flex items-center gap-1.5 bg-[#a3be8c]/10 px-2 py-1 rounded-full border border-[#a3be8c]/20 whitespace-nowrap hover:bg-[#a3be8c]/20 transition-colors cursor-pointer"
-											type="button"
-											title="Scroll to devcontainer"
-										>
-											<span class="w-1.5 h-1.5 rounded-full bg-[#a3be8c] inline-block"></span>
-											Running
-											<ArrowUpRight size={12} />
-										</button>
-									{:else if matchedContainer && matchedContainer.state !== 'running'}
-										<button
-											onclick={() => startContainer(repo.path, matchedContainer.id)}
-											disabled={startingRepos.has(repo.path)}
-											class="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-[#a3be8c] hover:bg-[#a3be8c]/80 text-white transition-colors disabled:opacity-60 disabled:cursor-wait whitespace-nowrap"
-											type="button"
-										>
-											{#if startingRepos.has(repo.path)}
-												<Loader size={12} class="animate-spin" />
-												Starting…
-											{:else}
-												<Play size={12} />
-												Start
-											{/if}
-										</button>
-									{:else}
-										<button
-											onclick={() => buildAndStart(repo.path, repo.name)}
-											disabled={buildingRepos.has(repo.path)}
-											class="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-[#5e81ac] hover:bg-[#81a1c1] text-white transition-colors disabled:opacity-60 disabled:cursor-wait whitespace-nowrap"
-											type="button"
-										>
-											{#if buildingRepos.has(repo.path)}
-												<Loader size={12} class="animate-spin" />
-												Building…
-											{:else}
-												<Play size={12} />
-												Build &amp; Start
-											{/if}
-										</button>
-									{/if}
 								</div>
-							</div>
-						{/each}
-					</div>
+							{/each}
+						</div>
+					{/if}
 				{/if}
 			{/each}
 		</div>

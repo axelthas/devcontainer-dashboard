@@ -32,6 +32,11 @@ export interface LocalWorkspaceData {
 	path: string;
 	repos: RepositoryData[];
 	solutionMetadata?: SolutionMetadata;
+	buildSession?: {
+		id: string;
+		status: 'running' | 'success' | 'failed';
+		startedAt: string;
+	};
 }
 
 export interface SolutionMetadata {
@@ -69,6 +74,7 @@ export interface BootstrapPreset {
 	id: string;
 	name: string;
 	command: string;
+	interactive?: boolean;
 }
 
 export interface TerminalSession {

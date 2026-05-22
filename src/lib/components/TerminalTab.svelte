@@ -7,9 +7,10 @@
 		command?: string;
 		cwd?: string;
 		active: boolean;
+		fontSize?: number;
 	}
 
-	let { sessionId, command, cwd, active }: Props = $props();
+	let { sessionId, command, cwd, active, fontSize = 13 }: Props = $props();
 
 	let terminal: Terminal | null = null;
 	let fitAddon: FitAddon | null = null;
@@ -48,7 +49,7 @@
 					brightWhite: '#eceff4'
 				},
 				fontFamily: '"Cascadia Code", "Fira Code", monospace',
-				fontSize: 13,
+				fontSize,
 				cursorBlink: true,
 				scrollback: 5000
 			});
