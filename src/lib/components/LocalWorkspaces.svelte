@@ -1,22 +1,29 @@
 <script lang="ts">
-	import { ChevronRight, ChevronDown, FolderGit2, GitBranch, Play, Loader, RefreshCw, Trash2, Loader2 } from 'lucide-svelte';
+	import { ChevronRight, ChevronDown, FolderGit2, GitBranch, Play, Loader, RefreshCw, Trash2, Loader2, RotateCcw, Package } from 'lucide-svelte';
 	import { untrack } from 'svelte';
 	import { generateId } from '$lib/index';
-	import type { LocalWorkspaceData } from '$lib/types';
+	import type { LocalWorkspaceData, RepositoryData } from '$lib/types';
 
 	interface Props {
 		workspaceRoot: string;
 		workspaces: LocalWorkspaceData[];
 		onOpenTerminal: (id: string, command: string, name: string, cwd: string) => void;
+		onRunInTerminal: (command: string, name: string) => void;
 	}
 
-	let { workspaceRoot, workspaces: initialWorkspaces, onOpenTerminal }: Props = $props();
+	let { workspaceRoot, workspaces: initialWorkspaces, onOpenTerminal, onRunInTerminal }: Props = $props();
 
 	let workspaces = $state<LocalWorkspaceData[]>(untrack(() => initialWorkspaces));
 	let expanded = $state<Set<string>>(new Set());
 	let refreshing = $state(false);
 	let buildingRepos = $state<Set<string>>(new Set());
 	let deletingWorkspaces = $state<Set<string>>(new Set());
+
+	// Branch picker state
+	let branchPickerRepo = $state<string | null>(null);
+	let branchPickerBranches = $state<string[]>([]);
+	let branchPickerLoading = $state(false);
+	let checkoutInProgress = $state<string | null>(null);
 
 	async function refresh() {
 		refreshing = true;
@@ -61,6 +68,84 @@
 		} finally {
 			deletingWorkspaces = new Set([...deletingWorkspaces].filter((id) => id !== ws.id));
 		}
+	}
+
+	async function openBranchPicker(repoPath: string) {
+		if (branchPickerRepo === repoPath) {
+			branchPickerRepo = null;
+			return;
+		}
+		branchPickerRepo = repoPath;
+		branchPickerLoading = true;
+		branchPickerBranches = [];
+		try {
+			const res = await fetch(`/api/repos/branches?path=${encodeURIComponent(repoPath)}`);
+			if (res.ok) {
+				const data = await res.json();
+				branchPickerBranches = data.branches;
+			}
+		} finally {
+			branchPickerLoading = false;
+		}
+	}
+
+	async function checkoutBranch(repo: RepositoryData, branch: string) {
+		if (branch === repo.currentBranch) {
+			branchPickerRepo = null;
+			return;
+		}
+		checkoutInProgress = repo.path;
+		try {
+			const res = await fetch('/api/repos/checkout', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ path: repo.path, branch })
+			});
+			if (res.ok) {
+				const data = await res.json();
+				// Update repo branch in local state
+				workspaces = workspaces.map((ws) => ({
+					...ws,
+					repos: ws.repos.map((r) =>
+						r.path === repo.path ? { ...r, currentBranch: data.currentBranch } : r
+					)
+				}));
+			} else if (res.status === 409) {
+				const data = await res.json();
+				if (data.error === 'dirty') {
+					const proceed = confirm(
+						'Working tree has uncommitted changes. Force checkout anyway?'
+					);
+					if (proceed) {
+						const forceRes = await fetch('/api/repos/checkout', {
+							method: 'POST',
+							headers: { 'Content-Type': 'application/json' },
+							body: JSON.stringify({ path: repo.path, branch, force: true })
+						});
+						if (forceRes.ok) {
+							const forceData = await forceRes.json();
+							workspaces = workspaces.map((ws) => ({
+								...ws,
+								repos: ws.repos.map((r) =>
+									r.path === repo.path
+										? { ...r, currentBranch: forceData.currentBranch }
+										: r
+								)
+							}));
+						}
+					}
+				}
+			}
+		} finally {
+			checkoutInProgress = null;
+			branchPickerRepo = null;
+		}
+	}
+
+	function rerunBootstrap(ws: LocalWorkspaceData) {
+		const command = `devbootstrap --rerun -d ${ws.path}`;
+		const id = generateId();
+		onOpenTerminal(id, command, `Rerun: ${ws.name}`, ws.path);
 	}
 </script>
 
@@ -133,6 +218,32 @@
 
 				{#if expanded.has(ws.id)}
 					<div class="bg-[#f0f4f8] dark:bg-[#2e3440]">
+						{#if ws.solutionMetadata}
+							<!-- Solution metadata bar -->
+							<div class="px-8 py-3 border-b border-[#d8dee9]/60 dark:border-[#4c566a]/60 flex flex-wrap items-center gap-x-5 gap-y-2">
+								<div class="flex items-center gap-1.5">
+									<Package size={13} class="text-[#b48ead] dark:text-[#b48ead]" />
+									<span class="text-xs font-medium text-[#4c566a] dark:text-[#d8dee9]/70">Bootstrap:</span>
+									<span class="text-xs font-semibold text-[#2e3440] dark:text-[#eceff4]">{ws.solutionMetadata.bootstrap_version}</span>
+								</div>
+								<div class="flex items-center gap-1.5">
+									<span class="text-xs font-medium text-[#4c566a] dark:text-[#d8dee9]/70">Solution:</span>
+									<span class="text-xs font-semibold text-[#2e3440] dark:text-[#eceff4]">{ws.solutionMetadata.solution}</span>
+								</div>
+								<div class="flex items-center gap-1.5">
+									<span class="text-xs font-medium text-[#4c566a] dark:text-[#d8dee9]/70">Projects:</span>
+									<span class="text-xs font-semibold text-[#2e3440] dark:text-[#eceff4]">{ws.solutionMetadata.projects.length}</span>
+								</div>
+								<button
+									onclick={() => rerunBootstrap(ws)}
+									class="ml-auto flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-lg bg-[#b48ead]/15 text-[#b48ead] hover:bg-[#b48ead]/25 transition-colors border border-[#b48ead]/30"
+									type="button"
+								>
+									<RotateCcw size={12} />
+									Rerun Bootstrap
+								</button>
+							</div>
+						{/if}
 						{#each ws.repos as repo}
 							<div
 								class="flex items-center justify-between px-8 py-2.5 border-b border-[#d8dee9]/60 dark:border-[#4c566a]/60 last:border-b-0"
@@ -142,6 +253,45 @@
 									<span class="font-medium text-sm text-[#2e3440] dark:text-[#d8dee9] truncate"
 										>{repo.name}</span
 									>
+									{#if repo.currentBranch}
+										<div class="relative shrink-0">
+											<button
+												onclick={() => openBranchPicker(repo.path)}
+												class="flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-[#e5e9f0] dark:bg-[#434c5e] text-[#5e81ac] dark:text-[#88c0d0] hover:bg-[#d8dee9] dark:hover:bg-[#4c566a] transition-colors border border-[#d8dee9] dark:border-[#4c566a]"
+												type="button"
+												title="Switch branch"
+											>
+												{#if checkoutInProgress === repo.path}
+													<Loader size={10} class="animate-spin" />
+												{/if}
+												<span class="max-w-[120px] truncate">{repo.currentBranch}</span>
+												<ChevronDown size={10} />
+											</button>
+											{#if branchPickerRepo === repo.path}
+												<div class="absolute top-full left-0 mt-1 z-20 w-56 max-h-48 overflow-y-auto rounded-lg border border-[#d8dee9] dark:border-[#4c566a] bg-white dark:bg-[#3b4252] shadow-lg">
+													{#if branchPickerLoading}
+														<div class="px-3 py-2 text-xs text-[#4c566a] dark:text-[#d8dee9]/60">Loading…</div>
+													{:else}
+														{#each branchPickerBranches as branch}
+															<button
+																onclick={() => checkoutBranch(repo, branch)}
+																class="w-full text-left px-3 py-1.5 text-xs hover:bg-[#e5e9f0] dark:hover:bg-[#434c5e] transition-colors {branch === repo.currentBranch ? 'font-bold text-[#88c0d0]' : 'text-[#2e3440] dark:text-[#d8dee9]'}"
+																type="button"
+															>
+																{branch}
+																{#if branch === repo.currentBranch}
+																	<span class="text-[#a3be8c] ml-1">✓</span>
+																{/if}
+															</button>
+														{/each}
+														{#if branchPickerBranches.length === 0}
+															<div class="px-3 py-2 text-xs text-[#4c566a] dark:text-[#d8dee9]/60 italic">No branches found</div>
+														{/if}
+													{/if}
+												</div>
+											{/if}
+										</div>
+									{/if}
 									{#if repo.hasDevcontainer}
 										<span
 											class="text-xs px-1.5 py-0.5 rounded bg-[#88c0d0]/20 text-[#5e81ac] dark:text-[#88c0d0] border border-[#88c0d0]/30 shrink-0"

@@ -15,6 +15,7 @@ export interface RepositoryData {
 	path: string;
 	hasDevcontainer: boolean;
 	isRunning: boolean;
+	currentBranch?: string;
 }
 
 export interface LocalWorkspaceData {
@@ -22,6 +23,37 @@ export interface LocalWorkspaceData {
 	name: string;
 	path: string;
 	repos: RepositoryData[];
+	solutionMetadata?: SolutionMetadata;
+}
+
+export interface SolutionMetadata {
+	solution: string;
+	config_repo: string;
+	projects: string[];
+	tag: string;
+	shellconf: boolean;
+	nobackup: boolean;
+	bootstrap_version: string;
+}
+
+export interface BootstrapToolInfo {
+	installed: boolean;
+	currentBranch?: string;
+	availableBranches?: string[];
+	version?: string;
+	repoPath: string;
+}
+
+export interface BootstrapProvider {
+	id: string;
+	name: string;
+	repoPath: string;
+	commands: {
+		update: string;
+		rerun: string;
+		version?: string;
+	};
+	metadataFile?: string;
 }
 
 export interface BootstrapPreset {

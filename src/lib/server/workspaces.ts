@@ -1,11 +1,24 @@
-import { readdir } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { Buffer } from 'node:buffer';
 import docker from '$lib/server/docker';
-import type { LocalWorkspaceData } from '$lib/types';
+import { readGitHead } from '$lib/server/git';
+import type { LocalWorkspaceData, SolutionMetadata } from '$lib/types';
 
 export const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT ?? '/workspaces';
+
+async function readSolutionMetadata(
+	workspacePath: string
+): Promise<SolutionMetadata | undefined> {
+	const metaPath = join(workspacePath, '.solution-metadata.json');
+	try {
+		const raw = await readFile(metaPath, 'utf-8');
+		return JSON.parse(raw) as SolutionMetadata;
+	} catch {
+		return undefined;
+	}
+}
 
 export async function loadWorkspaces(): Promise<LocalWorkspaceData[]> {
 	// Gather running container local_folder labels
@@ -42,16 +55,20 @@ export async function loadWorkspaces(): Promise<LocalWorkspaceData[]> {
 			if (!existsSync(join(repoPath, '.git'))) continue;
 			const hasDevcontainer = existsSync(join(repoPath, '.devcontainer'));
 			const isRunning = runningPaths.has(repoPath);
-			repos.push({ name: repoName, path: repoPath, hasDevcontainer, isRunning });
+			const currentBranch = await readGitHead(repoPath);
+			repos.push({ name: repoName, path: repoPath, hasDevcontainer, isRunning, currentBranch });
 		}
 
 		if (repos.length === 0) continue;
+
+		const solutionMetadata = await readSolutionMetadata(taskPath);
 
 		workspaces.push({
 			id: Buffer.from(taskPath).toString('base64'),
 			name: taskName,
 			path: taskPath,
-			repos
+			repos,
+			solutionMetadata
 		});
 	}
 

@@ -8,6 +8,7 @@
 	import ComposeGroupRow from '$lib/components/ComposeGroupRow.svelte';
 	import LocalWorkspaces from '$lib/components/LocalWorkspaces.svelte';
 	import BootstrapModal from '$lib/components/BootstrapModal.svelte';
+	import BootstrapStatus from '$lib/components/BootstrapStatus.svelte';
 	import TerminalManager from '$lib/components/TerminalManager.svelte';
 
 	interface Props {
@@ -227,6 +228,9 @@
 		</header>
 
 		<main class="mx-auto mt-8 max-w-7xl space-y-12 px-6">
+			<!-- Bootstrap Tool Status -->
+			<BootstrapStatus onRunInTerminal={handleRunInTerminal} />
+
 			<!-- Section 1: Active Devcontainers -->
 			<section>
 				<div
@@ -259,6 +263,7 @@
 				workspaceRoot={WORKSPACE_ROOT}
 				workspaces={initialWorkspaces}
 				onOpenTerminal={handleOpenTerminal}
+				onRunInTerminal={handleRunInTerminal}
 			/>
 
 			<!-- Section 3: Sandbox Services -->
