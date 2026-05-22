@@ -3,15 +3,17 @@
 	import { untrack } from 'svelte';
 	import { generateId } from '$lib/index';
 	import type { LocalWorkspaceData, RepositoryData } from '$lib/types';
+	import BootstrapStatus from './BootstrapStatus.svelte';
 
 	interface Props {
 		workspaceRoot: string;
 		workspaces: LocalWorkspaceData[];
 		onOpenTerminal: (id: string, command: string, name: string, cwd: string) => void;
 		onRunInTerminal: (command: string, name: string) => void;
+		onBootstrap?: () => void;
 	}
 
-	let { workspaceRoot, workspaces: initialWorkspaces, onOpenTerminal, onRunInTerminal }: Props = $props();
+	let { workspaceRoot, workspaces: initialWorkspaces, onOpenTerminal, onRunInTerminal, onBootstrap }: Props = $props();
 
 	let workspaces = $state<LocalWorkspaceData[]>(untrack(() => initialWorkspaces));
 	let expanded = $state<Set<string>>(new Set());
@@ -150,7 +152,7 @@
 </script>
 
 <section>
-	<div class="flex items-center gap-2 mb-6 border-b border-[#d8dee9] dark:border-[#4c566a] pb-2">
+	<div class="flex items-center gap-2 mb-4 border-b border-[#d8dee9] dark:border-[#4c566a] pb-2">
 		<FolderGit2 size={20} class="text-[#a3be8c] dark:text-[#a3be8c]" />
 		<h2 class="text-xl font-extrabold text-[#2e3440] dark:text-[#eceff4]">Local Workspaces</h2>
 		<span class="text-sm font-medium text-[#4c566a] dark:text-[#d8dee9]/60 ml-1"
@@ -165,6 +167,11 @@
 		>
 			<RefreshCw size={15} class={refreshing ? 'animate-spin' : ''} />
 		</button>
+	</div>
+
+	<!-- Bootstrap tool info bar -->
+	<div class="mb-4">
+		<BootstrapStatus {onRunInTerminal} {onBootstrap} />
 	</div>
 
 	{#if workspaces.length === 0}

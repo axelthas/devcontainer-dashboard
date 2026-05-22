@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Sun, Moon, Layers, Box, Cpu, Power, Play, Server, LayoutGrid, List } from 'lucide-svelte';
+	import { Sun, Moon, Layers, Box, Cpu, Power, Server, LayoutGrid, List } from 'lucide-svelte';
 	import { untrack } from 'svelte';
 	import { generateId } from '$lib/index';
 	import type { ContainerData, LocalWorkspaceData } from '$lib/types';
@@ -9,7 +9,6 @@
 	import ComposeGroupRow from '$lib/components/ComposeGroupRow.svelte';
 	import LocalWorkspaces from '$lib/components/LocalWorkspaces.svelte';
 	import BootstrapModal from '$lib/components/BootstrapModal.svelte';
-	import BootstrapStatus from '$lib/components/BootstrapStatus.svelte';
 	import TerminalManager from '$lib/components/TerminalManager.svelte';
 
 	interface Props {
@@ -201,30 +200,6 @@
 						</div>
 					</div>
 
-					<!-- Run Bootstrap button -->
-					<button
-						onclick={() => (bootstrapModalOpen = true)}
-						class="flex items-center gap-2 rounded-lg bg-[#88c0d0] px-4 py-2 text-sm font-semibold text-[#2e3440] transition-colors hover:bg-[#81a1c1]"
-						type="button"
-					>
-						<Play size={16} />
-						Run Bootstrap
-					</button>
-
-					<!-- SSH host input for VS Code remote connections -->
-					<div
-						class="flex items-center gap-1.5 rounded-lg border border-[#d8dee9] bg-[#eceff4] px-2 py-1.5 dark:border-[#434c5e] dark:bg-[#2e3440]"
-						title="SSH host for remote VS Code devcontainer connections"
-					>
-						<Server size={14} class="shrink-0 text-[#4c566a] dark:text-[#d8dee9]/50" />
-						<input
-							type="text"
-							placeholder="SSH host"
-							bind:value={vscodeSshHost}
-							class="w-24 border-none bg-transparent text-xs text-[#4c566a] placeholder-[#4c566a]/50 outline-none dark:text-[#d8dee9]/70 dark:placeholder-[#d8dee9]/30"
-						/>
-					</div>
-
 					<!-- Theme toggle -->
 					<button
 						onclick={() => (dark = !dark)}
@@ -242,9 +217,6 @@
 		</header>
 
 		<main class="mx-auto mt-8 max-w-7xl space-y-12 px-6">
-			<!-- Bootstrap Tool Status -->
-			<BootstrapStatus onRunInTerminal={handleRunInTerminal} />
-
 			<!-- Section 1: Active Devcontainers -->
 			<section>
 				<div
@@ -254,6 +226,19 @@
 					<h2 class="text-xl font-extrabold text-[#2e3440] dark:text-[#eceff4]">
 						Active Devcontainers
 					</h2>
+					<!-- SSH host input for VS Code remote connections -->
+					<div
+						class="ml-4 flex items-center gap-1.5 rounded-lg border border-[#d8dee9] bg-[#eceff4] px-3 py-1.5 dark:border-[#434c5e] dark:bg-[#2e3440]"
+						title="SSH host for remote VS Code devcontainer connections"
+					>
+						<Server size={14} class="shrink-0 text-[#4c566a] dark:text-[#d8dee9]/50" />
+						<input
+							type="text"
+							placeholder="SSH host for VS Code remote"
+							bind:value={vscodeSshHost}
+							class="w-48 border-none bg-transparent text-xs text-[#4c566a] placeholder-[#4c566a]/50 outline-none dark:text-[#d8dee9]/70 dark:placeholder-[#d8dee9]/30"
+						/>
+					</div>
 					<div class="ml-auto flex items-center gap-1 rounded-lg border border-[#d8dee9] bg-[#eceff4] p-0.5 dark:border-[#434c5e] dark:bg-[#2e3440]">
 						<button
 							onclick={() => (devcontainerView = 'grid')}
@@ -307,6 +292,7 @@
 				workspaces={initialWorkspaces}
 				onOpenTerminal={handleOpenTerminal}
 				onRunInTerminal={handleRunInTerminal}
+				onBootstrap={() => (bootstrapModalOpen = true)}
 			/>
 
 			<!-- Section 3: Sandbox Services -->
