@@ -15,6 +15,7 @@
 	let command = $state('');
 	let destDir = $state('');
 	let running = $state(false);
+	let runError = $state<string | null>(null);
 	// For interactive presets: session ID after bootstrap starts
 	let interactiveSessionId = $state<string | null>(null);
 	let interactiveWorkspacePath = $state<string | null>(null);
@@ -51,6 +52,7 @@
 	async function run() {
 		if (!command.trim() || !destDir.trim() || running) return;
 		running = true;
+		runError = null;
 		const name = selectedPreset?.name ?? 'Bootstrap';
 		const resolved = command.trim().replaceAll('{destDir}', destDir.trim());
 		try {
@@ -59,7 +61,10 @@
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ command: resolved, name, destDir: destDir.trim() })
 			});
-			if (!res.ok) throw new Error(await res.text());
+			if (!res.ok) {
+				runError = await res.text();
+				return;
+			}
 			const { id, workspacePath } = await res.json();
 			if (selectedPreset?.interactive) {
 				interactiveSessionId = id;
@@ -69,6 +74,8 @@
 				onRunBackground(id, workspacePath, name);
 				onClose();
 			}
+		} catch (err) {
+			runError = err instanceof Error ? err.message : String(err);
 		} finally {
 			running = false;
 		}
@@ -173,6 +180,13 @@
 					>Replaces <code class="font-mono">{'{destDir}'}</code> in the command</span
 				>
 			</label>
+
+			<!-- Error message -->
+			{#if runError}
+				<div class="mb-3 rounded-lg border border-[#bf616a]/40 bg-[#bf616a]/10 px-3 py-2.5 text-sm text-[#bf616a]">
+					{runError}
+				</div>
+			{/if}
 
 			<!-- Footer actions -->
 			<div class="mt-2 flex items-center justify-end">

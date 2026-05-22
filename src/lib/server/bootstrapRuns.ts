@@ -12,7 +12,12 @@ export interface ActiveBootstrapRun {
 	exitCode?: number;
 }
 
-const activeRuns = new Map<string, ActiveBootstrapRun>();
+// Use globalThis so the Map survives Vite HMR reloads in dev mode.
+const g = globalThis as typeof globalThis & {
+	__bootstrapRuns?: Map<string, ActiveBootstrapRun>;
+};
+if (!g.__bootstrapRuns) g.__bootstrapRuns = new Map();
+const activeRuns = g.__bootstrapRuns;
 
 export function startBootstrapRun(
 	id: string,

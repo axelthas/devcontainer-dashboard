@@ -14,7 +14,13 @@ interface PersistentSession {
 	exitCode?: number;
 }
 
-const persistentSessions = new Map<string, PersistentSession>();
+// Use globalThis so that the vite.config.ts plugin import and the Vite SSR API-route
+// import share the same Map in dev mode (they are separate module instances).
+const g = globalThis as typeof globalThis & {
+	__terminalSessions?: Map<string, PersistentSession>;
+};
+if (!g.__terminalSessions) g.__terminalSessions = new Map();
+const persistentSessions = g.__terminalSessions;
 
 function buildFilteredEnv(): Record<string, string> {
 	const filteredEnv: Record<string, string> = {};
