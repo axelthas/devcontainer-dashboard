@@ -15,7 +15,7 @@
 </script>
 
 <div
-	class="p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-colors
+	class="px-5 py-3 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-colors
 		{isRunning
 			? 'hover:bg-[#eceff4]/50 dark:hover:bg-[#434c5e]/50'
 			: 'bg-[#e5e9f0]/50 dark:bg-[#2e3440]/30 opacity-80 hover:bg-[#e5e9f0] dark:hover:bg-[#2e3440]/50'}"

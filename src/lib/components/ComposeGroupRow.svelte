@@ -38,7 +38,7 @@
 <div>
 	<!-- Summary row -->
 	<div
-		class="p-4 flex items-center justify-between gap-4 transition-colors
+		class="px-5 py-3 flex items-center justify-between gap-4 transition-colors
 			{anyRunning
 				? 'hover:bg-[#eceff4]/50 dark:hover:bg-[#434c5e]/50'
 				: 'bg-[#e5e9f0]/50 dark:bg-[#2e3440]/30 opacity-80 hover:bg-[#e5e9f0] dark:hover:bg-[#2e3440]/50'}"
@@ -127,8 +127,8 @@
 
 	<!-- Expanded container list -->
 	{#if expanded}
-		<div class="border-l-2 border-[#88c0d0]/30 dark:border-[#88c0d0]/20 ml-6">
-			<div class="divide-y divide-[#d8dee9] dark:divide-[#4c566a]">
+		<div class="bg-[#f0f4f8] dark:bg-[#2e3440]">
+			<div class="divide-y divide-[#d8dee9]/60 dark:divide-[#4c566a]/60">
 				{#each containers as container (container.id)}
 					<SandboxRow {container} {hostname} {onRefresh} />
 				{/each}

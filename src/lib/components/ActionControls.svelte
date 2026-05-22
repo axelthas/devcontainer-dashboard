@@ -1,13 +1,14 @@
 <script lang="ts">
-	import { Play, Square, RotateCw, Loader2, Trash2 } from 'lucide-svelte';
+	import { Play, Square, RotateCw, Loader2, Trash2, Code } from 'lucide-svelte';
 
 	interface Props {
 		id: string;
 		containerState: string;
 		onRefresh: () => Promise<void>;
+		vscodeUri?: string;
 	}
 
-	let { id, containerState, onRefresh }: Props = $props();
+	let { id, containerState, onRefresh, vscodeUri }: Props = $props();
 
 	let loadingAction = $state<string | null>(null);
 
@@ -30,6 +31,16 @@
 <div
 	class="flex items-center gap-1.5 p-1 rounded-xl border shadow-sm bg-[#eceff4] dark:bg-[#2e3440] border-[#d8dee9] dark:border-[#434c5e]"
 >
+	{#if vscodeUri}
+		<a
+			href={vscodeUri}
+			rel="external"
+			title="Open in VS Code"
+			class="p-1.5 rounded-lg transition-colors text-[#4c566a] dark:text-[#d8dee9] hover:text-[#5e81ac] dark:hover:text-[#81a1c1] hover:bg-[#e5e9f0] dark:hover:bg-[#3b4252]"
+		>
+			<Code size={16} />
+		</a>
+	{/if}
 	{#if isRunning}
 		<button
 			class="p-1.5 rounded-lg transition-colors text-[#4c566a] dark:text-[#d8dee9] hover:text-[#ebcb8b] dark:hover:text-[#ebcb8b] hover:bg-[#e5e9f0] dark:hover:bg-[#3b4252] disabled:opacity-50 disabled:cursor-not-allowed"

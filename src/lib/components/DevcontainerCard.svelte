@@ -1,6 +1,5 @@
 <script lang="ts">
 	import type { ContainerData } from '$lib/types';
-	import { Code } from 'lucide-svelte';
 	import ServiceButton from './ServiceButton.svelte';
 	import ActionControls from './ActionControls.svelte';
 
@@ -77,19 +76,9 @@
 						{container.localWorkspacePath}
 					</p>
 				{/if}
-				{#if vscodeUri}
-					<a
-						href={vscodeUri}
-						rel="external"
-						title={vscodeSshHost ? 'Open devcontainer in VS Code via SSH' : 'Attach to container in VS Code'}
-						class="shrink-0 rounded p-1 text-[#4c566a] transition-colors hover:bg-[#d8dee9] hover:text-[#5e81ac] dark:text-[#d8dee9]/50 dark:hover:bg-[#4c566a]/50 dark:hover:text-[#81a1c1]"
-					>
-						<Code size={14} />
-					</a>
-				{/if}
 			</div>
 		</div>
-		<ActionControls id={container.id} containerState={container.state} {onRefresh} />
+		<ActionControls id={container.id} containerState={container.state} {onRefresh} {vscodeUri} />
 	</div>
 
 	<!-- Card Services Grid -->

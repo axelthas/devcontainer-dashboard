@@ -1,9 +1,10 @@
 <script lang="ts">
-	import { Sun, Moon, Layers, Box, Cpu, Power, Play, Server } from 'lucide-svelte';
+	import { Sun, Moon, Layers, Box, Cpu, Power, Play, Server, LayoutGrid, List } from 'lucide-svelte';
 	import { untrack } from 'svelte';
 	import { generateId } from '$lib/index';
 	import type { ContainerData, LocalWorkspaceData } from '$lib/types';
 	import DevcontainerCard from '$lib/components/DevcontainerCard.svelte';
+	import DevcontainerRow from '$lib/components/DevcontainerRow.svelte';
 	import SandboxRow from '$lib/components/SandboxRow.svelte';
 	import ComposeGroupRow from '$lib/components/ComposeGroupRow.svelte';
 	import LocalWorkspaces from '$lib/components/LocalWorkspaces.svelte';
@@ -51,6 +52,19 @@
 
 	$effect(() => {
 		localStorage.setItem(SSH_HOST_KEY, vscodeSshHost);
+	});
+
+	// View toggle
+	const VIEW_KEY = 'devcontainer-dashboard-view';
+	let devcontainerView = $state<'grid' | 'list'>('grid');
+
+	$effect(() => {
+		const stored = localStorage.getItem(VIEW_KEY);
+		if (stored === 'grid' || stored === 'list') devcontainerView = stored;
+	});
+
+	$effect(() => {
+		localStorage.setItem(VIEW_KEY, devcontainerView);
 	});
 
 	// Poll every 5 seconds
@@ -240,11 +254,27 @@
 					<h2 class="text-xl font-extrabold text-[#2e3440] dark:text-[#eceff4]">
 						Active Devcontainers
 					</h2>
+					<div class="ml-auto flex items-center gap-1 rounded-lg border border-[#d8dee9] bg-[#eceff4] p-0.5 dark:border-[#434c5e] dark:bg-[#2e3440]">
+						<button
+							onclick={() => (devcontainerView = 'grid')}
+							class="rounded-md p-1.5 transition-colors {devcontainerView === 'grid' ? 'bg-white text-[#5e81ac] shadow-sm dark:bg-[#3b4252] dark:text-[#81a1c1]' : 'text-[#4c566a] hover:text-[#2e3440] dark:text-[#d8dee9]/60 dark:hover:text-[#eceff4]'}"
+							title="Grid view"
+						>
+							<LayoutGrid size={16} />
+						</button>
+						<button
+							onclick={() => (devcontainerView = 'list')}
+							class="rounded-md p-1.5 transition-colors {devcontainerView === 'list' ? 'bg-white text-[#5e81ac] shadow-sm dark:bg-[#3b4252] dark:text-[#81a1c1]' : 'text-[#4c566a] hover:text-[#2e3440] dark:text-[#d8dee9]/60 dark:hover:text-[#eceff4]'}"
+							title="List view"
+						>
+							<List size={16} />
+						</button>
+					</div>
 				</div>
 
 				{#if devcontainers.length === 0}
 					<p class="text-[#4c566a] italic dark:text-[#d8dee9]/60">No devcontainers found.</p>
-				{:else}
+				{:else if devcontainerView === 'grid'}
 					<div class="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
 						{#each devcontainers as container (container.id)}
 							<DevcontainerCard
@@ -254,6 +284,19 @@
 								onRefresh={refreshContainers}
 							/>
 						{/each}
+					</div>
+				{:else}
+					<div class="overflow-hidden rounded-xl border border-[#d8dee9] bg-white shadow-sm dark:border-[#4c566a] dark:bg-[#3b4252]">
+						<div class="divide-y divide-[#d8dee9] dark:divide-[#4c566a]">
+							{#each devcontainers as container (container.id)}
+								<DevcontainerRow
+									{container}
+									{hostname}
+									{vscodeSshHost}
+									onRefresh={refreshContainers}
+								/>
+							{/each}
+						</div>
 					</div>
 				{/if}
 			</section>
