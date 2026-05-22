@@ -246,15 +246,25 @@
 						{/if}
 						{#each ws.repos as repo}
 							<div
-								class="flex items-center justify-between px-8 py-2.5 border-b border-[#d8dee9]/60 dark:border-[#4c566a]/60 last:border-b-0"
+								class="flex items-center px-8 py-2.5 border-b border-[#d8dee9]/60 dark:border-[#4c566a]/60 last:border-b-0"
 							>
-								<div class="flex items-center gap-2 min-w-0">
+								<div class="flex items-center gap-2 min-w-0 flex-grow">
 									<GitBranch size={14} class="shrink-0 text-[#81a1c1] dark:text-[#88c0d0]" />
 									<span class="font-medium text-sm text-[#2e3440] dark:text-[#d8dee9] truncate"
 										>{repo.name}</span
 									>
+								</div>
+
+								<div class="shrink-0 flex items-center gap-3 ml-4">
+									{#if repo.hasDevcontainer}
+										<span
+											class="text-xs px-1.5 py-0.5 rounded bg-[#88c0d0]/20 text-[#5e81ac] dark:text-[#88c0d0] border border-[#88c0d0]/30"
+										>
+											devcontainer
+										</span>
+									{/if}
 									{#if repo.currentBranch}
-										<div class="relative shrink-0">
+										<div class="relative">
 											<button
 												onclick={() => openBranchPicker(repo.path)}
 												class="flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-[#e5e9f0] dark:bg-[#434c5e] text-[#5e81ac] dark:text-[#88c0d0] hover:bg-[#d8dee9] dark:hover:bg-[#4c566a] transition-colors border border-[#d8dee9] dark:border-[#4c566a]"
@@ -268,7 +278,7 @@
 												<ChevronDown size={10} />
 											</button>
 											{#if branchPickerRepo === repo.path}
-												<div class="absolute top-full left-0 mt-1 z-20 w-56 max-h-48 overflow-y-auto rounded-lg border border-[#d8dee9] dark:border-[#4c566a] bg-white dark:bg-[#3b4252] shadow-lg">
+												<div class="absolute top-full right-0 mt-1 z-20 w-56 max-h-48 overflow-y-auto rounded-lg border border-[#d8dee9] dark:border-[#4c566a] bg-white dark:bg-[#3b4252] shadow-lg">
 													{#if branchPickerLoading}
 														<div class="px-3 py-2 text-xs text-[#4c566a] dark:text-[#d8dee9]/60">Loading…</div>
 													{:else}
@@ -292,16 +302,6 @@
 											{/if}
 										</div>
 									{/if}
-									{#if repo.hasDevcontainer}
-										<span
-											class="text-xs px-1.5 py-0.5 rounded bg-[#88c0d0]/20 text-[#5e81ac] dark:text-[#88c0d0] border border-[#88c0d0]/30 shrink-0"
-										>
-											.devcontainer
-										</span>
-									{/if}
-								</div>
-
-								<div class="shrink-0 ml-4">
 									{#if !repo.hasDevcontainer}
 										<span class="text-xs text-[#4c566a] dark:text-[#d8dee9]/40 italic"
 											>No configuration</span

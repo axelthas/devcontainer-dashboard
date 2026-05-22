@@ -50,10 +50,7 @@
 		onclick={openService}
 	>
 		<IconComponent size={20} class="shrink-0" />
-		<div class="overflow-hidden">
-			<span class="block text-sm font-bold truncate">{label}</span>
-			<span class="block text-[10px] uppercase tracking-wide opacity-80">:{hostPort}</span>
-		</div>
+		<span class="text-sm font-bold truncate">{label}</span>
 	</button>
 {:else}
 	<button
@@ -64,6 +61,5 @@
 	>
 		<IconComponent size={14} />
 		<span>{label}</span>
-		<span class="opacity-60 font-mono">:{hostPort}</span>
 	</button>
 {/if}
