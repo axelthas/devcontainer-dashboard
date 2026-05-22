@@ -15,21 +15,30 @@ export const POST: RequestHandler = async ({ request }) => {
 
 	if (typeof command !== 'string' || !command.trim()) throw error(400, 'command is required');
 	if (typeof name !== 'string' || !name.trim()) throw error(400, 'name is required');
-	if (typeof destDir !== 'string' || !destDir.trim()) throw error(400, 'destDir is required');
-
-	// Prevent path traversal: destDir must be a single directory name with no separators
-	const normalizedDest = normalize(destDir.trim());
-	if (normalizedDest.includes('/') || normalizedDest.includes('..') || normalizedDest === '.') {
-		throw error(400, 'destDir must be a simple directory name');
-	}
-
-	// Validate that the resolved workspace path stays within WORKSPACE_ROOT
-	const workspacePath = normalize(WORKSPACE_ROOT + '/' + normalizedDest);
-	if (!workspacePath.startsWith(WORKSPACE_ROOT + '/')) {
-		throw error(400, 'Resolved path escapes workspace root');
-	}
 
 	const id = randomUUID();
+
+	// destDir is optional: interactive presets let the command ask for the directory itself.
+	// When omitted, generate a unique placeholder used only for internal run tracking.
+	const destDirRaw = typeof destDir === 'string' ? destDir.trim() : '';
+	let normalizedDest: string;
+	let workspacePath: string;
+
+	if (destDirRaw) {
+		normalizedDest = normalize(destDirRaw);
+		if (normalizedDest.includes('/') || normalizedDest.includes('..') || normalizedDest === '.') {
+			throw error(400, 'destDir must be a simple directory name');
+		}
+		workspacePath = normalize(WORKSPACE_ROOT + '/' + normalizedDest);
+		if (!workspacePath.startsWith(WORKSPACE_ROOT + '/')) {
+			throw error(400, 'Resolved path escapes workspace root');
+		}
+	} else {
+		// No destDir provided — use a placeholder keyed on the run ID
+		normalizedDest = '_bootstrap-' + id.slice(0, 8);
+		workspacePath = WORKSPACE_ROOT + '/' + normalizedDest;
+	}
+
 	const run = startBootstrapRun(id, name.trim(), command.trim(), normalizedDest);
 
 	return json({ id: run.id, workspacePath: run.workspacePath });

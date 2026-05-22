@@ -17,7 +17,8 @@
 	{
 		"id": "preset-4",
 		"name": "Interactive Setup",
-		"command": "dev-bootstrap init --interactive git@github.com:myorg/wizard.git {destDir}",
-		"interactive": true
+		"command": "dev-bootstrap init --interactive git@github.com:myorg/wizard.git",
+		"interactive": true,
+		"fields": ["command"]
 	}
 ]

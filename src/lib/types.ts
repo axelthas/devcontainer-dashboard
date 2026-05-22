@@ -75,6 +75,8 @@ export interface BootstrapPreset {
 	name: string;
 	command: string;
 	interactive?: boolean;
+	/** Which form fields to display. Omit to show all fields. */
+	fields?: Array<'command' | 'destDir'>;
 }
 
 export interface TerminalSession {

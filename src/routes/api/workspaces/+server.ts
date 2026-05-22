@@ -4,7 +4,6 @@ import { loadWorkspaces, WORKSPACE_ROOT } from '$lib/server/workspaces';
 import { getActiveRuns } from '$lib/server/bootstrapRuns';
 import type { LocalWorkspaceData } from '$lib/types';
 import type { RequestHandler } from './$types';
-import { basename } from 'node:path';
 
 export const GET: RequestHandler = async () => {
 	const [workspaces, runs] = await Promise.all([
@@ -21,10 +20,11 @@ export const GET: RequestHandler = async () => {
 			// Real workspace already on disk — attach session to it (e.g. success transition)
 			existing.buildSession = buildSession;
 		} else {
-			// Workspace not on disk yet (still building or failed) — inject placeholder
+			// Workspace not on disk yet (still building or failed) — inject placeholder.
+			// Use run.name (the preset name) as the display name rather than the generated dir.
 			const placeholder: LocalWorkspaceData = {
 				id: run.id,
-				name: basename(run.workspacePath),
+				name: run.name,
 				path: run.workspacePath,
 				repos: [],
 				buildSession

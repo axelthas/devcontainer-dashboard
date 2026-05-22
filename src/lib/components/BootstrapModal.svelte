@@ -35,6 +35,11 @@
 
 	const selectedPreset = $derived(presets.find((p) => p.id === selectedPresetId));
 
+	// When a preset specifies 'fields', only those fields are visible.
+	// Omitting 'fields' (or setting it to undefined) shows all fields.
+	const showCommand = $derived(!selectedPreset?.fields || selectedPreset.fields.includes('command'));
+	const showDestDir = $derived(!selectedPreset?.fields || selectedPreset.fields.includes('destDir'));
+
 	function onPresetChange(id: string) {
 		selectedPresetId = id;
 		const preset = presets.find((p) => p.id === id);
@@ -50,7 +55,7 @@
 	}
 
 	async function run() {
-		if (!command.trim() || !destDir.trim() || running) return;
+		if ((!command.trim() && showCommand) || (!destDir.trim() && showDestDir) || running) return;
 		running = true;
 		runError = null;
 		const name = selectedPreset?.name ?? 'Bootstrap';
@@ -59,7 +64,12 @@
 			const res = await fetch('/api/bootstrap/run', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ command: resolved, name, destDir: destDir.trim() })
+				body: JSON.stringify({
+					command: resolved,
+					name,
+					// Send empty string when destDir is hidden; server generates a placeholder
+					destDir: showDestDir ? destDir.trim() : ''
+				})
 			});
 			if (!res.ok) {
 				runError = await res.text();
@@ -156,30 +166,34 @@
 			</label>
 
 			<!-- Full Command -->
-			<label class="mb-4 block">
-				<span class="mb-1.5 block text-sm font-medium text-[#d8dee9]">Full Command</span>
-				<input
-					type="text"
-					class="w-full rounded-lg border border-[#4c566a] bg-[#2e3440] px-3 py-2.5 font-mono text-sm text-[#a3be8c] placeholder:text-[#4c566a] focus:border-[#88c0d0] focus:outline-none"
-					placeholder="dev-bootstrap init git@github.com:org/repo.git {destDir}"
-					value={command}
-					oninput={(e) => onCommandInput((e.target as HTMLInputElement).value)}
-				/>
-			</label>
+			{#if showCommand}
+				<label class="mb-4 block">
+					<span class="mb-1.5 block text-sm font-medium text-[#d8dee9]">Full Command</span>
+					<input
+						type="text"
+						class="w-full rounded-lg border border-[#4c566a] bg-[#2e3440] px-3 py-2.5 font-mono text-sm text-[#a3be8c] placeholder:text-[#4c566a] focus:border-[#88c0d0] focus:outline-none"
+						placeholder="dev-bootstrap init git@github.com:org/repo.git {destDir}"
+						value={command}
+						oninput={(e) => onCommandInput((e.target as HTMLInputElement).value)}
+					/>
+				</label>
+			{/if}
 
 			<!-- Destination Directory -->
-			<label class="mb-4 block">
-				<span class="mb-1.5 block text-sm font-medium text-[#d8dee9]">Destination Directory</span>
-				<input
-					type="text"
-					class="w-full rounded-lg border border-[#4c566a] bg-[#2e3440] px-3 py-2.5 text-sm text-[#eceff4] placeholder:text-[#4c566a] focus:border-[#88c0d0] focus:outline-none"
-					placeholder="my-project"
-					bind:value={destDir}
-				/>
-				<span class="mt-1 block text-xs text-[#d8dee9]/50"
-					>Replaces <code class="font-mono">{'{destDir}'}</code> in the command</span
-				>
-			</label>
+			{#if showDestDir}
+				<label class="mb-4 block">
+					<span class="mb-1.5 block text-sm font-medium text-[#d8dee9]">Destination Directory</span>
+					<input
+						type="text"
+						class="w-full rounded-lg border border-[#4c566a] bg-[#2e3440] px-3 py-2.5 text-sm text-[#eceff4] placeholder:text-[#4c566a] focus:border-[#88c0d0] focus:outline-none"
+						placeholder="my-project"
+						bind:value={destDir}
+					/>
+					<span class="mt-1 block text-xs text-[#d8dee9]/50"
+						>Replaces <code class="font-mono">{'{destDir}'}</code> in the command</span
+					>
+				</label>
+			{/if}
 
 			<!-- Error message -->
 			{#if runError}
@@ -192,7 +206,7 @@
 			<div class="mt-2 flex items-center justify-end">
 				<button
 					onclick={run}
-					disabled={!command.trim() || !destDir.trim() || running}
+					disabled={(!command.trim() && showCommand) || (!destDir.trim() && showDestDir) || running}
 					class="flex items-center gap-2 rounded-xl bg-[#88c0d0] px-5 py-2.5 text-sm font-semibold text-[#2e3440] transition-colors hover:bg-[#81a1c1] disabled:cursor-default disabled:opacity-50"
 					type="button"
 				>
