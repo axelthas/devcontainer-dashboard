@@ -131,19 +131,35 @@
 								<ChevronDown size={12} />
 							</button>
 							{#if branchPickerOpen && info.availableBranches}
-								<div class="absolute top-full left-0 mt-1 z-20 w-56 max-h-48 overflow-y-auto rounded-lg border border-[#d8dee9] dark:border-[#4c566a] bg-white dark:bg-[#3b4252] shadow-lg">
-									{#each info.availableBranches as branch}
-										<button
-											onclick={() => checkoutBranch(branch)}
-											class="w-full text-left px-3 py-1.5 text-xs hover:bg-[#e5e9f0] dark:hover:bg-[#434c5e] transition-colors {branch === info.currentBranch ? 'font-bold text-[#88c0d0]' : 'text-[#2e3440] dark:text-[#d8dee9]'}"
-											type="button"
-										>
-											{branch}
-											{#if branch === info.currentBranch}
-												<span class="text-[#a3be8c] ml-1">✓</span>
-											{/if}
-										</button>
-									{/each}
+								<div class="absolute top-full left-0 mt-1 z-20 w-64 max-h-64 overflow-y-auto rounded-lg border border-[#d8dee9] dark:border-[#4c566a] bg-white dark:bg-[#3b4252] shadow-lg">
+									{#if info.availableBranches.length > 0}
+										<div class="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-[#4c566a] dark:text-[#d8dee9]/50 border-b border-[#d8dee9] dark:border-[#4c566a]">Local</div>
+										{#each info.availableBranches as branch}
+											<button
+												onclick={() => checkoutBranch(branch)}
+												class="w-full text-left px-3 py-1.5 text-xs hover:bg-[#e5e9f0] dark:hover:bg-[#434c5e] transition-colors {branch === info.currentBranch ? 'font-bold text-[#88c0d0]' : 'text-[#2e3440] dark:text-[#d8dee9]'}"
+												type="button"
+											>
+												{branch}
+												{#if branch === info.currentBranch}
+													<span class="text-[#a3be8c] ml-1">✓</span>
+												{/if}
+											</button>
+										{/each}
+									{/if}
+									{#if info?.remoteBranches && info.remoteBranches.filter((b) => !info?.availableBranches?.includes(b)).length > 0}
+										<div class="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-[#4c566a] dark:text-[#d8dee9]/50 border-b border-[#d8dee9] dark:border-[#4c566a] {info.availableBranches && info.availableBranches.length > 0 ? 'border-t' : ''}">Remote</div>
+										{#each info.remoteBranches.filter((b) => !info?.availableBranches?.includes(b)) as branch}
+											<button
+												onclick={() => checkoutBranch(branch)}
+												class="w-full text-left px-3 py-1.5 text-xs hover:bg-[#e5e9f0] dark:hover:bg-[#434c5e] transition-colors text-[#4c566a] dark:text-[#d8dee9]/70 italic"
+												type="button"
+											>
+												{branch}
+												<span class="text-[10px] text-[#4c566a] dark:text-[#d8dee9]/40 ml-1">origin</span>
+											</button>
+										{/each}
+									{/if}
 								</div>
 							{/if}
 						</div>

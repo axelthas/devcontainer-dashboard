@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { existsSync } from 'node:fs';
 import { getActiveProvider, loadBootstrapProviders, expandHome } from '$lib/server/bootstrap';
-import { readGitHead, listLocalBranches, gitDescribe } from '$lib/server/git';
+import { readGitHead, listLocalBranches, listRemoteBranches, gitDescribe } from '$lib/server/git';
 import type { RequestHandler } from './$types';
 import type { BootstrapToolInfo } from '$lib/types';
 
@@ -26,9 +26,10 @@ export const GET: RequestHandler = async ({ url }) => {
 		return json(info);
 	}
 
-	const [currentBranch, availableBranches, version] = await Promise.all([
+	const [currentBranch, availableBranches, remoteBranches, version] = await Promise.all([
 		readGitHead(repoPath),
 		listLocalBranches(repoPath),
+		listRemoteBranches(repoPath),
 		gitDescribe(repoPath)
 	]);
 
@@ -36,6 +37,7 @@ export const GET: RequestHandler = async ({ url }) => {
 		installed: true,
 		currentBranch,
 		availableBranches,
+		remoteBranches,
 		version,
 		repoPath
 	};

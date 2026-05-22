@@ -1,7 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import { existsSync } from 'node:fs';
 import { getActiveProvider, expandHome } from '$lib/server/bootstrap';
-import { listLocalBranches, gitCheckout, readGitHead } from '$lib/server/git';
+import { listLocalBranches, listRemoteBranches, gitCheckout, readGitHead } from '$lib/server/git';
 import type { RequestHandler } from './$types';
 
 export const POST: RequestHandler = async ({ request }) => {
@@ -21,13 +21,16 @@ export const POST: RequestHandler = async ({ request }) => {
 		throw error(404, 'Bootstrap repository not found');
 	}
 
-	const availableBranches = await listLocalBranches(repoPath);
-	if (!availableBranches.includes(branch)) {
+	const [availableBranches, remoteBranches] = await Promise.all([
+		listLocalBranches(repoPath),
+		listRemoteBranches(repoPath)
+	]);
+	if (!availableBranches.includes(branch) && !remoteBranches.includes(branch)) {
 		throw error(400, `Branch "${branch}" not found`);
 	}
 
 	try {
-		await gitCheckout(repoPath, branch, availableBranches);
+		await gitCheckout(repoPath, branch, availableBranches, remoteBranches);
 		const currentBranch = await readGitHead(repoPath);
 		return json({ success: true, currentBranch });
 	} catch (err: unknown) {

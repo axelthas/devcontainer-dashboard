@@ -65,14 +65,62 @@ async function walkRefs(dir: string, prefix: string, branches: Set<string>): Pro
 }
 
 /**
- * Checkout a branch. Validates branch name against known local branches.
+ * List remote branch names (strips the remote prefix, e.g. "origin/main" → "main").
+ * Excludes HEAD pointers.
+ */
+export async function listRemoteBranches(repoPath: string): Promise<string[]> {
+	const branches = new Set<string>();
+
+	// Read from refs/remotes/ recursively
+	const remotesDir = join(repoPath, '.git', 'refs', 'remotes');
+	if (existsSync(remotesDir)) {
+		try {
+			const remotes = await readdir(remotesDir, { withFileTypes: true });
+			for (const remote of remotes) {
+				if (!remote.isDirectory()) continue;
+				const remoteDir = join(remotesDir, remote.name);
+				const refSet = new Set<string>();
+				await walkRefs(remoteDir, '', refSet);
+				for (const ref of refSet) {
+					if (ref === 'HEAD') continue;
+					branches.add(ref);
+				}
+			}
+		} catch {
+			// Ignore read errors
+		}
+	}
+
+	// Also read packed-refs for remote branches
+	const packedRefsPath = join(repoPath, '.git', 'packed-refs');
+	try {
+		const content = await readFile(packedRefsPath, 'utf-8');
+		for (const line of content.split('\n')) {
+			if (line.startsWith('#') || line.startsWith('^')) continue;
+			const match = line.match(/^[0-9a-f]+ refs\/remotes\/[^/]+\/(.+)$/);
+			if (match && match[1] !== 'HEAD') branches.add(match[1]);
+		}
+	} catch {
+		// packed-refs may not exist
+	}
+
+	return [...branches].sort();
+}
+
+/**
+ * Checkout a branch. Validates branch name against known local or remote branches.
+ * For remote-only branches, creates a local tracking branch.
  */
 export async function gitCheckout(
 	repoPath: string,
 	branch: string,
-	allowedBranches?: string[]
+	allowedBranches?: string[],
+	allowedRemoteBranches?: string[]
 ): Promise<void> {
-	if (allowedBranches && !allowedBranches.includes(branch)) {
+	const inLocal = !allowedBranches || allowedBranches.includes(branch);
+	const inRemote = allowedRemoteBranches?.includes(branch);
+
+	if (allowedBranches && !inLocal && !inRemote) {
 		throw new Error(`Branch "${branch}" not found in repository`);
 	}
 
@@ -81,7 +129,12 @@ export async function gitCheckout(
 		throw new Error(`Invalid branch name: "${branch}"`);
 	}
 
-	await execFileAsync('git', ['-C', repoPath, 'checkout', branch]);
+	if (inLocal) {
+		await execFileAsync('git', ['-C', repoPath, 'checkout', branch]);
+	} else {
+		// Create local tracking branch from remote
+		await execFileAsync('git', ['-C', repoPath, 'checkout', '-b', branch, `origin/${branch}`]);
+	}
 }
 
 /**

@@ -40,6 +40,7 @@ export interface BootstrapToolInfo {
 	installed: boolean;
 	currentBranch?: string;
 	availableBranches?: string[];
+	remoteBranches?: string[];
 	version?: string;
 	repoPath: string;
 }
