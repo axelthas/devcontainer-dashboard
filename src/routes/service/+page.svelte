@@ -166,7 +166,9 @@
 		flex-shrink: 0;
 		background: var(--bar-bg);
 		border-bottom: 1px solid var(--bar-border);
-		transition: background 0.2s, border-color 0.2s;
+		transition:
+			background 0.2s,
+			border-color 0.2s;
 		overflow: hidden;
 	}
 

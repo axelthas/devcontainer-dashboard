@@ -39,17 +39,21 @@
 
 <div
 	data-container-id={container.id}
-	class="px-5 py-3 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all duration-300
+	class="flex flex-col justify-between gap-4 px-5 py-3 transition-all duration-300 md:flex-row md:items-center
 		{isRunning
-			? 'hover:bg-[#eceff4]/50 dark:hover:bg-[#434c5e]/50'
-			: 'bg-[#e5e9f0]/50 dark:bg-[#2e3440]/30 opacity-80 hover:bg-[#e5e9f0] dark:hover:bg-[#2e3440]/50'}"
+		? 'hover:bg-[#eceff4]/50 dark:hover:bg-[#434c5e]/50'
+		: 'bg-[#e5e9f0]/50 opacity-80 hover:bg-[#e5e9f0] dark:bg-[#2e3440]/30 dark:hover:bg-[#2e3440]/50'}"
 >
 	<!-- Identifier -->
-	<div class="flex items-center gap-4 w-full md:w-1/3">
-		<div class="w-2.5 h-2.5 rounded-full shrink-0 {isRunning ? 'bg-[#a3be8c] shadow-[0_0_8px_rgba(163,190,140,0.5)]' : 'bg-[#4c566a]'}"></div>
+	<div class="flex w-full items-center gap-4 md:w-1/3">
+		<div
+			class="h-2.5 w-2.5 shrink-0 rounded-full {isRunning
+				? 'bg-[#a3be8c] shadow-[0_0_8px_rgba(163,190,140,0.5)]'
+				: 'bg-[#4c566a]'}"
+		></div>
 		<div class="min-w-0">
 			<h4
-				class="text-sm font-bold truncate
+				class="truncate text-sm font-bold
 					{isRunning ? 'text-[#2e3440] dark:text-[#eceff4]' : 'text-[#4c566a] dark:text-[#d8dee9]/70'}"
 			>
 				{container.projectName}
@@ -58,13 +62,16 @@
 				>
 			</h4>
 			{#if container.localWorkspacePath}
-				<p class="text-xs font-mono truncate text-[#4c566a] dark:text-[#d8dee9]/50">{container.localWorkspacePath.split('/').filter(Boolean).at(-2) ?? container.localWorkspacePath}</p>
+				<p class="truncate font-mono text-xs text-[#4c566a] dark:text-[#d8dee9]/50">
+					{container.localWorkspacePath.split('/').filter(Boolean).at(-2) ??
+						container.localWorkspacePath}
+				</p>
 			{/if}
 		</div>
 	</div>
 
 	<!-- Exposed Services -->
-	<div class="flex flex-wrap gap-2 flex-grow">
+	<div class="flex flex-grow flex-wrap gap-2">
 		{#each Object.entries(container.ports) as [containerPort, hostPort]}
 			<ServiceButton
 				{containerPort}
@@ -81,7 +88,7 @@
 	</div>
 
 	<!-- Actions -->
-	<div class="shrink-0 flex items-center justify-end">
+	<div class="flex shrink-0 items-center justify-end">
 		<ActionControls id={container.id} containerState={container.state} {onRefresh} {vscodeUri} />
 	</div>
 </div>

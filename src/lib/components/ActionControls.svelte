@@ -29,21 +29,21 @@
 </script>
 
 <div
-	class="flex items-center gap-1.5 p-1 rounded-xl border shadow-sm bg-[#eceff4] dark:bg-[#2e3440] border-[#d8dee9] dark:border-[#434c5e]"
+	class="flex items-center gap-1.5 rounded-xl border border-[#d8dee9] bg-[#eceff4] p-1 shadow-sm dark:border-[#434c5e] dark:bg-[#2e3440]"
 >
 	{#if vscodeUri}
 		<a
 			href={vscodeUri}
 			rel="external"
 			title="Open in VS Code"
-			class="p-1.5 rounded-lg transition-colors text-[#4c566a] dark:text-[#d8dee9] hover:text-[#5e81ac] dark:hover:text-[#81a1c1] hover:bg-[#e5e9f0] dark:hover:bg-[#3b4252]"
+			class="rounded-lg p-1.5 text-[#4c566a] transition-colors hover:bg-[#e5e9f0] hover:text-[#5e81ac] dark:text-[#d8dee9] dark:hover:bg-[#3b4252] dark:hover:text-[#81a1c1]"
 		>
 			<Code size={16} />
 		</a>
 	{/if}
 	{#if isRunning}
 		<button
-			class="p-1.5 rounded-lg transition-colors text-[#4c566a] dark:text-[#d8dee9] hover:text-[#ebcb8b] dark:hover:text-[#ebcb8b] hover:bg-[#e5e9f0] dark:hover:bg-[#3b4252] disabled:opacity-50 disabled:cursor-not-allowed"
+			class="rounded-lg p-1.5 text-[#4c566a] transition-colors hover:bg-[#e5e9f0] hover:text-[#ebcb8b] disabled:cursor-not-allowed disabled:opacity-50 dark:text-[#d8dee9] dark:hover:bg-[#3b4252] dark:hover:text-[#ebcb8b]"
 			disabled={loadingAction !== null}
 			onclick={() => handleAction('restart')}
 			title="Restart"
@@ -55,7 +55,7 @@
 			{/if}
 		</button>
 		<button
-			class="p-1.5 rounded-lg transition-colors text-[#4c566a] dark:text-[#d8dee9] hover:text-[#bf616a] dark:hover:text-[#bf616a] hover:bg-[#e5e9f0] dark:hover:bg-[#3b4252] disabled:opacity-50 disabled:cursor-not-allowed"
+			class="rounded-lg p-1.5 text-[#4c566a] transition-colors hover:bg-[#e5e9f0] hover:text-[#bf616a] disabled:cursor-not-allowed disabled:opacity-50 dark:text-[#d8dee9] dark:hover:bg-[#3b4252] dark:hover:text-[#bf616a]"
 			disabled={loadingAction !== null}
 			onclick={() => handleAction('stop')}
 			title="Stop"
@@ -68,7 +68,7 @@
 		</button>
 	{:else}
 		<button
-			class="p-1.5 rounded-lg transition-colors text-[#4c566a] dark:text-[#d8dee9] hover:text-[#a3be8c] dark:hover:text-[#a3be8c] hover:bg-[#e5e9f0] dark:hover:bg-[#3b4252] disabled:opacity-50 disabled:cursor-not-allowed"
+			class="rounded-lg p-1.5 text-[#4c566a] transition-colors hover:bg-[#e5e9f0] hover:text-[#a3be8c] disabled:cursor-not-allowed disabled:opacity-50 dark:text-[#d8dee9] dark:hover:bg-[#3b4252] dark:hover:text-[#a3be8c]"
 			disabled={loadingAction !== null}
 			onclick={() => handleAction('start')}
 			title="Start"
@@ -81,7 +81,7 @@
 		</button>
 	{/if}
 	<button
-		class="p-1.5 rounded-lg transition-colors text-[#4c566a] dark:text-[#d8dee9] hover:text-[#bf616a] dark:hover:text-[#bf616a] hover:bg-[#e5e9f0] dark:hover:bg-[#3b4252] disabled:opacity-50 disabled:cursor-not-allowed"
+		class="rounded-lg p-1.5 text-[#4c566a] transition-colors hover:bg-[#e5e9f0] hover:text-[#bf616a] disabled:cursor-not-allowed disabled:opacity-50 dark:text-[#d8dee9] dark:hover:bg-[#3b4252] dark:hover:text-[#bf616a]"
 		disabled={loadingAction !== null}
 		onclick={() => handleAction('delete')}
 		title="Delete container"

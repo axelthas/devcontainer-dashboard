@@ -1,6 +1,7 @@
 ---
-applyTo: "src/routes/api/**/*.ts"
+applyTo: 'src/routes/api/**/*.ts'
 ---
+
 # SvelteKit API Route Conventions
 
 ## Structure
@@ -29,14 +30,14 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async () => {
-  // ...
-  return json(data);
+	// ...
+	return json(data);
 };
 
 export const POST: RequestHandler = async ({ params, request }) => {
-  // Validate input
-  if (!valid) throw error(400, 'Invalid input');
-  // Perform action
-  return json({ success: true });
+	// Validate input
+	if (!valid) throw error(400, 'Invalid input');
+	// Perform action
+	return json({ success: true });
 };
 ```

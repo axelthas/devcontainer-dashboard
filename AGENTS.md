@@ -28,39 +28,39 @@ npm run test             # unit + e2e combined
 
 ### Environment variables
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `WORKSPACE_ROOT` | `/workspaces` | Root directory scanned for local workspace discovery |
-| `HOST_HOSTNAME` | `os.hostname()` | Displayed hostname in dashboard header |
-| `VSCODE_SSH_HOST` | (empty) | SSH host for VS Code remote URIs |
-| `PRESETS_FILE` | `/data/presets.json` | Path to bootstrap presets JSON file |
+| Variable          | Default              | Purpose                                              |
+| ----------------- | -------------------- | ---------------------------------------------------- |
+| `WORKSPACE_ROOT`  | `/workspaces`        | Root directory scanned for local workspace discovery |
+| `HOST_HOSTNAME`   | `os.hostname()`      | Displayed hostname in dashboard header               |
+| `VSCODE_SSH_HOST` | (empty)              | SSH host for VS Code remote URIs                     |
+| `PRESETS_FILE`    | `/data/presets.json` | Path to bootstrap presets JSON file                  |
 
 ### Route structure
 
-| Route | Purpose |
-|-------|---------|
-| `/` | Main dashboard — SSR loads containers via `+page.server.ts`, polls `/api/containers` every 5s |
-| `/service` | Iframe viewer for a service, opened from service buttons |
-| `/demo/playwright` | Playwright test target page |
-| `/api/containers` (GET) | Returns all containers with exposed ports as JSON |
-| `/api/containers/[id]/[action]` (POST) | Executes `start`, `stop`, `restart`, or `delete` on a container |
-| `/api/presets` (GET) | Returns bootstrap presets from `PRESETS_FILE` |
-| `/api/workspaces` (GET) | Returns discovered local workspaces |
-| `/api/workspaces` (DELETE) | Removes a workspace directory (requires `path` in body) |
-| `/api/terminal` (WebSocket) | PTY terminal sessions via upgrade on the HTTP server |
+| Route                                  | Purpose                                                                                       |
+| -------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `/`                                    | Main dashboard — SSR loads containers via `+page.server.ts`, polls `/api/containers` every 5s |
+| `/service`                             | Iframe viewer for a service, opened from service buttons                                      |
+| `/demo/playwright`                     | Playwright test target page                                                                   |
+| `/api/containers` (GET)                | Returns all containers with exposed ports as JSON                                             |
+| `/api/containers/[id]/[action]` (POST) | Executes `start`, `stop`, `restart`, or `delete` on a container                               |
+| `/api/presets` (GET)                   | Returns bootstrap presets from `PRESETS_FILE`                                                 |
+| `/api/workspaces` (GET)                | Returns discovered local workspaces                                                           |
+| `/api/workspaces` (DELETE)             | Removes a workspace directory (requires `path` in body)                                       |
+| `/api/terminal` (WebSocket)            | PTY terminal sessions via upgrade on the HTTP server                                          |
 
 ### Key files
 
-| File | Purpose |
-|------|---------|
-| `src/lib/server/docker.ts` | Dockerode client singleton |
-| `src/lib/server/terminal.ts` | WebSocket PTY server (attaches to Vite dev or production HTTP server) |
-| `src/lib/server/workspaces.ts` | Scans `WORKSPACE_ROOT` for task/repo pairs with `.devcontainer` |
-| `src/lib/types.ts` | Shared interfaces: `ContainerData`, `LocalWorkspaceData`, `BootstrapPreset`, `TerminalSession` |
-| `src/lib/portConfig.ts` | Port-to-label/icon mapping for known services |
-| `src/lib/components/` | UI components (see conventions below) |
-| `src/routes/+page.server.ts` | SSR data loader — filters containers, builds port maps |
-| `src/routes/api/containers/+server.ts` | REST endpoint duplicating page.server logic for client polling |
+| File                                   | Purpose                                                                                        |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `src/lib/server/docker.ts`             | Dockerode client singleton                                                                     |
+| `src/lib/server/terminal.ts`           | WebSocket PTY server (attaches to Vite dev or production HTTP server)                          |
+| `src/lib/server/workspaces.ts`         | Scans `WORKSPACE_ROOT` for task/repo pairs with `.devcontainer`                                |
+| `src/lib/types.ts`                     | Shared interfaces: `ContainerData`, `LocalWorkspaceData`, `BootstrapPreset`, `TerminalSession` |
+| `src/lib/portConfig.ts`                | Port-to-label/icon mapping for known services                                                  |
+| `src/lib/components/`                  | UI components (see conventions below)                                                          |
+| `src/routes/+page.server.ts`           | SSR data loader — filters containers, builds port maps                                         |
+| `src/routes/api/containers/+server.ts` | REST endpoint duplicating page.server logic for client polling                                 |
 
 ### Component conventions
 
@@ -84,6 +84,7 @@ Two vitest projects configured in `vite.config.ts`:
 - **`server`** — Node environment tests for `.{test,spec}.ts` files (excludes `.svelte.*` test files)
 
 Important:
+
 - `expect.requireAssertions` is enabled — every test MUST contain at least one assertion
 - E2E tests: Playwright files match `**/*.e2e.{ts,js}`
 - Example tests in `src/lib/vitest-examples/` demonstrate both patterns

@@ -6,8 +6,12 @@
 @variant dark (&:is(.dark *));
 
 @keyframes spin {
-	from { transform: rotate(0deg); }
-	to { transform: rotate(360deg); }
+	from {
+		transform: rotate(0deg);
+	}
+	to {
+		transform: rotate(360deg);
+	}
 }
 
 .animate-spin {
@@ -15,9 +19,15 @@
 }
 
 @keyframes highlight-flash-anim {
-	0% { box-shadow: 0 0 0 0 rgba(136, 192, 208, 0); }
-	20% { box-shadow: 0 0 0 4px rgba(136, 192, 208, 0.5); }
-	100% { box-shadow: 0 0 0 0 rgba(136, 192, 208, 0); }
+	0% {
+		box-shadow: 0 0 0 0 rgba(136, 192, 208, 0);
+	}
+	20% {
+		box-shadow: 0 0 0 4px rgba(136, 192, 208, 0.5);
+	}
+	100% {
+		box-shadow: 0 0 0 0 rgba(136, 192, 208, 0);
+	}
 }
 
 .highlight-flash {

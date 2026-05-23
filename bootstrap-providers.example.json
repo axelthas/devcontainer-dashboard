@@ -1,13 +1,13 @@
 [
-  {
-    "id": "devbootstrap",
-    "name": "Dev Bootstrap",
-    "repoPath": "~/.devbootstrap",
-    "commands": {
-      "update": "devbootstrap -u",
-      "rerun": "devbootstrap --rerun -d {workspacePath}",
-      "version": "devbootstrap --version"
-    },
-    "metadataFile": ".solution-metadata.json"
-  }
+	{
+		"id": "devbootstrap",
+		"name": "Dev Bootstrap",
+		"repoPath": "~/.devbootstrap",
+		"commands": {
+			"update": "devbootstrap -u",
+			"rerun": "devbootstrap --rerun -d {workspacePath}",
+			"version": "devbootstrap --version"
+		},
+		"metadataFile": ".solution-metadata.json"
+	}
 ]

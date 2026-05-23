@@ -1,5 +1,14 @@
 <script lang="ts">
-	import { Settings, GitBranch, ChevronDown, RefreshCw, ArrowDownToLine, RotateCcw, Loader, Play } from 'lucide-svelte';
+	import {
+		Settings,
+		GitBranch,
+		ChevronDown,
+		RefreshCw,
+		ArrowDownToLine,
+		RotateCcw,
+		Loader,
+		Play
+	} from 'lucide-svelte';
 	import type { BootstrapToolInfo, BootstrapProvider } from '$lib/types';
 
 	interface Props {
@@ -86,14 +95,18 @@
 </script>
 
 {#if !loading && info?.installed}
-	<div class="rounded-xl border border-[#d8dee9] dark:border-[#4c566a] bg-white dark:bg-[#3b4252] shadow-sm px-4 py-3">
+	<div
+		class="rounded-xl border border-[#d8dee9] bg-white px-4 py-3 shadow-sm dark:border-[#4c566a] dark:bg-[#3b4252]"
+	>
 		<div class="flex flex-wrap items-center gap-x-5 gap-y-2">
 			<!-- Bootstrap label -->
 			<div class="flex items-center gap-1.5">
 				<Settings size={14} class="text-[#b48ead]" />
 				<span class="text-xs font-bold text-[#2e3440] dark:text-[#eceff4]">Bootstrap</span>
 				{#if provider}
-					<span class="text-[10px] font-medium text-[#4c566a] dark:text-[#d8dee9]/50">({provider.name})</span>
+					<span class="text-[10px] font-medium text-[#4c566a] dark:text-[#d8dee9]/50"
+						>({provider.name})</span
+					>
 				{/if}
 			</div>
 
@@ -101,17 +114,19 @@
 			{#if info.version}
 				<div class="flex items-center gap-1.5">
 					<span class="text-[11px] text-[#4c566a] dark:text-[#d8dee9]/60">v</span>
-					<span class="text-xs font-semibold text-[#2e3440] dark:text-[#eceff4] font-mono">{info.version}</span>
+					<span class="font-mono text-xs font-semibold text-[#2e3440] dark:text-[#eceff4]"
+						>{info.version}</span
+					>
 				</div>
 			{/if}
 
 			<!-- Branch -->
 			{#if info.currentBranch}
-				<div class="flex items-center gap-1.5 relative">
+				<div class="relative flex items-center gap-1.5">
 					<GitBranch size={12} class="text-[#81a1c1] dark:text-[#88c0d0]" />
 					<button
 						onclick={() => (branchPickerOpen = !branchPickerOpen)}
-						class="flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded bg-[#e5e9f0] dark:bg-[#434c5e] text-[#5e81ac] dark:text-[#88c0d0] hover:bg-[#d8dee9] dark:hover:bg-[#4c566a] transition-colors border border-[#d8dee9] dark:border-[#4c566a]"
+						class="flex items-center gap-1 rounded border border-[#d8dee9] bg-[#e5e9f0] px-2 py-0.5 text-xs font-semibold text-[#5e81ac] transition-colors hover:bg-[#d8dee9] dark:border-[#4c566a] dark:bg-[#434c5e] dark:text-[#88c0d0] dark:hover:bg-[#4c566a]"
 						type="button"
 					>
 						{#if checkingOut}
@@ -121,32 +136,50 @@
 						<ChevronDown size={10} />
 					</button>
 					{#if branchPickerOpen && info.availableBranches}
-						<div class="absolute top-full left-0 mt-1 z-20 w-64 max-h-64 overflow-y-auto rounded-lg border border-[#d8dee9] dark:border-[#4c566a] bg-white dark:bg-[#3b4252] shadow-lg">
+						<div
+							class="absolute top-full left-0 z-20 mt-1 max-h-64 w-64 overflow-y-auto rounded-lg border border-[#d8dee9] bg-white shadow-lg dark:border-[#4c566a] dark:bg-[#3b4252]"
+						>
 							{#if info.availableBranches.length > 0}
-								<div class="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-[#4c566a] dark:text-[#d8dee9]/50 border-b border-[#d8dee9] dark:border-[#4c566a]">Local</div>
+								<div
+									class="border-b border-[#d8dee9] px-3 py-1 text-[10px] font-semibold tracking-wide text-[#4c566a] uppercase dark:border-[#4c566a] dark:text-[#d8dee9]/50"
+								>
+									Local
+								</div>
 								{#each info.availableBranches as branch}
 									<button
 										onclick={() => checkoutBranch(branch)}
-										class="w-full text-left px-3 py-1.5 text-xs hover:bg-[#e5e9f0] dark:hover:bg-[#434c5e] transition-colors {branch === info.currentBranch ? 'font-bold text-[#88c0d0]' : 'text-[#2e3440] dark:text-[#d8dee9]'}"
+										class="w-full px-3 py-1.5 text-left text-xs transition-colors hover:bg-[#e5e9f0] dark:hover:bg-[#434c5e] {branch ===
+										info.currentBranch
+											? 'font-bold text-[#88c0d0]'
+											: 'text-[#2e3440] dark:text-[#d8dee9]'}"
 										type="button"
 									>
 										{branch}
 										{#if branch === info.currentBranch}
-											<span class="text-[#a3be8c] ml-1">✓</span>
+											<span class="ml-1 text-[#a3be8c]">✓</span>
 										{/if}
 									</button>
 								{/each}
 							{/if}
 							{#if info?.remoteBranches && info.remoteBranches.filter((b) => !info?.availableBranches?.includes(b)).length > 0}
-								<div class="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-[#4c566a] dark:text-[#d8dee9]/50 border-b border-[#d8dee9] dark:border-[#4c566a] {info.availableBranches && info.availableBranches.length > 0 ? 'border-t' : ''}">Remote</div>
+								<div
+									class="border-b border-[#d8dee9] px-3 py-1 text-[10px] font-semibold tracking-wide text-[#4c566a] uppercase dark:border-[#4c566a] dark:text-[#d8dee9]/50 {info.availableBranches &&
+									info.availableBranches.length > 0
+										? 'border-t'
+										: ''}"
+								>
+									Remote
+								</div>
 								{#each info.remoteBranches.filter((b) => !info?.availableBranches?.includes(b)) as branch}
 									<button
 										onclick={() => checkoutBranch(branch)}
-										class="w-full text-left px-3 py-1.5 text-xs hover:bg-[#e5e9f0] dark:hover:bg-[#434c5e] transition-colors text-[#4c566a] dark:text-[#d8dee9]/70 italic"
+										class="w-full px-3 py-1.5 text-left text-xs text-[#4c566a] italic transition-colors hover:bg-[#e5e9f0] dark:text-[#d8dee9]/70 dark:hover:bg-[#434c5e]"
 										type="button"
 									>
 										{branch}
-										<span class="text-[10px] text-[#4c566a] dark:text-[#d8dee9]/40 ml-1">origin</span>
+										<span class="ml-1 text-[10px] text-[#4c566a] dark:text-[#d8dee9]/40"
+											>origin</span
+										>
 									</button>
 								{/each}
 							{/if}
@@ -156,11 +189,11 @@
 			{/if}
 
 			<!-- Action buttons -->
-			<div class="flex items-center gap-2 ml-auto">
+			<div class="ml-auto flex items-center gap-2">
 				{#if onBootstrap}
 					<button
 						onclick={onBootstrap}
-						class="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-[#88c0d0] text-[#2e3440] hover:bg-[#81a1c1] transition-colors"
+						class="flex items-center gap-1.5 rounded-lg bg-[#88c0d0] px-3 py-1.5 text-xs font-semibold text-[#2e3440] transition-colors hover:bg-[#81a1c1]"
 						type="button"
 					>
 						<Play size={12} />
@@ -170,7 +203,7 @@
 				<button
 					onclick={pullBranch}
 					disabled={pulling}
-					class="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg bg-[#e5e9f0] dark:bg-[#434c5e] text-[#5e81ac] dark:text-[#88c0d0] hover:bg-[#d8dee9] dark:hover:bg-[#4c566a] transition-colors border border-[#d8dee9] dark:border-[#4c566a] disabled:opacity-50"
+					class="flex items-center gap-1.5 rounded-lg border border-[#d8dee9] bg-[#e5e9f0] px-2.5 py-1.5 text-xs font-medium text-[#5e81ac] transition-colors hover:bg-[#d8dee9] disabled:opacity-50 dark:border-[#4c566a] dark:bg-[#434c5e] dark:text-[#88c0d0] dark:hover:bg-[#4c566a]"
 					type="button"
 				>
 					{#if pulling}
@@ -182,7 +215,7 @@
 				</button>
 				<button
 					onclick={updateBootstrap}
-					class="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg bg-[#b48ead]/15 text-[#b48ead] hover:bg-[#b48ead]/25 transition-colors border border-[#b48ead]/30"
+					class="flex items-center gap-1.5 rounded-lg border border-[#b48ead]/30 bg-[#b48ead]/15 px-2.5 py-1.5 text-xs font-medium text-[#b48ead] transition-colors hover:bg-[#b48ead]/25"
 					type="button"
 				>
 					<RotateCcw size={12} />
@@ -190,7 +223,7 @@
 				</button>
 				<button
 					onclick={fetchBootstrapInfo}
-					class="p-1.5 rounded text-[#4c566a] dark:text-[#d8dee9]/60 hover:text-[#2e3440] dark:hover:text-[#eceff4] hover:bg-[#e5e9f0] dark:hover:bg-[#4c566a] transition-colors"
+					class="rounded p-1.5 text-[#4c566a] transition-colors hover:bg-[#e5e9f0] hover:text-[#2e3440] dark:text-[#d8dee9]/60 dark:hover:bg-[#4c566a] dark:hover:text-[#eceff4]"
 					type="button"
 					aria-label="Refresh bootstrap info"
 				>
@@ -200,19 +233,23 @@
 		</div>
 
 		{#if pullMessage}
-			<div class="mt-2 text-xs font-mono px-3 py-2 rounded bg-[#eceff4] dark:bg-[#2e3440] text-[#4c566a] dark:text-[#d8dee9]/80 border border-[#d8dee9] dark:border-[#4c566a]">
+			<div
+				class="mt-2 rounded border border-[#d8dee9] bg-[#eceff4] px-3 py-2 font-mono text-xs text-[#4c566a] dark:border-[#4c566a] dark:bg-[#2e3440] dark:text-[#d8dee9]/80"
+			>
 				{pullMessage}
 			</div>
 		{/if}
 	</div>
 {:else if !loading && !info?.installed && onBootstrap}
-	<div class="rounded-xl border border-dashed border-[#d8dee9] dark:border-[#4c566a] bg-[#eceff4]/50 dark:bg-[#2e3440]/50 px-4 py-3">
+	<div
+		class="rounded-xl border border-dashed border-[#d8dee9] bg-[#eceff4]/50 px-4 py-3 dark:border-[#4c566a] dark:bg-[#2e3440]/50"
+	>
 		<div class="flex items-center gap-3">
 			<Settings size={14} class="text-[#4c566a] dark:text-[#d8dee9]/40" />
 			<span class="text-xs text-[#4c566a] dark:text-[#d8dee9]/60">No bootstrap tool installed</span>
 			<button
 				onclick={onBootstrap}
-				class="ml-auto flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-[#88c0d0] text-[#2e3440] hover:bg-[#81a1c1] transition-colors"
+				class="ml-auto flex items-center gap-1.5 rounded-lg bg-[#88c0d0] px-3 py-1.5 text-xs font-semibold text-[#2e3440] transition-colors hover:bg-[#81a1c1]"
 				type="button"
 			>
 				<Play size={12} />

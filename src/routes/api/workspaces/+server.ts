@@ -2,13 +2,15 @@ import { json, error } from '@sveltejs/kit';
 import { rm } from 'node:fs/promises';
 import { loadWorkspaces, WORKSPACE_ROOT } from '$lib/server/workspaces';
 import { getActiveRuns } from '$lib/server/bootstrapRuns';
+import { getActiveBuilds } from '$lib/server/devcontainerBuilds';
 import type { LocalWorkspaceData } from '$lib/types';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async () => {
-	const [workspaces, runs] = await Promise.all([
+	const [workspaces, runs, devcontainerBuilds] = await Promise.all([
 		loadWorkspaces(),
-		Promise.resolve(getActiveRuns())
+		Promise.resolve(getActiveRuns()),
+		Promise.resolve(getActiveBuilds())
 	]);
 
 	// Merge active bootstrap runs into the workspace list
@@ -30,6 +32,17 @@ export const GET: RequestHandler = async () => {
 				buildSession
 			};
 			workspaces.push(placeholder);
+		}
+	}
+
+	// Merge active devcontainer builds into the matching repo inside each workspace
+	for (const build of devcontainerBuilds) {
+		for (const ws of workspaces) {
+			const repo = ws.repos.find((r) => r.path === build.repoPath);
+			if (repo) {
+				repo.buildSession = { id: build.id, status: build.status, startedAt: build.startedAt };
+				break;
+			}
 		}
 	}
 

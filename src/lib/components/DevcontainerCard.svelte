@@ -74,7 +74,8 @@
 			<div class="mt-0.5 flex items-center gap-1.5">
 				{#if container.localWorkspacePath}
 					<p class="font-mono text-xs break-all text-[#4c566a] dark:text-[#d8dee9]/50">
-						{container.localWorkspacePath.split('/').filter(Boolean).at(-2) ?? container.localWorkspacePath}
+						{container.localWorkspacePath.split('/').filter(Boolean).at(-2) ??
+							container.localWorkspacePath}
 					</p>
 				{/if}
 			</div>

@@ -1,6 +1,7 @@
 ---
-description: "Scaffold a new dashboard feature end-to-end. Use when: adding a new feature, creating a new dashboard section, adding a new API endpoint with UI."
+description: 'Scaffold a new dashboard feature end-to-end. Use when: adding a new feature, creating a new dashboard section, adding a new API endpoint with UI.'
 ---
+
 # Scaffold Dashboard Feature
 
 Create the full vertical slice for a new dashboard feature following project conventions.

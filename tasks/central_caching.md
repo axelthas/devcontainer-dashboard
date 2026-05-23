@@ -13,23 +13,25 @@ You can achieve this by routing all your containers through a single port using 
 Here is how you would implement it:
 
 1. Update the serve-web command in your containers:
-Append the --server-base-path flag to match the container's project name.
+   Append the --server-base-path flag to match the container's project name.
 
 Bash
+
 # Inside polaris-eds container
+
 code serve-web --port 33026 --server-base-path /polaris-eds
 
 # Inside polaris-fdd container
-code serve-web --port 32960 --server-base-path /polaris-fdd
-2. Set up a Reverse Proxy:
+
+code serve-web --port 32960 --server-base-path /polaris-fdd 2. Set up a Reverse Proxy:
 Run a lightweight proxy on your host machine on a single port (e.g., localhost:8080). Configure it to route traffic based on the URL path:
 
-http://localhost:8080/polaris-eds/* ➔ routes to localhost:33026
+http://localhost:8080/polaris-eds/\* ➔ routes to localhost:33026
 
-http://localhost:8080/polaris-fdd/* ➔ routes to localhost:32960
+http://localhost:8080/polaris-fdd/\* ➔ routes to localhost:32960
 
 3. Access via your Dashboard:
-Update your dashboard links to point to the proxy port (8080) instead of the direct container ports.
+   Update your dashboard links to point to the proxy port (8080) instead of the direct container ports.
 
 Why this works magic:
 Because your browser is only ever communicating with http://localhost:8080, it saves all VS Code data to a single, unified IndexedDB instance. You log into GitHub Settings Sync exactly once on localhost:8080. From then on, no matter which container you open through your dashboard, the web UI will pull your unified themes, keybindings, and login tokens instantly, while the extensions remain safely isolated inside their respective containers.

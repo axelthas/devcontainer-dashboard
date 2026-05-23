@@ -1,6 +1,14 @@
 import { json, error } from '@sveltejs/kit';
 import { WORKSPACE_ROOT } from '$lib/server/workspaces';
-import { listLocalBranches, listTags, gitCheckout, gitCheckoutTag, isWorkingTreeDirty, readGitHead, readCurrentTag } from '$lib/server/git';
+import {
+	listLocalBranches,
+	listTags,
+	gitCheckout,
+	gitCheckoutTag,
+	isWorkingTreeDirty,
+	readGitHead,
+	readCurrentTag
+} from '$lib/server/git';
 import type { RequestHandler } from './$types';
 
 function validateRepoPath(path: unknown): string {

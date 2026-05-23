@@ -38,17 +38,17 @@
 <div>
 	<!-- Summary row -->
 	<div
-		class="px-5 py-3 flex items-center justify-between gap-4 transition-colors
+		class="flex items-center justify-between gap-4 px-5 py-3 transition-colors
 			{anyRunning
-				? 'hover:bg-[#eceff4]/50 dark:hover:bg-[#434c5e]/50'
-				: 'bg-[#e5e9f0]/50 dark:bg-[#2e3440]/30 opacity-80 hover:bg-[#e5e9f0] dark:hover:bg-[#2e3440]/50'}"
+			? 'hover:bg-[#eceff4]/50 dark:hover:bg-[#434c5e]/50'
+			: 'bg-[#e5e9f0]/50 opacity-80 hover:bg-[#e5e9f0] dark:bg-[#2e3440]/30 dark:hover:bg-[#2e3440]/50'}"
 	>
 		<button
-			class="flex items-center gap-3 cursor-pointer bg-transparent border-none p-0 text-left flex-grow min-w-0"
+			class="flex min-w-0 flex-grow cursor-pointer items-center gap-3 border-none bg-transparent p-0 text-left"
 			onclick={() => (expanded = !expanded)}
 		>
 			<!-- Expand/collapse icon -->
-			<span class="text-[#4c566a] dark:text-[#d8dee9]/60 shrink-0">
+			<span class="shrink-0 text-[#4c566a] dark:text-[#d8dee9]/60">
 				{#if expanded}
 					<ChevronDown size={16} />
 				{:else}
@@ -57,11 +57,13 @@
 			</span>
 
 			<!-- Status dot -->
-			<div class="w-2 h-2 rounded-full shrink-0 {anyRunning ? 'bg-[#a3be8c]' : 'bg-[#4c566a]'}"></div>
+			<div
+				class="h-2 w-2 shrink-0 rounded-full {anyRunning ? 'bg-[#a3be8c]' : 'bg-[#4c566a]'}"
+			></div>
 
 			<!-- Project name -->
 			<h4
-				class="text-sm font-bold truncate
+				class="truncate text-sm font-bold
 					{anyRunning ? 'text-[#2e3440] dark:text-[#eceff4]' : 'text-[#4c566a] dark:text-[#d8dee9]/70'}"
 			>
 				{projectName}
@@ -69,10 +71,10 @@
 
 			<!-- Running count badge -->
 			<span
-				class="text-xs font-medium px-2 py-0.5 rounded-full
+				class="rounded-full px-2 py-0.5 text-xs font-medium
 					{anyRunning
-						? 'bg-[#a3be8c]/15 text-[#a3be8c] border border-[#a3be8c]/20'
-						: 'bg-[#4c566a]/10 text-[#4c566a] dark:text-[#d8dee9]/50 border border-[#4c566a]/20'}"
+					? 'border border-[#a3be8c]/20 bg-[#a3be8c]/15 text-[#a3be8c]'
+					: 'border border-[#4c566a]/20 bg-[#4c566a]/10 text-[#4c566a] dark:text-[#d8dee9]/50'}"
 			>
 				{runningCount}/{totalCount} running
 			</span>
@@ -80,12 +82,12 @@
 
 		<!-- Group actions -->
 		<div
-			class="shrink-0 flex items-center gap-1.5 p-1 rounded-xl border shadow-sm bg-[#eceff4] dark:bg-[#2e3440] border-[#d8dee9] dark:border-[#434c5e]"
+			class="flex shrink-0 items-center gap-1.5 rounded-xl border border-[#d8dee9] bg-[#eceff4] p-1 shadow-sm dark:border-[#434c5e] dark:bg-[#2e3440]"
 			role="group"
 		>
 			{#if anyRunning}
 				<button
-					class="p-1.5 rounded-lg transition-colors text-[#4c566a] dark:text-[#d8dee9] hover:text-[#ebcb8b] dark:hover:text-[#ebcb8b] hover:bg-[#e5e9f0] dark:hover:bg-[#3b4252] disabled:opacity-50 disabled:cursor-not-allowed"
+					class="rounded-lg p-1.5 text-[#4c566a] transition-colors hover:bg-[#e5e9f0] hover:text-[#ebcb8b] disabled:cursor-not-allowed disabled:opacity-50 dark:text-[#d8dee9] dark:hover:bg-[#3b4252] dark:hover:text-[#ebcb8b]"
 					disabled={loadingAction !== null}
 					onclick={() => handleGroupAction('restart')}
 					title="Restart all"
@@ -97,7 +99,7 @@
 					{/if}
 				</button>
 				<button
-					class="p-1.5 rounded-lg transition-colors text-[#4c566a] dark:text-[#d8dee9] hover:text-[#bf616a] dark:hover:text-[#bf616a] hover:bg-[#e5e9f0] dark:hover:bg-[#3b4252] disabled:opacity-50 disabled:cursor-not-allowed"
+					class="rounded-lg p-1.5 text-[#4c566a] transition-colors hover:bg-[#e5e9f0] hover:text-[#bf616a] disabled:cursor-not-allowed disabled:opacity-50 dark:text-[#d8dee9] dark:hover:bg-[#3b4252] dark:hover:text-[#bf616a]"
 					disabled={loadingAction !== null}
 					onclick={() => handleGroupAction('stop')}
 					title="Stop all"
@@ -110,7 +112,7 @@
 				</button>
 			{:else}
 				<button
-					class="p-1.5 rounded-lg transition-colors text-[#4c566a] dark:text-[#d8dee9] hover:text-[#a3be8c] dark:hover:text-[#a3be8c] hover:bg-[#e5e9f0] dark:hover:bg-[#3b4252] disabled:opacity-50 disabled:cursor-not-allowed"
+					class="rounded-lg p-1.5 text-[#4c566a] transition-colors hover:bg-[#e5e9f0] hover:text-[#a3be8c] disabled:cursor-not-allowed disabled:opacity-50 dark:text-[#d8dee9] dark:hover:bg-[#3b4252] dark:hover:text-[#a3be8c]"
 					disabled={loadingAction !== null}
 					onclick={() => handleGroupAction('start')}
 					title="Start all"

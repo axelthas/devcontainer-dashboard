@@ -87,8 +87,14 @@
 		}
 	}
 
-	// Auto-poll workspaces every 3 s while any bootstrap run is active
-	const hasActiveBuilds = $derived(workspaces.some((w) => w.buildSession?.status === 'running'));
+	// Auto-poll workspaces every 3 s while any bootstrap run or devcontainer build is active
+	const hasActiveBuilds = $derived(
+		workspaces.some(
+			(w) =>
+				w.buildSession?.status === 'running' ||
+				w.repos.some((r) => r.buildSession?.status === 'running')
+		)
+	);
 
 	$effect(() => {
 		if (!hasActiveBuilds) return;

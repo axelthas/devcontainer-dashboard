@@ -129,6 +129,6 @@
 <div
 	{@attach terminalAttachment}
 	{@attach resizeObserverAction}
-	class="w-full h-full"
+	class="h-full w-full"
 	style="display: {active ? 'block' : 'none'}"
 ></div>

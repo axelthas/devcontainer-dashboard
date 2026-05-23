@@ -1,6 +1,7 @@
 ---
-applyTo: "**/*.svelte"
+applyTo: '**/*.svelte'
 ---
+
 # Svelte Component Conventions
 
 ## Svelte 5 Runes (enforced project-wide)

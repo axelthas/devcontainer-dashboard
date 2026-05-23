@@ -15,27 +15,29 @@
 </script>
 
 <div
-	class="px-5 py-3 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-colors
+	class="flex flex-col justify-between gap-4 px-5 py-3 transition-colors md:flex-row md:items-center
 		{isRunning
-			? 'hover:bg-[#eceff4]/50 dark:hover:bg-[#434c5e]/50'
-			: 'bg-[#e5e9f0]/50 dark:bg-[#2e3440]/30 opacity-80 hover:bg-[#e5e9f0] dark:hover:bg-[#2e3440]/50'}"
+		? 'hover:bg-[#eceff4]/50 dark:hover:bg-[#434c5e]/50'
+		: 'bg-[#e5e9f0]/50 opacity-80 hover:bg-[#e5e9f0] dark:bg-[#2e3440]/30 dark:hover:bg-[#2e3440]/50'}"
 >
 	<!-- Identifier -->
-	<div class="flex items-center gap-4 w-full md:w-1/3">
-		<div class="w-2 h-2 rounded-full shrink-0 {isRunning ? 'bg-[#a3be8c]' : 'bg-[#4c566a]'}"></div>
+	<div class="flex w-full items-center gap-4 md:w-1/3">
+		<div class="h-2 w-2 shrink-0 rounded-full {isRunning ? 'bg-[#a3be8c]' : 'bg-[#4c566a]'}"></div>
 		<div class="min-w-0">
 			<h4
-				class="text-sm font-bold truncate
+				class="truncate text-sm font-bold
 					{isRunning ? 'text-[#2e3440] dark:text-[#eceff4]' : 'text-[#4c566a] dark:text-[#d8dee9]/70'}"
 			>
 				{container.projectName}
 			</h4>
-			<p class="text-xs font-mono truncate text-[#4c566a] dark:text-[#d8dee9]/60">{container.name}</p>
+			<p class="truncate font-mono text-xs text-[#4c566a] dark:text-[#d8dee9]/60">
+				{container.name}
+			</p>
 		</div>
 	</div>
 
 	<!-- Exposed Services -->
-	<div class="flex flex-wrap gap-2 flex-grow">
+	<div class="flex flex-grow flex-wrap gap-2">
 		{#each Object.entries(container.ports) as [containerPort, hostPort]}
 			<ServiceButton
 				{containerPort}
@@ -52,7 +54,7 @@
 	</div>
 
 	<!-- Actions -->
-	<div class="shrink-0 flex items-center justify-end">
+	<div class="flex shrink-0 items-center justify-end">
 		<ActionControls id={container.id} containerState={container.state} {onRefresh} />
 	</div>
 </div>

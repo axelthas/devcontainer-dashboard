@@ -20,7 +20,16 @@
 		onSetActive: (id: string) => void;
 	}
 
-	let { open, sessions, activeId, workspaceRoot, onToggle, onAddSession, onRemoveSession, onSetActive }: Props = $props();
+	let {
+		open,
+		sessions,
+		activeId,
+		workspaceRoot,
+		onToggle,
+		onAddSession,
+		onRemoveSession,
+		onSetActive
+	}: Props = $props();
 
 	let height = $state(320);
 	let maximized = $state(false);
@@ -70,36 +79,41 @@
 
 <!-- Terminal drawer — fixed bottom -->
 <div
-	class="fixed bottom-0 left-0 right-0 z-40 flex flex-col border-t border-[#4c566a] bg-[#2e3440] {dragging ? '' : 'transition-all duration-300'}"
+	class="fixed right-0 bottom-0 left-0 z-40 flex flex-col border-t border-[#4c566a] bg-[#2e3440] {dragging
+		? ''
+		: 'transition-all duration-300'}"
 	style="height: {open ? (maximized ? '100vh' : `${height}px`) : '2.5rem'}"
 >
 	<!-- Resize handle -->
 	{#if open && !maximized}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
-			class="absolute top-0 left-0 right-0 h-1.5 cursor-ns-resize hover:bg-[#88c0d0]/30 active:bg-[#88c0d0]/50 z-50"
+			class="absolute top-0 right-0 left-0 z-50 h-1.5 cursor-ns-resize hover:bg-[#88c0d0]/30 active:bg-[#88c0d0]/50"
 			onmousedown={onResizeStart}
 		></div>
 	{/if}
 
 	<!-- Tab bar -->
-	<div class="flex items-center h-10 px-2 gap-1 border-b border-[#4c566a] shrink-0 overflow-x-auto">
+	<div class="flex h-10 shrink-0 items-center gap-1 overflow-x-auto border-b border-[#4c566a] px-2">
 		{#each sessions as session (session.id)}
 			<div
-				class="flex items-center shrink-0 rounded-t transition-colors {activeId === session.id
+				class="flex shrink-0 items-center rounded-t transition-colors {activeId === session.id
 					? 'bg-[#3b4252] text-[#eceff4]'
-					: 'text-[#d8dee9]/60 hover:text-[#eceff4] hover:bg-[#3b4252]/60'}"
+					: 'text-[#d8dee9]/60 hover:bg-[#3b4252]/60 hover:text-[#eceff4]'}"
 			>
 				<button
 					class="flex items-center gap-1.5 px-3 py-1 text-xs font-medium"
-					onclick={() => { onSetActive(session.id); if (!open) onToggle(); }}
+					onclick={() => {
+						onSetActive(session.id);
+						if (!open) onToggle();
+					}}
 					type="button"
 				>
 					<Terminal size={12} />
 					<span class="max-w-28 truncate">{session.name}</span>
 				</button>
 				<button
-					class="pr-2 text-[#d8dee9]/40 hover:text-[#bf616a] transition-colors"
+					class="pr-2 text-[#d8dee9]/40 transition-colors hover:text-[#bf616a]"
 					onclick={() => closeSession(session.id)}
 					type="button"
 					aria-label="Close tab"
@@ -111,7 +125,7 @@
 
 		<button
 			onclick={addGenericShell}
-			class="p-1 rounded text-[#d8dee9]/40 hover:text-[#eceff4] hover:bg-[#3b4252]/60 shrink-0 transition-colors"
+			class="shrink-0 rounded p-1 text-[#d8dee9]/40 transition-colors hover:bg-[#3b4252]/60 hover:text-[#eceff4]"
 			type="button"
 			aria-label="New shell"
 		>
@@ -125,7 +139,7 @@
 		{#if open}
 			<button
 				onclick={toggleMaximize}
-				class="p-1 rounded text-[#d8dee9]/60 hover:text-[#eceff4] hover:bg-[#3b4252]/60 shrink-0 transition-colors"
+				class="shrink-0 rounded p-1 text-[#d8dee9]/60 transition-colors hover:bg-[#3b4252]/60 hover:text-[#eceff4]"
 				type="button"
 				aria-label={maximized ? 'Restore terminal' : 'Maximize terminal'}
 			>
@@ -140,7 +154,7 @@
 		<!-- Toggle drawer -->
 		<button
 			onclick={onToggle}
-			class="p-1 rounded text-[#d8dee9]/60 hover:text-[#eceff4] hover:bg-[#3b4252]/60 shrink-0 transition-colors"
+			class="shrink-0 rounded p-1 text-[#d8dee9]/60 transition-colors hover:bg-[#3b4252]/60 hover:text-[#eceff4]"
 			type="button"
 			aria-label="Toggle terminal drawer"
 		>
@@ -154,7 +168,7 @@
 
 	<!-- Terminal content area -->
 	{#if open}
-		<div class="flex-1 overflow-hidden p-2 relative">
+		<div class="relative flex-1 overflow-hidden p-2">
 			{#each sessions as session (session.id)}
 				<div class="absolute inset-2">
 					<TerminalTab

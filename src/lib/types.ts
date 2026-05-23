@@ -24,6 +24,12 @@ export interface RepositoryData {
 	containerState?: string;
 	/** Port mappings from the matched container */
 	containerPorts?: Record<string, string>;
+	/** Active devcontainer build session for this repo */
+	buildSession?: {
+		id: string;
+		status: 'running' | 'success' | 'failed';
+		startedAt: string;
+	};
 }
 
 export interface LocalWorkspaceData {

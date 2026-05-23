@@ -24,18 +24,18 @@
 		"source=ddash-zsh-history,target=/home/${localEnv:USER}/.zsh_data,type=volume",
 		"source=ddash-copilot-cli,target=/home/${localEnv:USER}/.copilot,type=volume",
 		"source=ddash-devbootstrap,target=/home/${localEnv:USER}/.devbootstrap,type=volume",
-        "source=${localEnv:HOME}/git.workspaces/,target=${localEnv:HOME}/git.workspaces,type=bind"
+		"source=${localEnv:HOME}/git.workspaces/,target=${localEnv:HOME}/git.workspaces,type=bind"
 	],
 
-    "containerEnv": {
-        "HOST_HOSTNAME": "${localEnv:HOSTNAME}",
-        "PRESETS_FILE": "${localEnv:HOME}/git.workspaces/bootstrap.presets.json",
-        "WORKSPACE_ROOT": "${localEnv:HOME}/git.workspaces"
-    },
+	"containerEnv": {
+		"HOST_HOSTNAME": "${localEnv:HOSTNAME}",
+		"PRESETS_FILE": "${localEnv:HOME}/git.workspaces/bootstrap.presets.json",
+		"WORKSPACE_ROOT": "${localEnv:HOME}/git.workspaces"
+	},
 	"postCreateCommand": "sudo chown ${localEnv:USER}:${localEnv:USER} -R /home/${localEnv:USER}/.zsh_data /home/${localEnv:USER}/.copilot && if [ -d .devcontainer/hooks.d ]; then for f in .devcontainer/hooks.d/*.sh; do [ -f \"$f\" ] && sh \"$f\"; done; fi",
 
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
-    "appPort": ["5174:5173"],
+	"appPort": ["5174:5173"],
 	"forwardPorts": [5173],
 
 	// Configure tool-specific properties.

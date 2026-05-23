@@ -89,9 +89,14 @@
 	async function buildAndStart(repoPath: string, repoName: string) {
 		buildingRepos = new Set([...buildingRepos, repoPath]);
 		try {
-			const id = generateId();
-			const command = `devcontainer up --workspace-folder ${repoPath}`;
-			onOpenTerminal(id, command, repoName, repoPath);
+			const res = await fetch('/api/devcontainer/build', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ repoPath, repoName })
+			});
+			if (res.ok) {
+				onRefreshWorkspaces();
+			}
 		} finally {
 			buildingRepos = new Set([...buildingRepos].filter((p) => p !== repoPath));
 		}
@@ -268,8 +273,6 @@
 		const id = generateId();
 		onOpenTerminal(id, command, `Rerun: ${ws.name}`, ws.path);
 	}
-
-
 </script>
 
 <section>
@@ -583,11 +586,12 @@
 										{:else}
 											<button
 												onclick={() => buildAndStart(repo.path, repo.name)}
-												disabled={buildingRepos.has(repo.path)}
+												disabled={buildingRepos.has(repo.path) ||
+													repo.buildSession?.status === 'running'}
 												class="flex items-center gap-1.5 rounded-lg bg-[#5e81ac] px-3 py-1.5 text-xs font-medium whitespace-nowrap text-white transition-colors hover:bg-[#81a1c1] disabled:cursor-wait disabled:opacity-60"
 												type="button"
 											>
-												{#if buildingRepos.has(repo.path)}
+												{#if buildingRepos.has(repo.path) || repo.buildSession?.status === 'running'}
 													<Loader size={12} class="animate-spin" />
 													Building…
 												{:else}
@@ -598,6 +602,21 @@
 										{/if}
 									</div>
 								</div>
+								{#if repo.buildSession?.status === 'running' || repo.buildSession?.status === 'failed'}
+									<div class="border-b border-[#d8dee9]/60 dark:border-[#4c566a]/60">
+										{#if repo.buildSession.status === 'failed'}
+											<div
+												class="flex items-center gap-2 border-b border-[#bf616a]/20 bg-[#bf616a]/10 px-8 py-2 text-[#bf616a]"
+											>
+												<TriangleAlert size={14} />
+												<span class="text-sm font-medium">Build failed</span>
+											</div>
+										{/if}
+										<div class="h-64 overflow-hidden">
+											<TerminalTab sessionId={repo.buildSession.id} active={true} />
+										</div>
+									</div>
+								{/if}
 							{/each}
 						</div>
 					{/if}

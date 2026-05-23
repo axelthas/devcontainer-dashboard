@@ -8,9 +8,7 @@ import type { LocalWorkspaceData, SolutionMetadata } from '$lib/types';
 
 export const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT ?? '/workspaces';
 
-async function readSolutionMetadata(
-	workspacePath: string
-): Promise<SolutionMetadata | undefined> {
+async function readSolutionMetadata(workspacePath: string): Promise<SolutionMetadata | undefined> {
 	const metaPath = join(workspacePath, '.solution-metadata.json');
 	try {
 		const raw = await readFile(metaPath, 'utf-8');
@@ -57,7 +55,14 @@ export async function loadWorkspaces(): Promise<LocalWorkspaceData[]> {
 			const isRunning = runningPaths.has(repoPath);
 			const currentBranch = await readGitHead(repoPath);
 			const currentTag = !currentBranch ? await readCurrentTag(repoPath) : undefined;
-			repos.push({ name: repoName, path: repoPath, hasDevcontainer, isRunning, currentBranch, currentTag });
+			repos.push({
+				name: repoName,
+				path: repoPath,
+				hasDevcontainer,
+				isRunning,
+				currentBranch,
+				currentTag
+			});
 		}
 
 		if (repos.length === 0) continue;

@@ -14,7 +14,17 @@
 		allPorts?: Record<string, string>;
 	}
 
-	let { containerPort, hostPort, hostname, running, variant = 'card', containerName, projectName, workspacePath, allPorts }: Props = $props();
+	let {
+		containerPort,
+		hostPort,
+		hostname,
+		running,
+		variant = 'card',
+		containerName,
+		projectName,
+		workspacePath,
+		allPorts
+	}: Props = $props();
 
 	function openService() {
 		if (!running) return;
@@ -44,18 +54,18 @@
 
 {#if variant === 'card'}
 	<button
-		class="flex items-center gap-2.5 p-3 rounded-xl border transition-all text-left w-full
-			{running ? `${colorClass} hover:shadow-sm active:scale-95 cursor-pointer` : disabledClass}"
+		class="flex w-full items-center gap-2.5 rounded-xl border p-3 text-left transition-all
+			{running ? `${colorClass} cursor-pointer hover:shadow-sm active:scale-95` : disabledClass}"
 		disabled={!running}
 		onclick={openService}
 	>
 		<IconComponent size={20} class="shrink-0" />
-		<span class="text-sm font-bold truncate">{label}</span>
+		<span class="truncate text-sm font-bold">{label}</span>
 	</button>
 {:else}
 	<button
-		class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all
-			{running ? `${colorClass} active:scale-95 cursor-pointer` : disabledClass}"
+		class="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all
+			{running ? `${colorClass} cursor-pointer active:scale-95` : disabledClass}"
 		disabled={!running}
 		onclick={openService}
 	>

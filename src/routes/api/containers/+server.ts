@@ -68,7 +68,9 @@ export const GET: RequestHandler = async () => {
 		if (Object.keys(ports).length === 0 && !composeProject) continue;
 
 		const localWorkspacePath = labels['devcontainer.local_folder'] ?? undefined;
-		const projectName = localWorkspacePath ? basename(localWorkspacePath) : cleanProjectName(rawName);
+		const projectName = localWorkspacePath
+			? basename(localWorkspacePath)
+			: cleanProjectName(rawName);
 
 		containers.push({
 			id: c.Id.substring(0, 12),

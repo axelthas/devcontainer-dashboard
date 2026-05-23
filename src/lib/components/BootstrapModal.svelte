@@ -37,8 +37,12 @@
 
 	// When a preset specifies 'fields', only those fields are visible.
 	// Omitting 'fields' (or setting it to undefined) shows all fields.
-	const showCommand = $derived(!selectedPreset?.fields || selectedPreset.fields.includes('command'));
-	const showDestDir = $derived(!selectedPreset?.fields || selectedPreset.fields.includes('destDir'));
+	const showCommand = $derived(
+		!selectedPreset?.fields || selectedPreset.fields.includes('command')
+	);
+	const showDestDir = $derived(
+		!selectedPreset?.fields || selectedPreset.fields.includes('destDir')
+	);
 
 	function onPresetChange(id: string) {
 		selectedPresetId = id;
@@ -197,7 +201,9 @@
 
 			<!-- Error message -->
 			{#if runError}
-				<div class="mb-3 rounded-lg border border-[#bf616a]/40 bg-[#bf616a]/10 px-3 py-2.5 text-sm text-[#bf616a]">
+				<div
+					class="mb-3 rounded-lg border border-[#bf616a]/40 bg-[#bf616a]/10 px-3 py-2.5 text-sm text-[#bf616a]"
+				>
 					{runError}
 				</div>
 			{/if}
