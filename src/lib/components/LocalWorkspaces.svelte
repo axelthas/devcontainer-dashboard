@@ -295,10 +295,18 @@
 		onOpenTerminal(id, command, name, workspaceRoot);
 	}
 
+	let rerunSessions = $state<Map<string, string>>(new Map());
+
 	function rerunBootstrap(ws: LocalWorkspaceData) {
-		const command = `devbootstrap --rerun -d ${ws.path}`;
 		const id = generateId();
-		onOpenTerminal(id, command, `Rerun: ${ws.name}`, ws.path);
+		rerunSessions = new Map([...rerunSessions, [ws.id, id]]);
+		if (!expanded.has(ws.id)) toggleExpand(ws.id);
+	}
+
+	function dismissRerun(wsId: string) {
+		const next = new Map(rerunSessions);
+		next.delete(wsId);
+		rerunSessions = next;
 	}
 </script>
 
@@ -351,7 +359,7 @@
 							<ChevronRight size={16} class="text-[#4c566a] dark:text-[#d8dee9]/60" />
 						{/if}
 						<span class="font-semibold text-[#2e3440] dark:text-[#eceff4]">{ws.name}</span>
-						<span class="text-xs text-[#4c566a] dark:text-[#d8dee9]/60">{ws.path}</span>
+
 						{#if ws.buildSession?.status === 'running'}
 							<span
 								class="flex items-center gap-1 rounded-full border border-[#ebcb8b]/30 bg-[#ebcb8b]/10 px-2 py-0.5 text-xs font-medium text-[#ebcb8b]"
@@ -367,8 +375,34 @@
 								Build Failed
 							</span>
 						{/if}
+						{#if ws.solutionMetadata}
+							<span
+								class="flex items-center gap-1 rounded-full border border-[#b48ead]/30 bg-[#b48ead]/10 px-2 py-0.5 text-xs font-medium text-[#b48ead]"
+							>
+								<Package size={10} />
+								{ws.solutionMetadata.bootstrap_version}
+							</span>
+							<span
+								class="rounded-full border border-[#81a1c1]/30 bg-[#81a1c1]/10 px-2 py-0.5 text-xs font-medium text-[#81a1c1]"
+							>
+								{ws.solutionMetadata.solution}
+							</span>
+						{/if}
 					</div>
 					<div class="flex items-center gap-2">
+						{#if ws.solutionMetadata}
+							<button
+								onclick={(e) => {
+									e.stopPropagation();
+									rerunBootstrap(ws);
+								}}
+								class="flex items-center gap-1.5 rounded-lg border border-[#b48ead]/30 bg-[#b48ead]/15 px-2.5 py-1 text-xs font-medium text-[#b48ead] transition-colors hover:bg-[#b48ead]/25"
+								type="button"
+							>
+								<RotateCcw size={12} />
+								Rerun Bootstrap
+							</button>
+						{/if}
 						<span
 							class="rounded-full bg-[#d8dee9] px-2 py-0.5 text-xs font-medium text-[#4c566a] dark:bg-[#4c566a] dark:text-[#d8dee9]"
 						>
@@ -412,44 +446,29 @@
 						</div>
 					{:else}
 						<div class="bg-[#f0f4f8] dark:bg-[#2e3440]">
-							{#if ws.solutionMetadata}
-								<!-- Solution metadata bar -->
-								<div
-									class="flex flex-wrap items-center gap-x-5 gap-y-2 border-b border-[#d8dee9]/60 px-8 py-3 dark:border-[#4c566a]/60"
-								>
-									<div class="flex items-center gap-1.5">
-										<Package size={13} class="text-[#b48ead] dark:text-[#b48ead]" />
-										<span class="text-xs font-medium text-[#4c566a] dark:text-[#d8dee9]/70"
-											>Bootstrap:</span
-										>
-										<span class="text-xs font-semibold text-[#2e3440] dark:text-[#eceff4]"
-											>{ws.solutionMetadata.bootstrap_version}</span
-										>
-									</div>
-									<div class="flex items-center gap-1.5">
-										<span class="text-xs font-medium text-[#4c566a] dark:text-[#d8dee9]/70"
-											>Solution:</span
-										>
-										<span class="text-xs font-semibold text-[#2e3440] dark:text-[#eceff4]"
-											>{ws.solutionMetadata.solution}</span
-										>
-									</div>
-									<div class="flex items-center gap-1.5">
-										<span class="text-xs font-medium text-[#4c566a] dark:text-[#d8dee9]/70"
-											>Projects:</span
-										>
-										<span class="text-xs font-semibold text-[#2e3440] dark:text-[#eceff4]"
-											>{ws.solutionMetadata.projects.length}</span
-										>
-									</div>
-									<button
-										onclick={() => rerunBootstrap(ws)}
-										class="ml-auto flex items-center gap-1.5 rounded-lg border border-[#b48ead]/30 bg-[#b48ead]/15 px-2.5 py-1 text-xs font-medium text-[#b48ead] transition-colors hover:bg-[#b48ead]/25"
-										type="button"
+							{#if rerunSessions.has(ws.id)}
+								<!-- Inline rerun bootstrap terminal -->
+								<div class="border-b border-[#d8dee9]/60 dark:border-[#4c566a]/60">
+									<div
+										class="flex items-center gap-2 border-b border-[#b48ead]/20 bg-[#b48ead]/10 px-5 py-1.5"
 									>
-										<RotateCcw size={12} />
-										Rerun Bootstrap
-									</button>
+										<RotateCcw size={13} class="text-[#b48ead]" />
+										<span class="text-xs font-medium text-[#b48ead]">Rerunning bootstrap…</span>
+										<button
+											onclick={() => dismissRerun(ws.id)}
+											class="ml-auto rounded p-0.5 text-[#b48ead]/60 transition-colors hover:bg-[#b48ead]/20 hover:text-[#b48ead]"
+											type="button"
+											aria-label="Dismiss terminal"
+										>✕</button>
+									</div>
+									<div class="h-64 overflow-hidden">
+										<TerminalTab
+											sessionId={rerunSessions.get(ws.id)!}
+											command="devbootstrap --rerun -d {ws.path}"
+											cwd={ws.path}
+											active={true}
+										/>
+									</div>
 								</div>
 							{/if}
 							{#each ws.repos as repo (repo.path)}
