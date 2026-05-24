@@ -69,7 +69,7 @@ export function createPersistentSession(sessionId: string, command: string, cwd:
 		session.exitCode = exitCode;
 		for (const viewer of session.viewers) {
 			if (viewer.readyState === WebSocket.OPEN) {
-				viewer.send(JSON.stringify({ type: 'exit' }));
+				viewer.send(JSON.stringify({ type: 'exit', exitCode: exitCode ?? 0 }));
 				viewer.close();
 			}
 		}
@@ -122,7 +122,7 @@ export function attachTerminalServer(httpServer: Server): void {
 
 			// If already exited, notify immediately
 			if (session.status === 'exited') {
-				ws.send(JSON.stringify({ type: 'exit' }));
+				ws.send(JSON.stringify({ type: 'exit', exitCode: session.exitCode ?? 0 }));
 				ws.close();
 				return;
 			}
@@ -167,9 +167,9 @@ export function attachTerminalServer(httpServer: Server): void {
 			}
 		});
 
-		ptyProcess.onExit(() => {
+		ptyProcess.onExit(({ exitCode }) => {
 			if (ws.readyState === WebSocket.OPEN) {
-				ws.send(JSON.stringify({ type: 'exit' }));
+				ws.send(JSON.stringify({ type: 'exit', exitCode: exitCode ?? 0 }));
 				ws.close();
 			}
 		});

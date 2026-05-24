@@ -8,9 +8,10 @@
 		cwd?: string;
 		active: boolean;
 		fontSize?: number;
+		onExit?: (exitCode: number) => void;
 	}
 
-	let { sessionId, command, cwd, active, fontSize = 13 }: Props = $props();
+	let { sessionId, command, cwd, active, fontSize = 13, onExit }: Props = $props();
 
 	let terminal: Terminal | null = null;
 	let fitAddon: FitAddon | null = null;
@@ -93,11 +94,13 @@
 				try {
 					const msg = JSON.parse(evt.data as string);
 					if (msg.type === 'data') terminal?.write(msg.data as string);
+					else if (msg.type === 'exit') onExit?.(msg.exitCode ?? 0);
 				} catch {
 					terminal?.write(evt.data as string);
 				}
 			};
-		}
+
+			}
 
 		init();
 

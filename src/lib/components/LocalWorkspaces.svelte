@@ -295,18 +295,44 @@
 		onOpenTerminal(id, command, name, workspaceRoot);
 	}
 
-	let rerunSessions = $state<Map<string, string>>(new Map());
+	interface RerunSession {
+		sessionId: string;
+		visible: boolean;
+		failed: boolean;
+	}
+	let rerunSessions = $state<Map<string, RerunSession>>(new Map());
 
 	function rerunBootstrap(ws: LocalWorkspaceData) {
 		const id = generateId();
-		rerunSessions = new Map([...rerunSessions, [ws.id, id]]);
+		rerunSessions = new Map([...rerunSessions, [ws.id, { sessionId: id, visible: false, failed: false }]]);
 		if (!expanded.has(ws.id)) toggleExpand(ws.id);
+	}
+
+	function toggleRerunTerminal(wsId: string) {
+		const session = rerunSessions.get(wsId);
+		if (!session) return;
+		rerunSessions = new Map([...rerunSessions, [wsId, { ...session, visible: !session.visible }]]);
 	}
 
 	function dismissRerun(wsId: string) {
 		const next = new Map(rerunSessions);
 		next.delete(wsId);
 		rerunSessions = next;
+	}
+
+	function onRerunExit(wsId: string, exitCode: number) {
+		if (exitCode === 0) {
+			// Success: auto-close terminal and refresh workspace data
+			const next = new Map(rerunSessions);
+			next.delete(wsId);
+			rerunSessions = next;
+			onRefreshWorkspaces();
+		} else {
+			// Failure: keep terminal open so the user can inspect the output
+			const session = rerunSessions.get(wsId);
+			if (!session) return;
+			rerunSessions = new Map([...rerunSessions, [wsId, { ...session, visible: true, failed: true }]]);
+		}
 	}
 </script>
 
@@ -391,17 +417,28 @@
 					</div>
 					<div class="flex items-center gap-2">
 						{#if ws.solutionMetadata}
-							<button
-								onclick={(e) => {
-									e.stopPropagation();
-									rerunBootstrap(ws);
-								}}
-								class="flex items-center gap-1.5 rounded-lg border border-[#b48ead]/30 bg-[#b48ead]/15 px-2.5 py-1 text-xs font-medium text-[#b48ead] transition-colors hover:bg-[#b48ead]/25"
-								type="button"
-							>
-								<RotateCcw size={12} />
-								Rerun Bootstrap
-							</button>
+							{#if rerunSessions.has(ws.id) && !rerunSessions.get(ws.id)!.failed}
+								<button
+									disabled
+									class="flex cursor-not-allowed items-center gap-1.5 rounded-lg border border-[#b48ead]/30 bg-[#b48ead]/15 px-2.5 py-1 text-xs font-medium text-[#b48ead] opacity-75"
+									type="button"
+								>
+									<Loader2 size={12} class="animate-spin" />
+									Running…
+								</button>
+							{:else}
+								<button
+									onclick={(e) => {
+										e.stopPropagation();
+										rerunBootstrap(ws);
+									}}
+									class="flex items-center gap-1.5 rounded-lg border border-[#b48ead]/30 bg-[#b48ead]/15 px-2.5 py-1 text-xs font-medium text-[#b48ead] transition-colors hover:bg-[#b48ead]/25"
+									type="button"
+								>
+									<RotateCcw size={12} />
+									Rerun Bootstrap
+								</button>
+							{/if}
 						{/if}
 						<span
 							class="rounded-full bg-[#d8dee9] px-2 py-0.5 text-xs font-medium text-[#4c566a] dark:bg-[#4c566a] dark:text-[#d8dee9]"
@@ -447,28 +484,50 @@
 					{:else}
 						<div class="bg-[#f0f4f8] dark:bg-[#2e3440]">
 							{#if rerunSessions.has(ws.id)}
-								<!-- Inline rerun bootstrap terminal -->
-								<div class="border-b border-[#d8dee9]/60 dark:border-[#4c566a]/60">
-									<div
-										class="flex items-center gap-2 border-b border-[#b48ead]/20 bg-[#b48ead]/10 px-5 py-1.5"
+								{@const rerunSession = rerunSessions.get(ws.id)!}
+								<!-- Rerun progress / error row -->
+								<div
+									class="flex items-center gap-2 border-b px-5 py-1.5 {rerunSession.failed ? 'border-[#bf616a]/20 bg-[#bf616a]/10' : 'border-[#b48ead]/20 bg-[#b48ead]/10'}"
+								>
+									<button
+										onclick={() => toggleRerunTerminal(ws.id)}
+										type="button"
+										class="shrink-0 rounded p-0.5 transition-colors {rerunSession.failed ? 'text-[#bf616a]/70 hover:bg-[#bf616a]/20 hover:text-[#bf616a]' : 'text-[#b48ead]/70 hover:bg-[#b48ead]/20 hover:text-[#b48ead]'}"
+										aria-label={rerunSession.visible ? "Hide output" : "Show output"}
 									>
-										<RotateCcw size={13} class="text-[#b48ead]" />
+										{#if rerunSession.visible}
+											<ChevronDown size={13} />
+										{:else}
+											<ChevronRight size={13} />
+										{/if}
+									</button>
+									{#if rerunSession.failed}
+										<TriangleAlert size={12} class="text-[#bf616a]" />
+										<span class="text-xs font-medium text-[#bf616a]">Bootstrap failed</span>
+									{:else}
+										<Loader2 size={12} class="animate-spin text-[#b48ead]" />
 										<span class="text-xs font-medium text-[#b48ead]">Rerunning bootstrap…</span>
-										<button
-											onclick={() => dismissRerun(ws.id)}
-											class="ml-auto rounded p-0.5 text-[#b48ead]/60 transition-colors hover:bg-[#b48ead]/20 hover:text-[#b48ead]"
-											type="button"
-											aria-label="Dismiss terminal"
-										>✕</button>
-									</div>
-									<div class="h-64 overflow-hidden">
-										<TerminalTab
-											sessionId={rerunSessions.get(ws.id)!}
-											command="devbootstrap --rerun -d {ws.path}"
-											cwd={ws.path}
-											active={true}
-										/>
-									</div>
+									{/if}
+									<button
+										onclick={() => dismissRerun(ws.id)}
+										class="ml-auto rounded p-0.5 transition-colors {rerunSession.failed ? 'text-[#bf616a]/60 hover:bg-[#bf616a]/20 hover:text-[#bf616a]' : 'text-[#b48ead]/60 hover:bg-[#b48ead]/20 hover:text-[#b48ead]'}"
+										type="button"
+										aria-label={rerunSession.failed ? "Dismiss" : "Cancel"}
+									>✕</button>
+								</div>
+								<!-- Terminal: always mounted to keep WebSocket alive; shown/hidden via display -->
+								<div
+									class="overflow-hidden {rerunSession.failed ? 'border-b border-[#bf616a]/20' : 'border-b border-[#b48ead]/20'}"
+									style:display={rerunSession.visible ? "block" : "none"}
+									style:height={rerunSession.visible ? "16rem" : "0"}
+								>
+									<TerminalTab
+										sessionId={rerunSession.sessionId}
+										command="devbootstrap --rerun -d {ws.path}"
+										cwd={ws.path}
+										active={rerunSession.visible}
+										onExit={(code) => onRerunExit(ws.id, code)}
+									/>
 								</div>
 							{/if}
 							{#each ws.repos as repo (repo.path)}
