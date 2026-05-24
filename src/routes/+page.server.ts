@@ -1,7 +1,7 @@
 import { basename } from 'node:path';
 import { hostname } from 'node:os';
 import docker from '$lib/server/docker';
-import { loadWorkspaces, WORKSPACE_ROOT } from '$lib/server/workspaces';
+import { loadMergedWorkspaces, WORKSPACE_ROOT } from '$lib/server/workspaces';
 import type { ContainerData } from '$lib/types';
 import type { PageServerLoad } from './$types';
 
@@ -89,7 +89,7 @@ export const load: PageServerLoad = async () => {
 	const hostName = raw.split('.')[0];
 	const vscodeSshHost = process.env.VSCODE_SSH_HOST ?? '';
 
-	const workspaces = await loadWorkspaces();
+	const workspaces = await loadMergedWorkspaces();
 
 	return {
 		containers,

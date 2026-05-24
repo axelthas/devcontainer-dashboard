@@ -1,4 +1,4 @@
-import { createPersistentSession, getPersistentSession } from './terminal.js';
+import { createPersistentSession, getPersistentSession, deletePersistentSession } from './terminal.js';
 
 const CLEANUP_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -56,6 +56,12 @@ export function startDevcontainerBuild(
 export function getActiveBuilds(): ActiveDevcontainerBuild[] {
 	cleanupOldBuilds();
 	return Array.from(activeBuilds.values());
+}
+
+export function removeDevcontainerBuild(id: string): void {
+	if (!activeBuilds.has(id)) return;
+	deletePersistentSession(id);
+	activeBuilds.delete(id);
 }
 
 function cleanupOldBuilds(): void {

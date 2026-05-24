@@ -1,4 +1,4 @@
-import { createPersistentSession, getPersistentSession } from './terminal.js';
+import { createPersistentSession, getPersistentSession, deletePersistentSession } from './terminal.js';
 
 const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT ?? '/workspaces';
 const CLEANUP_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -60,6 +60,12 @@ export function startBootstrapRun(
 export function getActiveRuns(): ActiveBootstrapRun[] {
 	cleanupOldRuns();
 	return Array.from(activeRuns.values());
+}
+
+export function removeBootstrapRun(id: string): void {
+	if (!activeRuns.has(id)) return;
+	deletePersistentSession(id);
+	activeRuns.delete(id);
 }
 
 function cleanupOldRuns(): void {

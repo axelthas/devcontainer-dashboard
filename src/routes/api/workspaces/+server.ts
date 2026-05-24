@@ -1,52 +1,12 @@
 import { json, error } from '@sveltejs/kit';
 import { rm } from 'node:fs/promises';
-import { loadWorkspaces, WORKSPACE_ROOT } from '$lib/server/workspaces';
-import { getActiveRuns } from '$lib/server/bootstrapRuns';
-import { getActiveBuilds } from '$lib/server/devcontainerBuilds';
-import type { LocalWorkspaceData } from '$lib/types';
+import { loadMergedWorkspaces, WORKSPACE_ROOT } from '$lib/server/workspaces';
+import { getActiveRuns, removeBootstrapRun } from '$lib/server/bootstrapRuns';
+import { getActiveBuilds, removeDevcontainerBuild } from '$lib/server/devcontainerBuilds';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async () => {
-	const [workspaces, runs, devcontainerBuilds] = await Promise.all([
-		loadWorkspaces(),
-		Promise.resolve(getActiveRuns()),
-		Promise.resolve(getActiveBuilds())
-	]);
-
-	// Merge active bootstrap runs into the workspace list
-	for (const run of runs) {
-		const existing = workspaces.find((w) => w.path === run.workspacePath);
-		const buildSession = { id: run.id, status: run.status, startedAt: run.startedAt };
-
-		if (existing) {
-			// Real workspace already on disk — attach session to it (e.g. success transition)
-			existing.buildSession = buildSession;
-		} else {
-			// Workspace not on disk yet (still building or failed) — inject placeholder.
-			// Use run.name (the preset name) as the display name rather than the generated dir.
-			const placeholder: LocalWorkspaceData = {
-				id: run.id,
-				name: run.name,
-				path: run.workspacePath,
-				repos: [],
-				buildSession
-			};
-			workspaces.push(placeholder);
-		}
-	}
-
-	// Merge active devcontainer builds into the matching repo inside each workspace
-	for (const build of devcontainerBuilds) {
-		for (const ws of workspaces) {
-			const repo = ws.repos.find((r) => r.path === build.repoPath);
-			if (repo) {
-				repo.buildSession = { id: build.id, status: build.status, startedAt: build.startedAt };
-				break;
-			}
-		}
-	}
-
-	return json(workspaces);
+	return json(await loadMergedWorkspaces());
 };
 
 export const DELETE: RequestHandler = async ({ request }) => {
@@ -67,6 +27,21 @@ export const DELETE: RequestHandler = async ({ request }) => {
 	} catch (err: unknown) {
 		const message = err instanceof Error ? err.message : 'Unknown error';
 		throw error(500, message);
+	}
+
+	// Remove any in-memory bootstrap runs whose workspace path matches the deleted path.
+	// Without this the placeholder would reappear on the next poll.
+	for (const run of getActiveRuns()) {
+		if (run.workspacePath === normalized || run.workspacePath.startsWith(normalized + '/')) {
+			removeBootstrapRun(run.id);
+		}
+	}
+
+	// Remove any in-memory devcontainer builds for repos under the deleted workspace.
+	for (const build of getActiveBuilds()) {
+		if (build.repoPath === normalized || build.repoPath.startsWith(normalized + '/')) {
+			removeDevcontainerBuild(build.id);
+		}
 	}
 
 	return json({ success: true });
