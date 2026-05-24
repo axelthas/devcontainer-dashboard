@@ -53,6 +53,7 @@
 		workspaces = workspacesProp;
 	});
 	let expanded = $state<Set<string>>(new Set());
+	let expandedRepos = $state<Set<string>>(new Set());
 	let refreshing = $state(false);
 	let buildingRepos = $state<Set<string>>(new Set());
 	let deletingWorkspaces = $state<Set<string>>(new Set());
@@ -84,6 +85,13 @@
 		if (next.has(id)) next.delete(id);
 		else next.add(id);
 		expanded = next;
+	}
+
+	function toggleRepoExpand(path: string) {
+		const next = new Set(expandedRepos);
+		if (next.has(path)) next.delete(path);
+		else next.add(path);
+		expandedRepos = next;
 	}
 
 	async function buildAndStart(repoPath: string, repoName: string) {
@@ -425,13 +433,30 @@
 									</button>
 								</div>
 							{/if}
-							{#each ws.repos as repo}
+							{#each ws.repos as repo (repo.path)}
 								{@const matchedContainer = findContainerForRepo(repo.path)}
+								{@const repoExpandable =
+									repo.buildSession?.status === 'running' ||
+									repo.buildSession?.status === 'failed'}
 								<div
 									class="flex min-h-[2.5rem] items-center border-b border-[#d8dee9]/60 px-8 py-1.5 last:border-b-0 dark:border-[#4c566a]/60"
 								>
 									<!-- Repo name: takes available space -->
 									<div class="flex w-[200px] min-w-0 shrink-0 items-center gap-2">
+										{#if repoExpandable}
+											<button
+												onclick={() => toggleRepoExpand(repo.path)}
+												type="button"
+												aria-label={expandedRepos.has(repo.path) ? 'Collapse build output' : 'Expand build output'}
+												class="shrink-0 rounded p-0.5 text-[#4c566a] transition-colors hover:bg-[#d8dee9]/50 dark:text-[#d8dee9]/60 dark:hover:bg-[#4c566a]/50"
+											>
+												{#if expandedRepos.has(repo.path)}
+													<ChevronDown size={14} />
+												{:else}
+													<ChevronRight size={14} />
+												{/if}
+											</button>
+										{/if}
 										<GitBranch size={14} class="shrink-0 text-[#81a1c1] dark:text-[#88c0d0]" />
 										<span class="truncate text-sm font-medium text-[#2e3440] dark:text-[#d8dee9]"
 											>{repo.name}</span
@@ -443,7 +468,10 @@
 										{#if repo.currentBranch || repo.currentTag}
 											<div class="relative">
 												<button
-													onclick={() => openBranchPicker(repo.path)}
+													onclick={(e) => {
+														e.stopPropagation();
+														openBranchPicker(repo.path);
+													}}
 													class="flex items-center gap-1 rounded bg-[#e5e9f0] px-2 py-0.5 text-xs dark:bg-[#434c5e] {repo.currentTag
 														? 'text-[#a3be8c] dark:text-[#a3be8c]'
 														: 'text-[#5e81ac] dark:text-[#88c0d0]'} border border-[#d8dee9] transition-colors hover:bg-[#d8dee9] dark:border-[#4c566a] dark:hover:bg-[#4c566a]"
@@ -475,7 +503,7 @@
 																>
 																	Branches
 																</div>
-																{#each branchPickerBranches as branch}
+																{#each branchPickerBranches as branch (branch)}
 																	<button
 																		onclick={() => checkoutBranch(repo, branch)}
 																		class="w-full px-3 py-1.5 text-left text-xs transition-colors hover:bg-[#e5e9f0] dark:hover:bg-[#434c5e] {branch ===
@@ -500,7 +528,7 @@
 																>
 																	Tags
 																</div>
-																{#each branchPickerTags as tagName}
+																{#each branchPickerTags as tagName (tagName)}
 																	<button
 																		onclick={() => checkoutTag(repo, tagName)}
 																		class="flex w-full items-center gap-1 px-3 py-1.5 text-left text-xs transition-colors hover:bg-[#e5e9f0] dark:hover:bg-[#434c5e] {tagName ===
@@ -534,7 +562,7 @@
 									<!-- Service buttons (when container exists) -->
 									{#if matchedContainer && Object.keys(matchedContainer.ports).length > 0}
 										<div class="mx-3 flex flex-wrap gap-1.5">
-											{#each Object.entries(matchedContainer.ports) as [containerPort, hostPort]}
+											{#each Object.entries(matchedContainer.ports) as [containerPort, hostPort] (containerPort)}
 												<ServiceButton
 													{containerPort}
 													{hostPort}
@@ -583,26 +611,33 @@
 													Start
 												{/if}
 											</button>
+										{:else if buildingRepos.has(repo.path) || repo.buildSession?.status === 'running'}
+											<span
+												class="flex items-center gap-1.5 rounded-full border border-[#ebcb8b]/20 bg-[#ebcb8b]/10 px-2 py-1 text-xs font-medium whitespace-nowrap text-[#ebcb8b]"
+											>
+												<Loader size={12} class="animate-spin" />
+												Building
+											</span>
+										{:else if repo.buildSession?.status === 'failed'}
+											<span
+												class="flex items-center gap-1.5 rounded-full border border-[#bf616a]/20 bg-[#bf616a]/10 px-2 py-1 text-xs font-medium whitespace-nowrap text-[#bf616a]"
+											>
+												<TriangleAlert size={12} />
+												Build Failed
+											</span>
 										{:else}
 											<button
 												onclick={() => buildAndStart(repo.path, repo.name)}
-												disabled={buildingRepos.has(repo.path) ||
-													repo.buildSession?.status === 'running'}
-												class="flex items-center gap-1.5 rounded-lg bg-[#5e81ac] px-3 py-1.5 text-xs font-medium whitespace-nowrap text-white transition-colors hover:bg-[#81a1c1] disabled:cursor-wait disabled:opacity-60"
+												class="flex items-center gap-1.5 rounded-lg bg-[#5e81ac] px-3 py-1.5 text-xs font-medium whitespace-nowrap text-white transition-colors hover:bg-[#81a1c1]"
 												type="button"
 											>
-												{#if buildingRepos.has(repo.path) || repo.buildSession?.status === 'running'}
-													<Loader size={12} class="animate-spin" />
-													Building…
-												{:else}
-													<Play size={12} />
-													Build &amp; Start
-												{/if}
+												<Play size={12} />
+												Build &amp; Start
 											</button>
 										{/if}
 									</div>
 								</div>
-								{#if repo.buildSession?.status === 'running' || repo.buildSession?.status === 'failed'}
+								{#if repoExpandable && repo.buildSession && expandedRepos.has(repo.path)}
 									<div class="border-b border-[#d8dee9]/60 dark:border-[#4c566a]/60">
 										{#if repo.buildSession.status === 'failed'}
 											<div
