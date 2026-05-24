@@ -13,7 +13,8 @@
 		RotateCcw,
 		Package,
 		ArrowUpRight,
-		TriangleAlert
+		TriangleAlert,
+		Code
 	} from 'lucide-svelte';
 	import { untrack } from 'svelte';
 	import { generateId } from '$lib/index';
@@ -27,6 +28,7 @@
 		workspaces: LocalWorkspaceData[];
 		containers: ContainerData[];
 		hostname: string;
+		vscodeSshHost: string;
 		onOpenTerminal: (id: string, command: string, name: string, cwd: string) => void;
 		onRefreshWorkspaces: () => void;
 		onBootstrap?: () => void;
@@ -39,6 +41,7 @@
 		workspaces: workspacesProp,
 		containers,
 		hostname,
+		vscodeSshHost,
 		onOpenTerminal,
 		onRefreshWorkspaces,
 		onBootstrap,
@@ -53,7 +56,10 @@
 		workspaces = workspacesProp;
 		// Clear optimistic building state once the workspace poll confirms a build session exists
 		const confirmedPaths = new Set(
-			workspacesProp.flatMap((ws) => ws.repos).filter((r) => r.buildSession != null).map((r) => r.path)
+			workspacesProp
+				.flatMap((ws) => ws.repos)
+				.filter((r) => r.buildSession != null)
+				.map((r) => r.path)
 		);
 		untrack(() => {
 			if (buildingRepos.size > 0) {
@@ -449,8 +455,10 @@
 							{#each ws.repos as repo (repo.path)}
 								{@const matchedContainer = findContainerForRepo(repo.path)}
 								{@const repoExpandable =
-									repo.buildSession?.status === 'running' ||
-									repo.buildSession?.status === 'failed'}
+									repo.buildSession?.status === 'running' || repo.buildSession?.status === 'failed'}
+								{@const folderUri = vscodeSshHost
+									? `vscode://vscode-remote/ssh-remote+${vscodeSshHost}${repo.path}?windowId=_blank`
+									: `vscode://file${repo.path}?windowId=_blank`}
 								<div
 									class="flex min-h-[2.5rem] items-center border-b border-[#d8dee9]/60 px-8 py-1.5 last:border-b-0 dark:border-[#4c566a]/60"
 								>
@@ -460,7 +468,9 @@
 											<button
 												onclick={() => toggleRepoExpand(repo.path)}
 												type="button"
-												aria-label={expandedRepos.has(repo.path) ? 'Collapse build output' : 'Expand build output'}
+												aria-label={expandedRepos.has(repo.path)
+													? 'Collapse build output'
+													: 'Expand build output'}
 												class="shrink-0 rounded p-0.5 text-[#4c566a] transition-colors hover:bg-[#d8dee9]/50 dark:text-[#d8dee9]/60 dark:hover:bg-[#4c566a]/50"
 											>
 												{#if expandedRepos.has(repo.path)}
@@ -593,6 +603,15 @@
 
 									<!-- Action column: right-aligned -->
 									<div class="ml-auto flex shrink-0 items-center justify-end gap-2">
+										<!-- VS Code: open folder via SSH or local file URI -->
+										<a
+											href={folderUri}
+											rel="external"
+											title="Open folder in VS Code"
+											class="rounded-lg p-1.5 text-[#4c566a] transition-colors hover:bg-[#e5e9f0] hover:text-[#5e81ac] dark:text-[#d8dee9]/60 dark:hover:bg-[#3b4252] dark:hover:text-[#81a1c1]"
+										>
+											<Code size={14} />
+										</a>
 										{#if !repo.hasDevcontainer}
 											<span
 												class="text-xs whitespace-nowrap text-[#4c566a] italic dark:text-[#d8dee9]/40"

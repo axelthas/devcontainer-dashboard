@@ -45,7 +45,18 @@
 
 	$effect(() => {
 		const stored = localStorage.getItem(SSH_HOST_KEY);
-		if (stored !== null) vscodeSshHost = stored;
+		if (stored !== null) {
+			vscodeSshHost = stored;
+		} else if (!vscodeSshHost) {
+			// Auto-detect from URL hostname when no explicit value is configured
+			const urlHostname = window.location.hostname;
+			const isLoopback =
+				urlHostname === 'localhost' ||
+				urlHostname === '127.0.0.1' ||
+				urlHostname === '[::1]' ||
+				urlHostname === '::1';
+			if (!isLoopback) vscodeSshHost = urlHostname;
+		}
 	});
 
 	$effect(() => {
@@ -228,6 +239,20 @@
 						</div>
 					</div>
 
+					<!-- SSH host for VS Code remote connections -->
+					<div
+						class="flex items-center gap-1.5 rounded-lg border border-[#d8dee9] bg-[#eceff4] px-3 py-1.5 dark:border-[#434c5e] dark:bg-[#2e3440]"
+						title="SSH host for VS Code remote connections"
+					>
+						<Server size={14} class="shrink-0 text-[#4c566a] dark:text-[#d8dee9]/50" />
+						<input
+							type="text"
+							placeholder="SSH host"
+							bind:value={vscodeSshHost}
+							class="w-36 border-none bg-transparent text-xs text-[#4c566a] placeholder-[#4c566a]/50 outline-none dark:text-[#d8dee9]/70 dark:placeholder-[#d8dee9]/30"
+						/>
+					</div>
+
 					<!-- Theme toggle -->
 					<button
 						onclick={() => (dark = !dark)}
@@ -254,19 +279,6 @@
 					<h2 class="text-xl font-extrabold text-[#2e3440] dark:text-[#eceff4]">
 						Active Devcontainers
 					</h2>
-					<!-- SSH host input for VS Code remote connections -->
-					<div
-						class="ml-4 flex items-center gap-1.5 rounded-lg border border-[#d8dee9] bg-[#eceff4] px-3 py-1.5 dark:border-[#434c5e] dark:bg-[#2e3440]"
-						title="SSH host for remote VS Code devcontainer connections"
-					>
-						<Server size={14} class="shrink-0 text-[#4c566a] dark:text-[#d8dee9]/50" />
-						<input
-							type="text"
-							placeholder="SSH host for VS Code remote"
-							bind:value={vscodeSshHost}
-							class="w-48 border-none bg-transparent text-xs text-[#4c566a] placeholder-[#4c566a]/50 outline-none dark:text-[#d8dee9]/70 dark:placeholder-[#d8dee9]/30"
-						/>
-					</div>
 					<div
 						class="ml-auto flex items-center gap-1 rounded-lg border border-[#d8dee9] bg-[#eceff4] p-0.5 dark:border-[#434c5e] dark:bg-[#2e3440]"
 					>
@@ -328,6 +340,7 @@
 				{workspaces}
 				{containers}
 				{hostname}
+				{vscodeSshHost}
 				onOpenTerminal={handleOpenTerminal}
 				onRefreshWorkspaces={refreshWorkspaces}
 				onBootstrap={() => (bootstrapModalOpen = true)}
@@ -367,11 +380,12 @@
 									projectName={group.projectName}
 									containers={group.containers}
 									{hostname}
+									{vscodeSshHost}
 									onRefresh={refreshContainers}
 								/>
 							{/each}
 							{#each standaloneSandboxes as container (container.id)}
-								<SandboxRow {container} {hostname} onRefresh={refreshContainers} />
+								<SandboxRow {container} {hostname} {vscodeSshHost} onRefresh={refreshContainers} />
 							{/each}
 						</div>
 					</div>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Code } from 'lucide-svelte';
 	import type { ContainerData } from '$lib/types';
 	import ServiceButton from './ServiceButton.svelte';
 	import ActionControls from './ActionControls.svelte';
@@ -6,12 +7,19 @@
 	interface Props {
 		container: ContainerData;
 		hostname: string;
+		vscodeSshHost: string;
 		onRefresh: () => Promise<void>;
 	}
 
-	let { container, hostname, onRefresh }: Props = $props();
+	let { container, hostname, vscodeSshHost: _vscodeSshHost, onRefresh }: Props = $props();
 
 	const isRunning = $derived(container.state === 'running');
+
+	const attachUri = $derived(
+		isRunning
+			? `vscode://ms-vscode-remote.remote-containers/attachToRunningContainer?containerName=${container.name.startsWith('/') ? container.name : '/' + container.name}&windowId=_blank`
+			: ''
+	);
 </script>
 
 <div
@@ -38,7 +46,7 @@
 
 	<!-- Exposed Services -->
 	<div class="flex flex-grow flex-wrap gap-2">
-		{#each Object.entries(container.ports) as [containerPort, hostPort]}
+		{#each Object.entries(container.ports) as [containerPort, hostPort] (containerPort)}
 			<ServiceButton
 				{containerPort}
 				{hostPort}
@@ -54,7 +62,17 @@
 	</div>
 
 	<!-- Actions -->
-	<div class="flex shrink-0 items-center justify-end">
+	<div class="flex shrink-0 items-center justify-end gap-1.5">
+		{#if attachUri}
+			<a
+				href={attachUri}
+				rel="external"
+				title="Attach VS Code to container"
+				class="rounded-lg p-1.5 text-[#4c566a] transition-colors hover:bg-[#e5e9f0] hover:text-[#5e81ac] dark:text-[#d8dee9] dark:hover:bg-[#3b4252] dark:hover:text-[#81a1c1]"
+			>
+				<Code size={16} />
+			</a>
+		{/if}
 		<ActionControls id={container.id} containerState={container.state} {onRefresh} />
 	</div>
 </div>
