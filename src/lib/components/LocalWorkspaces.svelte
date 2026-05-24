@@ -51,6 +51,15 @@
 	// Keep in sync with parent (active-build auto-polling, etc.)
 	$effect(() => {
 		workspaces = workspacesProp;
+		// Clear optimistic building state once the workspace poll confirms a build session exists
+		const confirmedPaths = new Set(
+			workspacesProp.flatMap((ws) => ws.repos).filter((r) => r.buildSession != null).map((r) => r.path)
+		);
+		untrack(() => {
+			if (buildingRepos.size > 0) {
+				buildingRepos = new Set([...buildingRepos].filter((p) => !confirmedPaths.has(p)));
+			}
+		});
 	});
 	let expanded = $state<Set<string>>(new Set());
 	let expandedRepos = $state<Set<string>>(new Set());
@@ -103,9 +112,13 @@
 				body: JSON.stringify({ repoPath, repoName })
 			});
 			if (res.ok) {
+				// Keep repoPath in buildingRepos — the $effect above will clear it once
+				// the workspace poll confirms the build session has started.
 				onRefreshWorkspaces();
+			} else {
+				buildingRepos = new Set([...buildingRepos].filter((p) => p !== repoPath));
 			}
-		} finally {
+		} catch {
 			buildingRepos = new Set([...buildingRepos].filter((p) => p !== repoPath));
 		}
 	}
