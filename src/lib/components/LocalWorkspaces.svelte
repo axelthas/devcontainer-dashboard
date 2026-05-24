@@ -603,69 +603,77 @@
 
 									<!-- Action column: right-aligned -->
 									<div class="ml-auto flex shrink-0 items-center justify-end gap-2">
-										<!-- VS Code: open folder via SSH or local file URI -->
-										<a
-											href={folderUri}
-											rel="external"
-											title="Open folder in VS Code"
-											class="rounded-lg p-1.5 text-[#4c566a] transition-colors hover:bg-[#e5e9f0] hover:text-[#5e81ac] dark:text-[#d8dee9]/60 dark:hover:bg-[#3b4252] dark:hover:text-[#81a1c1]"
+										<div
+											class="flex items-center rounded-xl border border-[#d8dee9] bg-[#eceff4] p-1 shadow-sm dark:border-[#434c5e] dark:bg-[#2e3440]"
 										>
-											<Code size={14} />
-										</a>
+											<!-- VS Code: open folder via SSH or local file URI -->
+											<a
+												href={folderUri}
+												rel="external"
+												title="Open folder in VS Code"
+												class="rounded-lg p-1.5 text-[#4c566a] transition-colors hover:bg-[#e5e9f0] hover:text-[#5e81ac] dark:text-[#d8dee9]/60 dark:hover:bg-[#3b4252] dark:hover:text-[#81a1c1]"
+											>
+												<Code size={14} />
+											</a>
+											{#if repo.hasDevcontainer}
+												<div class="mx-0.5 h-4 w-px shrink-0 bg-[#d8dee9] dark:bg-[#434c5e]"></div>
+												{#if matchedContainer && matchedContainer.state === 'running'}
+													<button
+														onclick={() => onScrollToContainer?.(matchedContainer.id)}
+														class="flex cursor-pointer items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium whitespace-nowrap text-[#a3be8c] transition-colors hover:bg-[#e5e9f0] dark:hover:bg-[#3b4252]"
+														type="button"
+														title="Scroll to devcontainer"
+													>
+														<span class="inline-block h-1.5 w-1.5 rounded-full bg-[#a3be8c]"></span>
+														Running
+														<ArrowUpRight size={11} />
+													</button>
+												{:else if matchedContainer && matchedContainer.state !== 'running'}
+													<button
+														onclick={() => startContainer(repo.path, matchedContainer.id)}
+														disabled={startingRepos.has(repo.path)}
+														class="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium whitespace-nowrap text-[#a3be8c] transition-colors hover:bg-[#e5e9f0] disabled:cursor-wait disabled:opacity-60 dark:hover:bg-[#3b4252]"
+														type="button"
+													>
+														{#if startingRepos.has(repo.path)}
+															<Loader size={12} class="animate-spin" />
+															Starting…
+														{:else}
+															<Play size={12} class="fill-current" />
+															Start
+														{/if}
+													</button>
+												{:else if buildingRepos.has(repo.path) || repo.buildSession?.status === 'running'}
+													<span
+														class="flex items-center gap-1 px-2 py-1 text-xs font-medium whitespace-nowrap text-[#ebcb8b]"
+													>
+														<Loader size={12} class="animate-spin" />
+														Building
+													</span>
+												{:else if repo.buildSession?.status === 'failed'}
+													<span
+														class="flex items-center gap-1 px-2 py-1 text-xs font-medium whitespace-nowrap text-[#bf616a]"
+													>
+														<TriangleAlert size={12} />
+														Failed
+													</span>
+												{:else}
+													<button
+														onclick={() => buildAndStart(repo.path, repo.name)}
+														class="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium whitespace-nowrap text-[#81a1c1] transition-colors hover:bg-[#e5e9f0] dark:hover:bg-[#3b4252]"
+														type="button"
+													>
+														<Play size={12} />
+														Build &amp; Start
+													</button>
+												{/if}
+											{/if}
+										</div>
 										{#if !repo.hasDevcontainer}
 											<span
 												class="text-xs whitespace-nowrap text-[#4c566a] italic dark:text-[#d8dee9]/40"
-												>No configuration</span
+												>No config</span
 											>
-										{:else if matchedContainer && matchedContainer.state === 'running'}
-											<button
-												onclick={() => onScrollToContainer?.(matchedContainer.id)}
-												class="flex cursor-pointer items-center gap-1.5 rounded-full border border-[#a3be8c]/20 bg-[#a3be8c]/10 px-2 py-1 text-xs font-medium whitespace-nowrap text-[#a3be8c] transition-colors hover:bg-[#a3be8c]/20"
-												type="button"
-												title="Scroll to devcontainer"
-											>
-												<span class="inline-block h-1.5 w-1.5 rounded-full bg-[#a3be8c]"></span>
-												Running
-												<ArrowUpRight size={12} />
-											</button>
-										{:else if matchedContainer && matchedContainer.state !== 'running'}
-											<button
-												onclick={() => startContainer(repo.path, matchedContainer.id)}
-												disabled={startingRepos.has(repo.path)}
-												class="flex items-center gap-1.5 rounded-lg bg-[#a3be8c] px-3 py-1.5 text-xs font-medium whitespace-nowrap text-white transition-colors hover:bg-[#a3be8c]/80 disabled:cursor-wait disabled:opacity-60"
-												type="button"
-											>
-												{#if startingRepos.has(repo.path)}
-													<Loader size={12} class="animate-spin" />
-													Starting…
-												{:else}
-													<Play size={12} />
-													Start
-												{/if}
-											</button>
-										{:else if buildingRepos.has(repo.path) || repo.buildSession?.status === 'running'}
-											<span
-												class="flex items-center gap-1.5 rounded-full border border-[#ebcb8b]/20 bg-[#ebcb8b]/10 px-2 py-1 text-xs font-medium whitespace-nowrap text-[#ebcb8b]"
-											>
-												<Loader size={12} class="animate-spin" />
-												Building
-											</span>
-										{:else if repo.buildSession?.status === 'failed'}
-											<span
-												class="flex items-center gap-1.5 rounded-full border border-[#bf616a]/20 bg-[#bf616a]/10 px-2 py-1 text-xs font-medium whitespace-nowrap text-[#bf616a]"
-											>
-												<TriangleAlert size={12} />
-												Build Failed
-											</span>
-										{:else}
-											<button
-												onclick={() => buildAndStart(repo.path, repo.name)}
-												class="flex items-center gap-1.5 rounded-lg bg-[#5e81ac] px-3 py-1.5 text-xs font-medium whitespace-nowrap text-white transition-colors hover:bg-[#81a1c1]"
-												type="button"
-											>
-												<Play size={12} />
-												Build &amp; Start
-											</button>
 										{/if}
 									</div>
 								</div>
