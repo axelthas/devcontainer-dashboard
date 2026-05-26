@@ -1,5 +1,24 @@
 // place files you want to import through the `$lib` alias in this folder.
 
+/**
+ * Opens a custom protocol URL (e.g. vscode://) via a server-side `code` CLI call so
+ * the browser never handles the protocol directly and shows no confirmation dialog.
+ * Falls back to direct browser navigation if the server-side CLI is unavailable.
+ */
+export function openProtocolUrl(url: string): void {
+	fetch('/api/open-vscode', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ url })
+	})
+		.then((res) => {
+			if (!res.ok) window.location.href = url;
+		})
+		.catch(() => {
+			window.location.href = url;
+		});
+}
+
 /** Generate a UUID that works in non-secure contexts (plain HTTP on LAN hostnames). */
 export function generateId(): string {
 	if (typeof crypto !== 'undefined' && crypto.randomUUID) {

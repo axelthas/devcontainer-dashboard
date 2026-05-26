@@ -18,7 +18,7 @@
 		TerminalSquare
 	} from 'lucide-svelte';
 	import { untrack } from 'svelte';
-	import { generateId } from '$lib/index';
+	import { generateId, openProtocolUrl } from '$lib/index';
 	import type { ContainerData, LocalWorkspaceData, RepositoryData } from '$lib/types';
 	import BootstrapStatus from './BootstrapStatus.svelte';
 	import ServiceButton from './ServiceButton.svelte';
@@ -686,14 +686,14 @@
 											class="flex items-center rounded-xl border border-[#d8dee9] bg-[#eceff4] p-1 shadow-sm dark:border-[#434c5e] dark:bg-[#2e3440]"
 										>
 											<!-- VS Code: open folder via SSH or local file URI -->
-											<a
-												href={folderUri}
-												rel="external"
-												title="Open folder in VS Code"
-												class="rounded-lg p-1.5 text-[#4c566a] transition-colors hover:bg-[#e5e9f0] hover:text-[#5e81ac] dark:text-[#d8dee9]/60 dark:hover:bg-[#3b4252] dark:hover:text-[#81a1c1]"
-											>
-												<Code size={14} />
-											</a>
+										<button
+											type="button"
+											onclick={() => openProtocolUrl(folderUri)}
+											title="Open folder in VS Code"
+											class="rounded-lg p-1.5 text-[#4c566a] transition-colors hover:bg-[#e5e9f0] hover:text-[#5e81ac] dark:text-[#d8dee9]/60 dark:hover:bg-[#3b4252] dark:hover:text-[#81a1c1]"
+										>
+											<Code size={14} />
+										</button>
 											<!-- Terminal: open shell at repo path -->
 											<button
 												onclick={() => onOpenTerminal(generateId(), '', repo.name, repo.path)}

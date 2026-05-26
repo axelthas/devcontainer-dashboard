@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Play, Square, RotateCw, Loader2, Trash2, Code, TerminalSquare } from 'lucide-svelte';
+	import { openProtocolUrl } from '$lib';
 
 	interface Props {
 		id: string;
@@ -33,14 +34,14 @@
 	class="flex items-center gap-1.5 rounded-xl border border-[#d8dee9] bg-[#eceff4] p-1 shadow-sm dark:border-[#434c5e] dark:bg-[#2e3440]"
 >
 	{#if vscodeUri}
-		<a
-			href={vscodeUri}
-			rel="external"
+		<button
+			type="button"
+			onclick={() => openProtocolUrl(vscodeUri)}
 			title="Open in VS Code"
 			class="rounded-lg p-1.5 text-[#4c566a] transition-colors hover:bg-[#e5e9f0] hover:text-[#5e81ac] dark:text-[#d8dee9] dark:hover:bg-[#3b4252] dark:hover:text-[#81a1c1]"
 		>
 			<Code size={16} />
-		</a>
+		</button>
 	{/if}
 	{#if onOpenTerminal}
 		<button
