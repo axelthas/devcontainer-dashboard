@@ -1,14 +1,15 @@
 <script lang="ts">
-	import { Play, Square, RotateCw, Loader2, Trash2, Code } from 'lucide-svelte';
+	import { Play, Square, RotateCw, Loader2, Trash2, Code, TerminalSquare } from 'lucide-svelte';
 
 	interface Props {
 		id: string;
 		containerState: string;
 		onRefresh: () => Promise<void>;
 		vscodeUri?: string;
+		onOpenTerminal?: () => void;
 	}
 
-	let { id, containerState, onRefresh, vscodeUri }: Props = $props();
+	let { id, containerState, onRefresh, vscodeUri, onOpenTerminal }: Props = $props();
 
 	let loadingAction = $state<string | null>(null);
 
@@ -40,6 +41,15 @@
 		>
 			<Code size={16} />
 		</a>
+	{/if}
+	{#if onOpenTerminal}
+		<button
+			onclick={onOpenTerminal}
+			title="Open terminal"
+			class="rounded-lg p-1.5 text-[#4c566a] transition-colors hover:bg-[#e5e9f0] hover:text-[#88c0d0] dark:text-[#d8dee9] dark:hover:bg-[#3b4252] dark:hover:text-[#88c0d0]"
+		>
+			<TerminalSquare size={16} />
+		</button>
 	{/if}
 	{#if isRunning}
 		<button

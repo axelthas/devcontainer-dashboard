@@ -14,7 +14,8 @@
 		Package,
 		ArrowUpRight,
 		TriangleAlert,
-		Code
+		Code,
+		TerminalSquare
 	} from 'lucide-svelte';
 	import { untrack } from 'svelte';
 	import { generateId } from '$lib/index';
@@ -693,6 +694,15 @@
 											>
 												<Code size={14} />
 											</a>
+											<!-- Terminal: open shell at repo path -->
+											<button
+												onclick={() => onOpenTerminal(generateId(), '', repo.name, repo.path)}
+												title="Open terminal in folder"
+												type="button"
+												class="rounded-lg p-1.5 text-[#4c566a] transition-colors hover:bg-[#e5e9f0] hover:text-[#88c0d0] dark:text-[#d8dee9]/60 dark:hover:bg-[#3b4252] dark:hover:text-[#88c0d0]"
+											>
+												<TerminalSquare size={14} />
+											</button>
 											{#if repo.hasDevcontainer}
 												<div class="mx-0.5 h-4 w-px shrink-0 bg-[#d8dee9] dark:bg-[#434c5e]"></div>
 												{#if matchedContainer && matchedContainer.state === 'running'}

@@ -312,8 +312,7 @@
 								{container}
 								{hostname}
 								{vscodeSshHost}
-								onRefresh={refreshContainers}
-							/>
+								onRefresh={refreshContainers}								onOpenTerminal={handleOpenTerminal}							/>
 						{/each}
 					</div>
 				{:else}
@@ -327,6 +326,7 @@
 									{hostname}
 									{vscodeSshHost}
 									onRefresh={refreshContainers}
+									onOpenTerminal={handleOpenTerminal}
 								/>
 							{/each}
 						</div>

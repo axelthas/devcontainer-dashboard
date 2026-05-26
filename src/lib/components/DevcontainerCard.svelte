@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { ContainerData } from '$lib/types';
+	import { generateId } from '$lib/index';
 	import ServiceButton from './ServiceButton.svelte';
 	import ActionControls from './ActionControls.svelte';
 
@@ -8,9 +9,10 @@
 		hostname: string;
 		vscodeSshHost?: string;
 		onRefresh: () => Promise<void>;
+		onOpenTerminal?: (id: string, command: string, name: string, cwd: string) => void;
 	}
 
-	let { container, hostname, vscodeSshHost, onRefresh }: Props = $props();
+	let { container, hostname, vscodeSshHost, onRefresh, onOpenTerminal }: Props = $props();
 
 	const isRunning = $derived(container.state === 'running');
 
@@ -39,8 +41,26 @@
 		}
 		return `vscode://vscode-remote/dev-container+${hexPath}${containerWorkspace}?windowId=_blank`;
 	});
-</script>
 
+	const terminalParams = $derived.by(() => {
+		const containerName = container.name.replace(/^\//, '');
+		if (container.state === 'running') {
+			return {
+				command: `docker exec -it ${containerName} bash`,
+				cwd: container.localWorkspacePath ?? ''
+			};
+		}
+		if (container.localWorkspacePath) {
+			return { command: '', cwd: container.localWorkspacePath };
+		}
+		return null;
+	});
+
+	function openTerminal() {
+		if (!onOpenTerminal || !terminalParams) return;
+		onOpenTerminal(generateId(), terminalParams.command, container.projectName, terminalParams.cwd);
+	}
+</script>
 <div
 	data-container-id={container.id}
 	class="flex flex-col rounded-2xl border transition-all duration-300
@@ -80,7 +100,7 @@
 				{/if}
 			</div>
 		</div>
-		<ActionControls id={container.id} containerState={container.state} {onRefresh} {vscodeUri} />
+		<ActionControls id={container.id} containerState={container.state} {onRefresh} {vscodeUri} onOpenTerminal={onOpenTerminal && terminalParams ? openTerminal : undefined} />
 	</div>
 
 	<!-- Card Services Grid -->
