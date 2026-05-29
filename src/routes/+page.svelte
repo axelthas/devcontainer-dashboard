@@ -25,7 +25,6 @@
 	// untrack prevents svelte from treating data.containers as a reactive dep;
 	// polling handles subsequent updates
 	let containers = $state<ContainerData[]>(untrack(() => data.containers));
-	const hostname = data.hostname;
 	let workspaces = $state<LocalWorkspaceData[]>(untrack(() => data.workspaces));
 	let dark = $state(true);
 
@@ -310,7 +309,7 @@
 						{#each devcontainers as container (container.id)}
 							<DevcontainerCard
 								{container}
-								{hostname}
+
 								{vscodeSshHost}
 								onRefresh={refreshContainers}								onOpenTerminal={handleOpenTerminal}							/>
 						{/each}
@@ -323,7 +322,6 @@
 							{#each devcontainers as container (container.id)}
 								<DevcontainerRow
 									{container}
-									{hostname}
 									{vscodeSshHost}
 									onRefresh={refreshContainers}
 									onOpenTerminal={handleOpenTerminal}
@@ -339,7 +337,6 @@
 				workspaceRoot={WORKSPACE_ROOT}
 				{workspaces}
 				{containers}
-				{hostname}
 				{vscodeSshHost}
 				onOpenTerminal={handleOpenTerminal}
 				onRefreshWorkspaces={refreshWorkspaces}
@@ -379,13 +376,12 @@
 								<ComposeGroupRow
 									projectName={group.projectName}
 									containers={group.containers}
-									{hostname}
 									{vscodeSshHost}
 									onRefresh={refreshContainers}
 								/>
 							{/each}
 							{#each standaloneSandboxes as container (container.id)}
-								<SandboxRow {container} {hostname} {vscodeSshHost} onRefresh={refreshContainers} />
+								<SandboxRow {container} {vscodeSshHost} onRefresh={refreshContainers} />
 							{/each}
 						</div>
 					</div>

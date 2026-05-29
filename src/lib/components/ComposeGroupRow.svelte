@@ -6,12 +6,11 @@
 	interface Props {
 		projectName: string;
 		containers: ContainerData[];
-		hostname: string;
 		vscodeSshHost: string;
 		onRefresh: () => Promise<void>;
 	}
 
-	let { projectName, containers, hostname, vscodeSshHost, onRefresh }: Props = $props();
+	let { projectName, containers, vscodeSshHost, onRefresh }: Props = $props();
 
 	let expanded = $state(false);
 	let loadingAction = $state<string | null>(null);
@@ -133,7 +132,7 @@
 		<div class="bg-[#f0f4f8] dark:bg-[#2e3440]">
 			<div class="divide-y divide-[#d8dee9]/60 dark:divide-[#4c566a]/60">
 				{#each containers as container (container.id)}
-					<SandboxRow {container} {hostname} {vscodeSshHost} {onRefresh} />
+					<SandboxRow {container} {vscodeSshHost} {onRefresh} />
 				{/each}
 			</div>
 		</div>

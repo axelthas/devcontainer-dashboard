@@ -9,7 +9,6 @@
 	const project = $derived(page.url.searchParams.get('project') ?? '');
 	const container = $derived(page.url.searchParams.get('container') ?? '');
 	const workspacePath = $derived(page.url.searchParams.get('path') ?? '');
-	const hostnameParam = $derived(page.url.searchParams.get('hostname') ?? '');
 
 	const allPorts = $derived.by(() => {
 		const raw = page.url.searchParams.get('ports');
@@ -26,7 +25,7 @@
 	function switchService(containerPort: string, hostPort: string) {
 		const config = PORT_MAP[containerPort];
 		const newLabel = config?.label ?? `Port ${containerPort}`;
-		const newUrl = `http://${hostnameParam}:${hostPort}`;
+		const newUrl = `http://${page.url.hostname}:${hostPort}`;
 		const params = new URLSearchParams(page.url.searchParams);
 		params.set('url', newUrl);
 		params.set('label', newLabel);
@@ -86,7 +85,7 @@
 						{@const config = PORT_MAP[containerPort]}
 						{@const portLabel = config?.label ?? `Port ${containerPort}`}
 						{@const IconComponent = config?.icon ?? Server}
-						{@const isActive = url === `http://${hostnameParam}:${hostPort}`}
+						{@const isActive = url === `http://${page.url.hostname}:${hostPort}`}
 						<button
 							class="btn {isActive ? 'btn-active' : ''}"
 							onclick={() => switchService(containerPort, hostPort)}

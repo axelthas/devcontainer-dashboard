@@ -6,13 +6,12 @@
 
 	interface Props {
 		container: ContainerData;
-		hostname: string;
 		vscodeSshHost?: string;
 		onRefresh: () => Promise<void>;
 		onOpenTerminal?: (id: string, command: string, name: string, cwd: string) => void;
 	}
 
-	let { container, hostname, vscodeSshHost, onRefresh, onOpenTerminal }: Props = $props();
+	let { container, vscodeSshHost, onRefresh, onOpenTerminal }: Props = $props();
 
 	const isRunning = $derived(container.state === 'running');
 
@@ -96,7 +95,6 @@
 			<ServiceButton
 				{containerPort}
 				{hostPort}
-				{hostname}
 				running={isRunning}
 				variant="row"
 				containerName={container.name}

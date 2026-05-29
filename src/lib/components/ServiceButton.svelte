@@ -5,7 +5,6 @@
 	interface Props {
 		containerPort: string;
 		hostPort: string;
-		hostname: string;
 		running: boolean;
 		variant?: 'card' | 'row';
 		containerName?: string;
@@ -17,7 +16,6 @@
 	let {
 		containerPort,
 		hostPort,
-		hostname,
 		running,
 		variant = 'card',
 		containerName,
@@ -28,7 +26,8 @@
 
 	function openService() {
 		if (!running) return;
-		const serviceUrl = `http://${hostname}:${hostPort}`;
+		const serviceHostname = window.location.hostname;
+		const serviceUrl = `http://${serviceHostname}:${hostPort}`;
 		if (containerName || projectName) {
 			const params = new URLSearchParams({
 				url: serviceUrl,
@@ -37,7 +36,7 @@
 				...(containerName ? { container: containerName } : {}),
 				...(workspacePath ? { path: workspacePath } : {}),
 				...(allPorts && Object.keys(allPorts).length > 1
-					? { ports: JSON.stringify(allPorts), hostname }
+					? { ports: JSON.stringify(allPorts), hostname: serviceHostname }
 					: {})
 			});
 			window.open(`/service?${params}`, '_blank');

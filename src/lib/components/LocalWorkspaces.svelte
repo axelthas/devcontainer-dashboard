@@ -28,7 +28,6 @@
 		workspaceRoot: string;
 		workspaces: LocalWorkspaceData[];
 		containers: ContainerData[];
-		hostname: string;
 		vscodeSshHost: string;
 		onOpenTerminal: (id: string, command: string, name: string, cwd: string) => void;
 		onRefreshWorkspaces: () => void;
@@ -41,7 +40,6 @@
 		workspaceRoot,
 		workspaces: workspacesProp,
 		containers,
-		hostname,
 		vscodeSshHost,
 		onOpenTerminal,
 		onRefreshWorkspaces,
@@ -668,7 +666,6 @@
 												<ServiceButton
 													{containerPort}
 													{hostPort}
-													{hostname}
 													running={matchedContainer.state === 'running'}
 													variant="row"
 													containerName={matchedContainer.name}
