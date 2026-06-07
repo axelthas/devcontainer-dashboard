@@ -1,4 +1,8 @@
-import { createPersistentSession, getPersistentSession, deletePersistentSession } from './terminal.js';
+import {
+	createPersistentSession,
+	getPersistentSession,
+	deletePersistentSession
+} from './terminal.js';
 
 const CLEANUP_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
 

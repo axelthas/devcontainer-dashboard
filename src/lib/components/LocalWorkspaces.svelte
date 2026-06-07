@@ -18,6 +18,7 @@
 		TerminalSquare
 	} from 'lucide-svelte';
 	import { untrack } from 'svelte';
+	import { SvelteSet, SvelteMap } from 'svelte/reactivity';
 	import { generateId } from '$lib/index';
 	import type { ContainerData, LocalWorkspaceData, RepositoryData } from '$lib/types';
 	import BootstrapStatus from './BootstrapStatus.svelte';
@@ -66,11 +67,11 @@
 			}
 		});
 	});
-	let expanded = $state<Set<string>>(new Set());
-	let expandedRepos = $state<Set<string>>(new Set());
+	let expanded = $state(new SvelteSet<string>());
+	let expandedRepos = $state(new SvelteSet<string>());
 	let refreshing = $state(false);
-	let buildingRepos = $state<Set<string>>(new Set());
-	let deletingWorkspaces = $state<Set<string>>(new Set());
+	let buildingRepos = $state(new SvelteSet<string>());
+	let deletingWorkspaces = $state(new SvelteSet<string>());
 
 	// Branch picker state
 	let branchPickerRepo = $state<string | null>(null);
@@ -78,7 +79,7 @@
 	let branchPickerTags = $state<string[]>([]);
 	let branchPickerLoading = $state(false);
 	let checkoutInProgress = $state<string | null>(null);
-	let startingRepos = $state<Set<string>>(new Set());
+	let startingRepos = $state(new SvelteSet<string>());
 
 	/** Find matching container for a repo by localWorkspacePath */
 	function findContainerForRepo(repoPath: string): ContainerData | undefined {
@@ -303,7 +304,10 @@
 
 	function rerunBootstrap(ws: LocalWorkspaceData) {
 		const id = generateId();
-		rerunSessions = new Map([...rerunSessions, [ws.id, { sessionId: id, visible: false, failed: false }]]);
+		rerunSessions = new Map([
+			...rerunSessions,
+			[ws.id, { sessionId: id, visible: false, failed: false }]
+		]);
 		if (!expanded.has(ws.id)) toggleExpand(ws.id);
 	}
 
@@ -330,7 +334,10 @@
 			// Failure: keep terminal open so the user can inspect the output
 			const session = rerunSessions.get(wsId);
 			if (!session) return;
-			rerunSessions = new Map([...rerunSessions, [wsId, { ...session, visible: true, failed: true }]]);
+			rerunSessions = new Map([
+				...rerunSessions,
+				[wsId, { ...session, visible: true, failed: true }]
+			]);
 		}
 	}
 </script>
@@ -486,13 +493,17 @@
 								{@const rerunSession = rerunSessions.get(ws.id)!}
 								<!-- Rerun progress / error row -->
 								<div
-									class="flex items-center gap-2 border-b px-5 py-1.5 {rerunSession.failed ? 'border-[#bf616a]/20 bg-[#bf616a]/10' : 'border-[#b48ead]/20 bg-[#b48ead]/10'}"
+									class="flex items-center gap-2 border-b px-5 py-1.5 {rerunSession.failed
+										? 'border-[#bf616a]/20 bg-[#bf616a]/10'
+										: 'border-[#b48ead]/20 bg-[#b48ead]/10'}"
 								>
 									<button
 										onclick={() => toggleRerunTerminal(ws.id)}
 										type="button"
-										class="shrink-0 rounded p-0.5 transition-colors {rerunSession.failed ? 'text-[#bf616a]/70 hover:bg-[#bf616a]/20 hover:text-[#bf616a]' : 'text-[#b48ead]/70 hover:bg-[#b48ead]/20 hover:text-[#b48ead]'}"
-										aria-label={rerunSession.visible ? "Hide output" : "Show output"}
+										class="shrink-0 rounded p-0.5 transition-colors {rerunSession.failed
+											? 'text-[#bf616a]/70 hover:bg-[#bf616a]/20 hover:text-[#bf616a]'
+											: 'text-[#b48ead]/70 hover:bg-[#b48ead]/20 hover:text-[#b48ead]'}"
+										aria-label={rerunSession.visible ? 'Hide output' : 'Show output'}
 									>
 										{#if rerunSession.visible}
 											<ChevronDown size={13} />
@@ -509,16 +520,20 @@
 									{/if}
 									<button
 										onclick={() => dismissRerun(ws.id)}
-										class="ml-auto rounded p-0.5 transition-colors {rerunSession.failed ? 'text-[#bf616a]/60 hover:bg-[#bf616a]/20 hover:text-[#bf616a]' : 'text-[#b48ead]/60 hover:bg-[#b48ead]/20 hover:text-[#b48ead]'}"
+										class="ml-auto rounded p-0.5 transition-colors {rerunSession.failed
+											? 'text-[#bf616a]/60 hover:bg-[#bf616a]/20 hover:text-[#bf616a]'
+											: 'text-[#b48ead]/60 hover:bg-[#b48ead]/20 hover:text-[#b48ead]'}"
 										type="button"
-										aria-label={rerunSession.failed ? "Dismiss" : "Cancel"}
-									>✕</button>
+										aria-label={rerunSession.failed ? 'Dismiss' : 'Cancel'}>✕</button
+									>
 								</div>
 								<!-- Terminal: always mounted to keep WebSocket alive; shown/hidden via display -->
 								<div
-									class="overflow-hidden {rerunSession.failed ? 'border-b border-[#bf616a]/20' : 'border-b border-[#b48ead]/20'}"
-									style:display={rerunSession.visible ? "block" : "none"}
-									style:height={rerunSession.visible ? "16rem" : "0"}
+									class="overflow-hidden {rerunSession.failed
+										? 'border-b border-[#bf616a]/20'
+										: 'border-b border-[#b48ead]/20'}"
+									style:display={rerunSession.visible ? 'block' : 'none'}
+									style:height={rerunSession.visible ? '16rem' : '0'}
 								>
 									<TerminalTab
 										sessionId={rerunSession.sessionId}

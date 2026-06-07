@@ -145,7 +145,7 @@
 								>
 									Local
 								</div>
-								{#each info.availableBranches as branch}
+								{#each info.availableBranches as branch (branch)}
 									<button
 										onclick={() => checkoutBranch(branch)}
 										class="w-full px-3 py-1.5 text-left text-xs transition-colors hover:bg-[#e5e9f0] dark:hover:bg-[#434c5e] {branch ===
@@ -170,7 +170,7 @@
 								>
 									Remote
 								</div>
-								{#each info.remoteBranches.filter((b) => !info?.availableBranches?.includes(b)) as branch}
+								{#each info.remoteBranches.filter((b) => !info?.availableBranches?.includes(b)) as branch (branch)}
 									<button
 										onclick={() => checkoutBranch(branch)}
 										class="w-full px-3 py-1.5 text-left text-xs text-[#4c566a] italic transition-colors hover:bg-[#e5e9f0] dark:text-[#d8dee9]/70 dark:hover:bg-[#434c5e]"

@@ -56,6 +56,7 @@
 		onOpenTerminal(generateId(), terminalParams.command, container.projectName, terminalParams.cwd);
 	}
 </script>
+
 <div
 	data-container-id={container.id}
 	class="flex flex-col justify-between gap-4 px-5 py-3 transition-all duration-300 md:flex-row md:items-center
@@ -91,7 +92,7 @@
 
 	<!-- Exposed Services -->
 	<div class="flex flex-grow flex-wrap gap-2">
-		{#each Object.entries(container.ports) as [containerPort, hostPort]}
+		{#each Object.entries(container.ports) as [containerPort, hostPort] (containerPort)}
 			<ServiceButton
 				{containerPort}
 				{hostPort}
@@ -107,6 +108,12 @@
 
 	<!-- Actions -->
 	<div class="flex shrink-0 items-center justify-end">
-		<ActionControls id={container.id} containerState={container.state} {onRefresh} {vscodeUri} onOpenTerminal={onOpenTerminal && terminalParams ? openTerminal : undefined} />
+		<ActionControls
+			id={container.id}
+			containerState={container.state}
+			{onRefresh}
+			{vscodeUri}
+			onOpenTerminal={onOpenTerminal && terminalParams ? openTerminal : undefined}
+		/>
 	</div>
 </div>

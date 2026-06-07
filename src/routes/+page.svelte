@@ -309,9 +309,10 @@
 						{#each devcontainers as container (container.id)}
 							<DevcontainerCard
 								{container}
-
 								{vscodeSshHost}
-								onRefresh={refreshContainers}								onOpenTerminal={handleOpenTerminal}							/>
+								onRefresh={refreshContainers}
+								onOpenTerminal={handleOpenTerminal}
+							/>
 						{/each}
 					</div>
 				{:else}

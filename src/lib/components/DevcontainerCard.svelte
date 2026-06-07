@@ -60,6 +60,7 @@
 		onOpenTerminal(generateId(), terminalParams.command, container.projectName, terminalParams.cwd);
 	}
 </script>
+
 <div
 	data-container-id={container.id}
 	class="flex flex-col rounded-2xl border transition-all duration-300
@@ -99,7 +100,13 @@
 				{/if}
 			</div>
 		</div>
-		<ActionControls id={container.id} containerState={container.state} {onRefresh} {vscodeUri} onOpenTerminal={onOpenTerminal && terminalParams ? openTerminal : undefined} />
+		<ActionControls
+			id={container.id}
+			containerState={container.state}
+			{onRefresh}
+			{vscodeUri}
+			onOpenTerminal={onOpenTerminal && terminalParams ? openTerminal : undefined}
+		/>
 	</div>
 
 	<!-- Card Services Grid -->

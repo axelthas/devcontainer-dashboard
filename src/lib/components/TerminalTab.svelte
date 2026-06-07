@@ -99,8 +99,7 @@
 					terminal?.write(evt.data as string);
 				}
 			};
-
-			}
+		}
 
 		init();
 
