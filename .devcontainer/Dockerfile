@@ -1,6 +1,6 @@
 FROM ubuntu:noble
 
-ARG USERNAME=valas
+ARG USERNAME=ddash
 ARG USER_UID=1000
 ARG USER_GID=$USER_UID
 

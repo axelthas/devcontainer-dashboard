@@ -9,7 +9,9 @@
 		Loader,
 		Play
 	} from 'lucide-svelte';
+	import { generateId } from '$lib/index';
 	import type { BootstrapToolInfo, BootstrapProvider } from '$lib/types';
+	import TerminalTab from './TerminalTab.svelte';
 
 	interface Props {
 		onRunInTerminal: (command: string, name: string) => void;
@@ -25,9 +27,26 @@
 	let pulling = $state(false);
 	let checkingOut = $state(false);
 	let pullMessage = $state<string | null>(null);
+	let updating = $state(false);
+	let updateSessionId = $state<string | null>(null);
+	let updateTerminalVisible = $state(false);
+	let updateFailed = $state(false);
+	let versionHighlight = $state(false);
+	let previousVersion = $state<string | null>(null);
 
 	$effect(() => {
 		fetchBootstrapInfo();
+	});
+
+	// Watch for version changes and trigger highlight
+	$effect(() => {
+		if (info?.version && previousVersion !== null && info.version !== previousVersion) {
+			versionHighlight = true;
+			setTimeout(() => (versionHighlight = false), 2000);
+		}
+		if (info?.version) {
+			previousVersion = info.version;
+		}
 	});
 
 	async function fetchBootstrapInfo() {
@@ -89,8 +108,32 @@
 	}
 
 	function updateBootstrap() {
-		if (!provider) return;
-		onRunInTerminal(provider.commands.update, 'Update Bootstrap');
+		if (!provider || updating) return;
+		updating = true;
+		updateFailed = false;
+		updateSessionId = generateId();
+		updateTerminalVisible = true;
+	}
+
+	function onUpdateExit(exitCode: number) {
+		updating = false;
+		if (exitCode === 0) {
+			// Success: auto-hide terminal after a brief delay, refresh info
+			setTimeout(() => {
+				updateTerminalVisible = false;
+				updateSessionId = null;
+			}, 2000);
+			fetchBootstrapInfo();
+		} else {
+			// Failure: keep terminal visible for inspection
+			updateFailed = true;
+		}
+	}
+
+	function dismissUpdateTerminal() {
+		updateTerminalVisible = false;
+		updateSessionId = null;
+		updateFailed = false;
 	}
 </script>
 
@@ -112,7 +155,11 @@
 
 			<!-- Version -->
 			{#if info.version}
-				<div class="flex items-center gap-1.5">
+				<div
+					class="flex items-center gap-1.5 rounded px-1.5 py-0.5 transition-all duration-500 {versionHighlight
+						? 'bg-[#a3be8c]/20 ring-1 ring-[#a3be8c]/50'
+						: ''}"
+				>
 					<span class="text-[11px] text-[#4c566a] dark:text-[#d8dee9]/60">v</span>
 					<span class="font-mono text-xs font-semibold text-[#2e3440] dark:text-[#eceff4]"
 						>{info.version}</span
@@ -145,7 +192,7 @@
 								>
 									Local
 								</div>
-								{#each info.availableBranches as branch}
+								{#each info.availableBranches as branch (branch)}
 									<button
 										onclick={() => checkoutBranch(branch)}
 										class="w-full px-3 py-1.5 text-left text-xs transition-colors hover:bg-[#e5e9f0] dark:hover:bg-[#434c5e] {branch ===
@@ -170,7 +217,7 @@
 								>
 									Remote
 								</div>
-								{#each info.remoteBranches.filter((b) => !info?.availableBranches?.includes(b)) as branch}
+								{#each info.remoteBranches.filter((b) => !info?.availableBranches?.includes(b)) as branch (branch)}
 									<button
 										onclick={() => checkoutBranch(branch)}
 										class="w-full px-3 py-1.5 text-left text-xs text-[#4c566a] italic transition-colors hover:bg-[#e5e9f0] dark:text-[#d8dee9]/70 dark:hover:bg-[#434c5e]"
@@ -215,10 +262,15 @@
 				</button>
 				<button
 					onclick={updateBootstrap}
-					class="flex items-center gap-1.5 rounded-lg border border-[#b48ead]/30 bg-[#b48ead]/15 px-2.5 py-1.5 text-xs font-medium text-[#b48ead] transition-colors hover:bg-[#b48ead]/25"
+					disabled={updating}
+					class="flex items-center gap-1.5 rounded-lg border border-[#b48ead]/30 bg-[#b48ead]/15 px-2.5 py-1.5 text-xs font-medium text-[#b48ead] transition-colors hover:bg-[#b48ead]/25 disabled:opacity-50"
 					type="button"
 				>
-					<RotateCcw size={12} />
+					{#if updating}
+						<Loader size={12} class="animate-spin" />
+					{:else}
+						<RotateCcw size={12} />
+					{/if}
 					Update
 				</button>
 				<button
@@ -237,6 +289,34 @@
 				class="mt-2 rounded border border-[#d8dee9] bg-[#eceff4] px-3 py-2 font-mono text-xs text-[#4c566a] dark:border-[#4c566a] dark:bg-[#2e3440] dark:text-[#d8dee9]/80"
 			>
 				{pullMessage}
+			</div>
+		{/if}
+
+		{#if updateTerminalVisible && updateSessionId && provider}
+			<div class="mt-2 overflow-hidden rounded border border-[#4c566a] bg-[#2e3440]">
+				<div class="flex items-center justify-between border-b border-[#4c566a] px-3 py-1">
+					<span class="text-[10px] font-medium text-[#d8dee9]/60">Update Bootstrap</span>
+					{#if updateFailed}
+						<span class="text-[10px] font-medium text-[#bf616a]">Failed</span>
+					{/if}
+					{#if !updating}
+						<button
+							onclick={dismissUpdateTerminal}
+							class="text-[10px] text-[#d8dee9]/40 transition-colors hover:text-[#d8dee9]"
+							type="button"
+						>
+							Dismiss
+						</button>
+					{/if}
+				</div>
+				<div class="h-40">
+					<TerminalTab
+						sessionId={updateSessionId}
+						command={provider.commands.update}
+						active={true}
+						onExit={onUpdateExit}
+					/>
+				</div>
 			</div>
 		{/if}
 	</div>
