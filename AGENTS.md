@@ -7,6 +7,7 @@ A SvelteKit web dashboard for managing and monitoring local Docker containers. D
 ```bash
 npm run dev              # Start dev server (vite, host 0.0.0.0)
 npm run build            # Production build (adapter-node)
+npm run build:server     # Compile the custom Node server entry point
 npm run preview          # Preview production build
 npm run check            # svelte-check type checking
 npm run lint             # prettier --check + eslint
@@ -19,21 +20,31 @@ npm run test             # unit + e2e combined
 
 ## Architecture
 
-- **Framework**: SvelteKit with `@sveltejs/adapter-node`, Svelte 5 runes mode enforced
+- **Framework**: SvelteKit with `@sveltejs/adapter-node`, Svelte 5 runes mode enforced project-wide
 - **Styling**: Tailwind CSS v4 with Nord color palette via arbitrary hex values (e.g., `bg-[#2e3440]`)
 - **Icons**: `lucide-svelte`
 - **Docker**: `dockerode` connecting to `/var/run/docker.sock`
 - **Terminal**: `node-pty` + `ws` WebSocket server on `/api/terminal`, rendered with `@xterm/xterm`
-- **Deployment**: Multi-stage Docker build → `node build/index.js` on port 3000
+- **Deployment**: Multi-stage Docker build. The build image runs `npm run build && npm run build:server`; the runtime image starts the custom Node server on port 3000.
+- **Server entry point**: `src/server.ts` creates the HTTP server, attaches the terminal WebSocket handler, and listens on `PORT`
 
 ### Environment variables
 
-| Variable          | Default              | Purpose                                              |
-| ----------------- | -------------------- | ---------------------------------------------------- |
-| `WORKSPACE_ROOT`  | `/workspaces`        | Root directory scanned for local workspace discovery |
-| `HOST_HOSTNAME`   | `os.hostname()`      | Displayed hostname in dashboard header               |
-| `VSCODE_SSH_HOST` | (empty)              | SSH host for VS Code remote URIs                     |
-| `PRESETS_FILE`    | `/data/presets.json` | Path to bootstrap presets JSON file                  |
+| Variable                   | Default                          | Purpose                                              |
+| -------------------------- | -------------------------------- | ---------------------------------------------------- |
+| `WORKSPACE_ROOT`           | `/workspaces`                    | Root directory scanned for local workspace discovery |
+| `HOST_HOSTNAME`            | `os.hostname()`                  | Displayed hostname in dashboard header               |
+| `VSCODE_SSH_HOST`          | (empty)                          | SSH host for VS Code remote URIs                     |
+| `PRESETS_FILE`             | `/data/presets.json`             | Path to bootstrap presets JSON file                  |
+| `BOOTSTRAP_PROVIDERS_FILE` | `/data/bootstrap-providers.json` | Path to bootstrap provider definitions               |
+| `PORT`                     | `3000`                           | Port used by the custom server entry point           |
+
+### Runtime notes
+
+- The dashboard SSR load in [src/routes/+page.server.ts](src/routes/+page.server.ts) is the authoritative entry for initial container and workspace data.
+- The client polling endpoint is [src/routes/api/containers/+server.ts](src/routes/api/containers/+server.ts); keep its response shape aligned with the page load data.
+- Workspace discovery lives in [src/lib/server/workspaces.ts](src/lib/server/workspaces.ts) and merges in-memory bootstrap and devcontainer build sessions.
+- Bootstrap provider loading lives in [src/lib/server/bootstrap.ts](src/lib/server/bootstrap.ts), with a fallback to `~/.devbootstrap` if no providers file exists.
 
 ### Route structure
 
@@ -45,8 +56,15 @@ npm run test             # unit + e2e combined
 | `/api/containers` (GET)                | Returns all containers with exposed ports as JSON                                             |
 | `/api/containers/[id]/[action]` (POST) | Executes `start`, `stop`, `restart`, or `delete` on a container                               |
 | `/api/presets` (GET)                   | Returns bootstrap presets from `PRESETS_FILE`                                                 |
-| `/api/workspaces` (GET)                | Returns discovered local workspaces                                                           |
-| `/api/workspaces` (DELETE)             | Removes a workspace directory (requires `path` in body)                                       |
+| `/api/workspaces` (GET, DELETE)        | Returns discovered local workspaces or removes a workspace directory with `path` in the body  |
+| `/api/bootstrap` (GET)                 | Returns active bootstrap provider install status, branches, and version                       |
+| `/api/bootstrap/providers` (GET)       | Returns configured bootstrap providers and fallback provider info                             |
+| `/api/bootstrap/run` (POST)            | Starts a bootstrap run for a preset or custom command                                         |
+| `/api/bootstrap/pull` (POST)           | Pulls the active bootstrap provider repository                                                |
+| `/api/bootstrap/checkout` (POST)       | Checks out a branch in the active bootstrap provider repository                               |
+| `/api/repos/branches` (GET)            | Returns branches, tags, and current ref information for a repository path                     |
+| `/api/repos/checkout` (POST)           | Checks out a branch or tag in a repository path                                               |
+| `/api/devcontainer/build` (POST)       | Starts a devcontainer build session for a repository                                          |
 | `/api/terminal` (WebSocket)            | PTY terminal sessions via upgrade on the HTTP server                                          |
 
 ### Key files
@@ -56,6 +74,9 @@ npm run test             # unit + e2e combined
 | `src/lib/server/docker.ts`             | Dockerode client singleton                                                                     |
 | `src/lib/server/terminal.ts`           | WebSocket PTY server (attaches to Vite dev or production HTTP server)                          |
 | `src/lib/server/workspaces.ts`         | Scans `WORKSPACE_ROOT` for task/repo pairs with `.devcontainer`                                |
+| `src/lib/server/bootstrap.ts`          | Loads bootstrap providers and resolves the active provider                                     |
+| `src/lib/server/bootstrapRuns.ts`      | Tracks bootstrap run sessions in memory                                                        |
+| `src/lib/server/devcontainerBuilds.ts` | Tracks active devcontainer build sessions in memory                                            |
 | `src/lib/types.ts`                     | Shared interfaces: `ContainerData`, `LocalWorkspaceData`, `BootstrapPreset`, `TerminalSession` |
 | `src/lib/portConfig.ts`                | Port-to-label/icon mapping for known services                                                  |
 | `src/lib/components/`                  | UI components (see conventions below)                                                          |
@@ -68,6 +89,8 @@ npm run test             # unit + e2e combined
 - Props are typed via `interface Props` and destructured from `$props()`
 - Container actions call `fetch('/api/containers/{id}/{action}', { method: 'POST' })` then invoke `onRefresh` callback
 - Port labels/icons are defined in `src/lib/portConfig.ts` (`PORT_MAP`); unknown ports show as "Port N"
+- Keep client components free of direct `$lib/server/` imports.
+- Prefer updating the relevant server module or route handler rather than duplicating logic in a component.
 
 ## Conventions
 
@@ -75,6 +98,7 @@ npm run test             # unit + e2e combined
 - **No `$lib/server/` imports from client**: Server modules are in `src/lib/server/`, excluded from browser test projects
 - **Nord palette only**: Use Nord hex values via Tailwind arbitrary values — no custom theme config
 - **Native dependencies**: `node-pty` requires `build-essential python3` (dev) or `python3 make g++` (Alpine production)
+- **Container metadata**: Compose projects are grouped by `com.docker.compose.project`, while devcontainers are identified from name and image heuristics plus the `devcontainer.local_folder` label.
 
 ## Testing
 
@@ -88,6 +112,8 @@ Important:
 - `expect.requireAssertions` is enabled — every test MUST contain at least one assertion
 - E2E tests: Playwright files match `**/*.e2e.{ts,js}`
 - Example tests in `src/lib/vitest-examples/` demonstrate both patterns
+- When changing server routes, validate the request/response contract with a focused test if one already exists nearby.
+- When changing Svelte components, run the Svelte MCP autofixer before finalizing and keep runes syntax consistent.
 
 ## Svelte MCP Tools
 
@@ -97,6 +123,14 @@ Use the Svelte MCP server for Svelte 5 and SvelteKit documentation:
 2. **get-documentation** — Fetch full docs for relevant sections found above
 3. **svelte-autofixer** — MUST run on any Svelte code before finalizing; iterate until no issues remain
 4. **playground-link** — Only after user confirms, and NEVER if code was written to project files
+
+## Authoritative Sources
+
+- [specification/initial_specification.md](specification/initial_specification.md) — Core product behavior and terminology
+- [specification/feature_bootstrap/feature_specification_bootstrap.md](specification/feature_bootstrap/feature_specification_bootstrap.md) — Bootstrap workflow details
+- [src/lib/types.ts](src/lib/types.ts) — Shared data models and session state shapes
+- [src/routes/api/\*_/_.ts](src/routes/api) — Route names, request validation, and response contracts
+- [src/server.ts](src/server.ts) — Production server entry point and PORT handling
 
 ## Documentation
 
