@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { ContainerData } from '$lib/types';
+	import { buildContainerVscodeUri } from '$lib/vscode';
 	import ServiceButton from './ServiceButton.svelte';
 	import ActionControls from './ActionControls.svelte';
 
@@ -13,20 +14,8 @@
 
 	const isRunning = $derived(container.state === 'running');
 
-	function hexEncode(str: string): string {
-		return Array.from(new TextEncoder().encode(str))
-			.map((b) => b.toString(16).padStart(2, '0'))
-			.join('');
-	}
-
 	const vscodeUri = $derived.by(() => {
-		if (!isRunning) return '';
-		const containerName = container.name.startsWith('/') ? container.name : `/${container.name}`;
-		if (vscodeSshHost) {
-			const config = JSON.stringify({ containerName });
-			return `vscode://vscode-remote/attached-container+${hexEncode(config)}@ssh-remote+${vscodeSshHost}?windowId=_blank`;
-		}
-		return `vscode://ms-vscode-remote.remote-containers/attachToRunningContainer?containerName=${containerName}&windowId=_blank`;
+		return buildContainerVscodeUri(container, vscodeSshHost);
 	});
 </script>
 
