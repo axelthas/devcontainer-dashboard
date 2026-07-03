@@ -15,7 +15,8 @@
 		ArrowUpRight,
 		TriangleAlert,
 		Code,
-		TerminalSquare
+		TerminalSquare,
+		X
 	} from 'lucide-svelte';
 	import { untrack } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
@@ -143,6 +144,18 @@
 		if (next.has(path)) next.delete(path);
 		else next.add(path);
 		expandedRepos = next;
+	}
+
+	async function dismissBuild(buildId: string) {
+		try {
+			await fetch('/api/devcontainer/build', {
+				method: 'DELETE',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ id: buildId })
+			});
+		} finally {
+			onRefreshWorkspaces();
+		}
 	}
 
 	async function buildAndStart(repoPath: string, repoName: string, configPath?: string) {
@@ -787,12 +800,25 @@
 														Building
 													</span>
 												{:else if repo.buildSession?.status === 'failed'}
-													<span
-														class="flex items-center gap-1 px-2 py-1 text-xs font-medium whitespace-nowrap text-[#bf616a]"
+													<button
+														onclick={() =>
+															buildAndStart(repo.path, repo.name, getEffectiveConfig(repo))}
+														class="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium whitespace-nowrap text-[#ebcb8b] transition-colors hover:bg-[#e5e9f0] dark:hover:bg-[#3b4252]"
+														type="button"
+														title="Retry build"
 													>
-														<TriangleAlert size={12} />
-														Failed
-													</span>
+														<RotateCcw size={12} />
+														Retry
+													</button>
+													<button
+														onclick={() => dismissBuild(repo.buildSession!.id)}
+														class="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium whitespace-nowrap text-[#bf616a] transition-colors hover:bg-[#e5e9f0] dark:hover:bg-[#3b4252]"
+														type="button"
+														title="Dismiss failed build"
+													>
+														<X size={12} />
+														Dismiss
+													</button>
 												{:else}
 													{#if repo.devcontainerConfigs?.length > 1}
 														{@const selectedCfg = getEffectiveConfig(repo)!}
@@ -867,7 +893,26 @@
 												class="flex items-center gap-2 border-b border-[#bf616a]/20 bg-[#bf616a]/10 px-8 py-2 text-[#bf616a]"
 											>
 												<TriangleAlert size={14} />
-												<span class="text-sm font-medium">Build failed</span>
+												<span class="flex-1 text-sm font-medium">Build failed</span>
+												<button
+													onclick={() =>
+														buildAndStart(repo.path, repo.name, getEffectiveConfig(repo))}
+													class="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition-colors hover:bg-[#bf616a]/20"
+													type="button"
+													title="Retry build"
+												>
+													<RotateCcw size={12} />
+													Retry
+												</button>
+												<button
+													onclick={() => dismissBuild(repo.buildSession!.id)}
+													class="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition-colors hover:bg-[#bf616a]/20"
+													type="button"
+													title="Dismiss failed build"
+												>
+													<X size={12} />
+													Dismiss
+												</button>
 											</div>
 										{/if}
 										<div class="h-64 overflow-hidden">

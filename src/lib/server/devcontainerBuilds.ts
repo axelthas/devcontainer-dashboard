@@ -33,6 +33,13 @@ export function startDevcontainerBuild(
 ): ActiveDevcontainerBuild {
 	cleanupOldBuilds();
 
+	// Remove any prior completed build for the same repo to avoid stale entries on retry.
+	for (const [existingId, existing] of activeBuilds) {
+		if (existing.repoPath === repoPath && existing.status !== 'running') {
+			removeDevcontainerBuild(existingId);
+		}
+	}
+
 	const build: ActiveDevcontainerBuild = {
 		id,
 		repoPath,

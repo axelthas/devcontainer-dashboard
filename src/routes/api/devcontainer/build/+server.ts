@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { startDevcontainerBuild } from '$lib/server/devcontainerBuilds';
+import { startDevcontainerBuild, removeDevcontainerBuild } from '$lib/server/devcontainerBuilds';
 import { randomUUID } from 'node:crypto';
 import { normalize, join } from 'node:path';
 
@@ -39,4 +39,18 @@ export const POST: RequestHandler = async ({ request }) => {
 	const build = startDevcontainerBuild(id, normalized, repoName.trim(), validatedConfigPath);
 
 	return json({ id: build.id, repoPath: build.repoPath });
+};
+
+export const DELETE: RequestHandler = async ({ request }) => {
+	const body = await request.json().catch(() => null);
+
+	if (!body || typeof body !== 'object') throw error(400, 'Invalid JSON body');
+
+	const { id } = body as Record<string, unknown>;
+
+	if (typeof id !== 'string' || !id.trim()) throw error(400, 'id is required');
+
+	removeDevcontainerBuild(id.trim());
+
+	return json({ success: true });
 };
