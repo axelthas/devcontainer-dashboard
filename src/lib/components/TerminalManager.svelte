@@ -176,6 +176,7 @@
 						command={session.command}
 						cwd={session.cwd ?? workspaceRoot}
 						active={activeId === session.id}
+						onExit={() => closeSession(session.id)}
 					/>
 				</div>
 			{/each}
