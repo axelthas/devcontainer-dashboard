@@ -390,17 +390,17 @@
 				onRefreshContainers={refreshContainers}
 			/>
 
-			<!-- Section 3: Sandbox Services -->
+			<!-- Section 3: Docker Services -->
 			<section>
 				<div
 					class="mb-6 flex items-center gap-2 border-b border-[#d8dee9] pb-2 dark:border-[#4c566a]"
 				>
 					<Cpu size={20} class="text-[#4c566a] dark:text-[#d8dee9]/70" />
 					<h2 class="text-xl font-extrabold text-[#2e3440] dark:text-[#eceff4]">
-						Sandbox Services
+						Docker Services
 					</h2>
 					<span class="ml-2 text-sm font-medium text-[#4c566a] dark:text-[#d8dee9]/60"
-						>(Docker Compose, Local DBs, etc.)</span
+						>(Compose stacks, databases, and other containers)</span
 					>
 				</div>
 
@@ -423,10 +423,16 @@
 									containers={group.containers}
 									{vscodeSshHost}
 									onRefresh={refreshContainers}
-								/>
-							{/each}
-							{#each standaloneSandboxes as container (container.id)}
-								<SandboxRow {container} {vscodeSshHost} onRefresh={refreshContainers} />
+								onOpenTerminal={handleOpenTerminal}
+							/>
+						{/each}
+						{#each standaloneSandboxes as container (container.id)}
+							<SandboxRow
+								{container}
+								{vscodeSshHost}
+								onRefresh={refreshContainers}
+								onOpenTerminal={handleOpenTerminal}
+							/>
 							{/each}
 						</div>
 					</div>

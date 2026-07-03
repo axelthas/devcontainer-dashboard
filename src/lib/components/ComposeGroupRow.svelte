@@ -8,9 +8,10 @@
 		containers: ContainerData[];
 		vscodeSshHost: string;
 		onRefresh: () => Promise<void>;
+		onOpenTerminal?: (id: string, command: string, name: string, cwd: string) => void;
 	}
 
-	let { projectName, containers, vscodeSshHost, onRefresh }: Props = $props();
+	let { projectName, containers, vscodeSshHost, onRefresh, onOpenTerminal }: Props = $props();
 
 	let expanded = $state(false);
 	let loadingAction = $state<string | null>(null);
@@ -132,7 +133,7 @@
 		<div class="bg-[#f0f4f8] dark:bg-[#2e3440]">
 			<div class="divide-y divide-[#d8dee9]/60 dark:divide-[#4c566a]/60">
 				{#each containers as container (container.id)}
-					<SandboxRow {container} {vscodeSshHost} {onRefresh} />
+				<SandboxRow {container} {vscodeSshHost} {onRefresh} {onOpenTerminal} />
 				{/each}
 			</div>
 		</div>
