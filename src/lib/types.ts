@@ -14,6 +14,8 @@ export interface RepositoryData {
 	name: string;
 	path: string;
 	hasDevcontainer: boolean;
+	/** Relative paths to each devcontainer.json found in the repo (e.g. '.devcontainer/rocky8/devcontainer.json') */
+	devcontainerConfigs: string[];
 	isRunning: boolean;
 	currentBranch?: string;
 	/** Current tag when HEAD is detached on a tag */

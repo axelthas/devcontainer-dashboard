@@ -1,4 +1,9 @@
-import { createPersistentSession, getPersistentSession, deletePersistentSession } from './terminal.js';
+import { join } from 'node:path';
+import {
+	createPersistentSession,
+	getPersistentSession,
+	deletePersistentSession
+} from './terminal.js';
 
 const CLEANUP_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -6,6 +11,8 @@ export interface ActiveDevcontainerBuild {
 	id: string;
 	repoPath: string;
 	repoName: string;
+	/** Relative path to the devcontainer.json used for this build (e.g. '.devcontainer/rocky8/devcontainer.json') */
+	configPath?: string;
 	status: 'running' | 'success' | 'failed';
 	startedAt: string;
 	exitCode?: number;
@@ -21,7 +28,8 @@ const activeBuilds = g.__devcontainerBuilds;
 export function startDevcontainerBuild(
 	id: string,
 	repoPath: string,
-	repoName: string
+	repoName: string,
+	configPath?: string
 ): ActiveDevcontainerBuild {
 	cleanupOldBuilds();
 
@@ -29,12 +37,16 @@ export function startDevcontainerBuild(
 		id,
 		repoPath,
 		repoName,
+		configPath,
 		status: 'running',
 		startedAt: new Date().toISOString()
 	};
 	activeBuilds.set(id, build);
 
-	createPersistentSession(id, `devcontainer up --workspace-folder ${repoPath}`, repoPath);
+	const command = configPath
+		? `devcontainer up --workspace-folder ${repoPath} --config ${join(repoPath, configPath)}`
+		: `devcontainer up --workspace-folder ${repoPath}`;
+	createPersistentSession(id, command, repoPath);
 
 	// Poll for session exit to update build status
 	const poll = setInterval(() => {
