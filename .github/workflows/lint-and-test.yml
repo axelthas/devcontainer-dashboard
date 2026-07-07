@@ -2,7 +2,7 @@ name: Code Linting and Unit Tests
 
 on:
   pull_request:
-    branches: [ main ] # Change this if your default branch is named 'master'
+    branches: [main] # Change this if your default branch is named 'master'
 
 jobs:
   test:
