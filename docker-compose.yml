@@ -10,14 +10,30 @@ services:
       WORKSPACE_ROOT: /bootstrap_workspaces
       PRESETS_FILE: /data/presets.json
       VSCODE_SSH_HOST: ${VSCODE_SSH_HOST:-}
+      # ── SSH for terminal sessions and dev-bootstrap cloning ──────────────────
+      # Uncomment and set to your host agent socket path to forward SSH auth:
+      # SSH_AUTH_SOCK: /tmp/ssh-agent.socket
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${HOME:-/root}/git.workspaces:/bootstrap_workspaces:rw
       - dashboard_data:/data
-      # Operator hooks (optional): mount a local directory of executable .sh scripts.
-      # Scripts run in alphabetical order before the server starts.
-      # Example: - ${HOME}/my-dashboard-hooks:/docker-entrypoint.d:ro
+      # ── Persistent zsh history for the integrated terminal ───────────────────
+      - ddash_zsh_data:/home/ddash/.zsh_data
+      # ── SSH access (choose one or both) ──────────────────────────────────────
+      # SSH agent socket — forward the host agent so clones and git ops work:
+      # - ${SSH_AUTH_SOCK}:/tmp/ssh-agent.socket:ro
+      # SSH key directory — alternative or complement to the agent socket:
+      # - ${HOME}/.ssh:/home/ddash/.ssh:ro
+      # ── dev-bootstrap setup hook (TernDev internal) ───────────────────────────
+      # The hook script is bundled in the image at /opt/dashboard/hooks/.
+      # Mount it into /docker-entrypoint.d/ to activate it on container start.
+      # Requires SSH access (see above) to clone the private GitLab repository.
+      # - /opt/dashboard/hooks/10-dev-bootstrap.sh:/docker-entrypoint.d/10-dev-bootstrap.sh:ro
+      # ── Operator hooks (optional) ────────────────────────────────────────────
+      # Drop additional executable .sh scripts into a host directory and mount it:
+      # - ${HOME}/my-dashboard-hooks:/docker-entrypoint.d:ro
     restart: unless-stopped
 
 volumes:
   dashboard_data:
+  ddash_zsh_data:
