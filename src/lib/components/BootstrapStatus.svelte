@@ -14,11 +14,10 @@
 	import TerminalTab from './TerminalTab.svelte';
 
 	interface Props {
-		onRunInTerminal: (command: string, name: string) => void;
 		onBootstrap?: () => void;
 	}
 
-	let { onRunInTerminal, onBootstrap }: Props = $props();
+	let { onBootstrap }: Props = $props();
 
 	let info = $state<BootstrapToolInfo | null>(null);
 	let provider = $state<BootstrapProvider | null>(null);

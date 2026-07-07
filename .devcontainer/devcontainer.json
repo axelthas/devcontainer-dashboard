@@ -18,14 +18,14 @@
 		"ghcr.io/devcontainers/features/common-utils:2": {
 			"configureZshAsDefaultShell": true
 		},
-        "ghcr.io/devcontainers/features/sshd:1": {}
+		"ghcr.io/devcontainers/features/sshd:1": {}
 	},
 
 	"mounts": [
 		"source=ddash-zsh-history,target=/home/${localEnv:USER}/.zsh_data,type=volume",
 		"source=ddash-copilot-cli,target=/home/${localEnv:USER}/.copilot,type=volume",
 		"source=ddash-devbootstrap,target=/home/${localEnv:USER}/.devbootstrap,type=volume",
-        "source=${localEnv:SSH_AUTH_SOCK},target=/tmp/ssh-agent.socket,type=bind,consistency=cached",
+		"source=${localEnv:SSH_AUTH_SOCK},target=/tmp/ssh-agent.socket,type=bind,consistency=cached",
 		"source=${localEnv:HOME}/git.workspaces/,target=${localEnv:HOME}/git.workspaces,type=bind"
 	],
 
@@ -33,7 +33,7 @@
 		"HOST_HOSTNAME": "${localEnv:HOSTNAME}",
 		"PRESETS_FILE": "${localEnv:HOME}/git.workspaces/bootstrap.presets.json",
 		"WORKSPACE_ROOT": "${localEnv:HOME}/git.workspaces",
-        "SSH_AUTH_SOCK": "/tmp/ssh-agent.socket"
+		"SSH_AUTH_SOCK": "/tmp/ssh-agent.socket"
 	},
 	"postCreateCommand": "sudo chown ${localEnv:USER}:${localEnv:USER} -R /home/${localEnv:USER}/.zsh_data /home/${localEnv:USER}/.copilot && if [ -d .devcontainer/hooks.d ]; then for f in .devcontainer/hooks.d/*.sh; do [ -f \"$f\" ] && sh \"$f\"; done; fi",
 

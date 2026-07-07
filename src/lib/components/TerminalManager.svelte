@@ -36,7 +36,6 @@
 	let dragging = $state(false);
 
 	const MIN_HEIGHT = 150;
-	const DEFAULT_HEIGHT = 320;
 
 	function addGenericShell() {
 		const id = generateId();
@@ -176,6 +175,7 @@
 						command={session.command}
 						cwd={session.cwd ?? workspaceRoot}
 						active={activeId === session.id}
+						onExit={() => closeSession(session.id)}
 					/>
 				</div>
 			{/each}

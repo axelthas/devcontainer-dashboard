@@ -2,7 +2,7 @@ name: Code Linting and Unit Tests
 
 on:
   pull_request:
-    branches: [ main ] # Change this if your default branch is named 'master'
+    branches: [main] # Change this if your default branch is named 'master'
 
 jobs:
   test:
@@ -23,6 +23,9 @@ jobs:
 
       - name: Lint
         run: npm run lint
+
+      - name: Install Playwright browser runtime for Vitest
+        run: npx playwright install --only-shell chromium
 
       - name: Unit tests
         run: npm run test:unit -- --run

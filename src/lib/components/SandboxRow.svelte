@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { ContainerData } from '$lib/types';
+	import { generateId } from '$lib/index';
 	import { buildContainerVscodeUri } from '$lib/vscode';
 	import ServiceButton from './ServiceButton.svelte';
 	import ActionControls from './ActionControls.svelte';
@@ -8,15 +9,32 @@
 		container: ContainerData;
 		vscodeSshHost: string;
 		onRefresh: () => Promise<void>;
+		onOpenTerminal?: (id: string, command: string, name: string, cwd: string) => void;
 	}
 
-	let { container, vscodeSshHost, onRefresh }: Props = $props();
+	let { container, vscodeSshHost, onRefresh, onOpenTerminal }: Props = $props();
 
 	const isRunning = $derived(container.state === 'running');
 
 	const vscodeUri = $derived.by(() => {
 		return buildContainerVscodeUri(container, vscodeSshHost);
 	});
+
+	const terminalParams = $derived.by(() => {
+		const containerName = container.name.replace(/^\//, '');
+		if (container.state === 'running') {
+			return {
+				command: `docker exec -it ${containerName} bash || docker exec -it ${containerName} sh`,
+				cwd: container.localWorkspacePath ?? ''
+			};
+		}
+		return null;
+	});
+
+	function openTerminal() {
+		if (!onOpenTerminal || !terminalParams) return;
+		onOpenTerminal(generateId(), terminalParams.command, container.projectName, terminalParams.cwd);
+	}
 </script>
 
 <div
@@ -59,6 +77,12 @@
 
 	<!-- Actions -->
 	<div class="flex shrink-0 items-center justify-end">
-		<ActionControls id={container.id} containerState={container.state} {onRefresh} {vscodeUri} />
+		<ActionControls
+			id={container.id}
+			containerState={container.state}
+			{onRefresh}
+			{vscodeUri}
+			onOpenTerminal={onOpenTerminal && terminalParams ? openTerminal : undefined}
+		/>
 	</div>
 </div>

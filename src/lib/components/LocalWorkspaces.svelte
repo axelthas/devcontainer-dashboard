@@ -15,9 +15,11 @@
 		ArrowUpRight,
 		TriangleAlert,
 		Code,
-		TerminalSquare
+		TerminalSquare,
+		X
 	} from 'lucide-svelte';
 	import { untrack } from 'svelte';
+	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import { generateId } from '$lib/index';
 	import type { ContainerData, LocalWorkspaceData, RepositoryData } from '$lib/types';
 	import BootstrapStatus from './BootstrapStatus.svelte';
@@ -66,8 +68,8 @@
 			}
 		});
 	});
-	let expanded = $state<Set<string>>(new Set());
-	let expandedRepos = $state<Set<string>>(new Set());
+	let expanded = new SvelteSet<string>();
+	let expandedRepos = new SvelteSet<string>();
 	let refreshing = $state(false);
 	let buildingRepos = $state<Set<string>>(new Set());
 	let deletingWorkspaces = $state<Set<string>>(new Set());
@@ -79,6 +81,42 @@
 	let branchPickerLoading = $state(false);
 	let checkoutInProgress = $state<string | null>(null);
 	let startingRepos = $state<Set<string>>(new Set());
+
+	// Config picker state for repos with multiple devcontainer.json files
+	let configPickerRepo = $state<string | null>(null);
+	let selectedConfigs = $state<SvelteMap<string, string>>(
+		(() => {
+			if (typeof localStorage === 'undefined') return new SvelteMap();
+			try {
+				const raw = localStorage.getItem('devcontainer-config-selections');
+				return raw ? new SvelteMap(JSON.parse(raw) as [string, string][]) : new SvelteMap();
+			} catch {
+				return new SvelteMap();
+			}
+		})()
+	);
+
+	function getConfigDisplayName(configPath: string): string {
+		// '.devcontainer/rocky8/devcontainer.json' → 'rocky8'
+		// '.devcontainer/devcontainer.json' or '.devcontainer.json' → 'default'
+		const parts = configPath.split('/');
+		return parts.length === 3 ? parts[1] : 'default';
+	}
+
+	function getEffectiveConfig(repo: RepositoryData): string | undefined {
+		if (!repo.devcontainerConfigs?.length) return undefined;
+		return selectedConfigs.get(repo.path) ?? repo.devcontainerConfigs[0];
+	}
+
+	function selectConfig(repoPath: string, configPath: string) {
+		selectedConfigs.set(repoPath, configPath);
+		configPickerRepo = null;
+		try {
+			localStorage.setItem('devcontainer-config-selections', JSON.stringify([...selectedConfigs]));
+		} catch {
+			// ignore storage errors
+		}
+	}
 
 	/** Find matching container for a repo by localWorkspacePath */
 	function findContainerForRepo(repoPath: string): ContainerData | undefined {
@@ -95,26 +133,34 @@
 	}
 
 	function toggleExpand(id: string) {
-		const next = new Set(expanded);
-		if (next.has(id)) next.delete(id);
-		else next.add(id);
-		expanded = next;
+		if (expanded.has(id)) expanded.delete(id);
+		else expanded.add(id);
 	}
 
 	function toggleRepoExpand(path: string) {
-		const next = new Set(expandedRepos);
-		if (next.has(path)) next.delete(path);
-		else next.add(path);
-		expandedRepos = next;
+		if (expandedRepos.has(path)) expandedRepos.delete(path);
+		else expandedRepos.add(path);
 	}
 
-	async function buildAndStart(repoPath: string, repoName: string) {
+	async function dismissBuild(buildId: string) {
+		try {
+			await fetch('/api/devcontainer/build', {
+				method: 'DELETE',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ id: buildId })
+			});
+		} finally {
+			onRefreshWorkspaces();
+		}
+	}
+
+	async function buildAndStart(repoPath: string, repoName: string, configPath?: string) {
 		buildingRepos = new Set([...buildingRepos, repoPath]);
 		try {
 			const res = await fetch('/api/devcontainer/build', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ repoPath, repoName })
+				body: JSON.stringify({ repoPath, repoName, ...(configPath ? { configPath } : {}) })
 			});
 			if (res.ok) {
 				// Keep repoPath in buildingRepos — the $effect above will clear it once
@@ -289,48 +335,39 @@
 		}
 	}
 
-	function runInTerminal(command: string, name: string) {
-		const id = generateId();
-		onOpenTerminal(id, command, name, workspaceRoot);
-	}
-
 	interface RerunSession {
 		sessionId: string;
 		visible: boolean;
 		failed: boolean;
 	}
-	let rerunSessions = $state<Map<string, RerunSession>>(new Map());
+	let rerunSessions = new SvelteMap<string, RerunSession>();
 
 	function rerunBootstrap(ws: LocalWorkspaceData) {
 		const id = generateId();
-		rerunSessions = new Map([...rerunSessions, [ws.id, { sessionId: id, visible: false, failed: false }]]);
+		rerunSessions.set(ws.id, { sessionId: id, visible: false, failed: false });
 		if (!expanded.has(ws.id)) toggleExpand(ws.id);
 	}
 
 	function toggleRerunTerminal(wsId: string) {
 		const session = rerunSessions.get(wsId);
 		if (!session) return;
-		rerunSessions = new Map([...rerunSessions, [wsId, { ...session, visible: !session.visible }]]);
+		rerunSessions.set(wsId, { ...session, visible: !session.visible });
 	}
 
 	function dismissRerun(wsId: string) {
-		const next = new Map(rerunSessions);
-		next.delete(wsId);
-		rerunSessions = next;
+		rerunSessions.delete(wsId);
 	}
 
 	function onRerunExit(wsId: string, exitCode: number) {
 		if (exitCode === 0) {
 			// Success: auto-close terminal and refresh workspace data
-			const next = new Map(rerunSessions);
-			next.delete(wsId);
-			rerunSessions = next;
+			rerunSessions.delete(wsId);
 			onRefreshWorkspaces();
 		} else {
 			// Failure: keep terminal open so the user can inspect the output
 			const session = rerunSessions.get(wsId);
 			if (!session) return;
-			rerunSessions = new Map([...rerunSessions, [wsId, { ...session, visible: true, failed: true }]]);
+			rerunSessions.set(wsId, { ...session, visible: true, failed: true });
 		}
 	}
 </script>
@@ -355,7 +392,7 @@
 
 	<!-- Bootstrap tool info bar -->
 	<div class="mb-4">
-		<BootstrapStatus onRunInTerminal={runInTerminal} {onBootstrap} />
+		<BootstrapStatus {onBootstrap} />
 	</div>
 
 	{#if workspaces.length === 0}
@@ -486,13 +523,17 @@
 								{@const rerunSession = rerunSessions.get(ws.id)!}
 								<!-- Rerun progress / error row -->
 								<div
-									class="flex items-center gap-2 border-b px-5 py-1.5 {rerunSession.failed ? 'border-[#bf616a]/20 bg-[#bf616a]/10' : 'border-[#b48ead]/20 bg-[#b48ead]/10'}"
+									class="flex items-center gap-2 border-b px-5 py-1.5 {rerunSession.failed
+										? 'border-[#bf616a]/20 bg-[#bf616a]/10'
+										: 'border-[#b48ead]/20 bg-[#b48ead]/10'}"
 								>
 									<button
 										onclick={() => toggleRerunTerminal(ws.id)}
 										type="button"
-										class="shrink-0 rounded p-0.5 transition-colors {rerunSession.failed ? 'text-[#bf616a]/70 hover:bg-[#bf616a]/20 hover:text-[#bf616a]' : 'text-[#b48ead]/70 hover:bg-[#b48ead]/20 hover:text-[#b48ead]'}"
-										aria-label={rerunSession.visible ? "Hide output" : "Show output"}
+										class="shrink-0 rounded p-0.5 transition-colors {rerunSession.failed
+											? 'text-[#bf616a]/70 hover:bg-[#bf616a]/20 hover:text-[#bf616a]'
+											: 'text-[#b48ead]/70 hover:bg-[#b48ead]/20 hover:text-[#b48ead]'}"
+										aria-label={rerunSession.visible ? 'Hide output' : 'Show output'}
 									>
 										{#if rerunSession.visible}
 											<ChevronDown size={13} />
@@ -509,16 +550,20 @@
 									{/if}
 									<button
 										onclick={() => dismissRerun(ws.id)}
-										class="ml-auto rounded p-0.5 transition-colors {rerunSession.failed ? 'text-[#bf616a]/60 hover:bg-[#bf616a]/20 hover:text-[#bf616a]' : 'text-[#b48ead]/60 hover:bg-[#b48ead]/20 hover:text-[#b48ead]'}"
+										class="ml-auto rounded p-0.5 transition-colors {rerunSession.failed
+											? 'text-[#bf616a]/60 hover:bg-[#bf616a]/20 hover:text-[#bf616a]'
+											: 'text-[#b48ead]/60 hover:bg-[#b48ead]/20 hover:text-[#b48ead]'}"
 										type="button"
-										aria-label={rerunSession.failed ? "Dismiss" : "Cancel"}
-									>✕</button>
+										aria-label={rerunSession.failed ? 'Dismiss' : 'Cancel'}>✕</button
+									>
 								</div>
 								<!-- Terminal: always mounted to keep WebSocket alive; shown/hidden via display -->
 								<div
-									class="overflow-hidden {rerunSession.failed ? 'border-b border-[#bf616a]/20' : 'border-b border-[#b48ead]/20'}"
-									style:display={rerunSession.visible ? "block" : "none"}
-									style:height={rerunSession.visible ? "16rem" : "0"}
+									class="overflow-hidden {rerunSession.failed
+										? 'border-b border-[#bf616a]/20'
+										: 'border-b border-[#b48ead]/20'}"
+									style:display={rerunSession.visible ? 'block' : 'none'}
+									style:height={rerunSession.visible ? '16rem' : '0'}
 								>
 									<TerminalTab
 										sessionId={rerunSession.sessionId}
@@ -736,15 +781,75 @@
 														Building
 													</span>
 												{:else if repo.buildSession?.status === 'failed'}
-													<span
-														class="flex items-center gap-1 px-2 py-1 text-xs font-medium whitespace-nowrap text-[#bf616a]"
-													>
-														<TriangleAlert size={12} />
-														Failed
-													</span>
-												{:else}
 													<button
-														onclick={() => buildAndStart(repo.path, repo.name)}
+														onclick={() =>
+															buildAndStart(repo.path, repo.name, getEffectiveConfig(repo))}
+														class="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium whitespace-nowrap text-[#ebcb8b] transition-colors hover:bg-[#e5e9f0] dark:hover:bg-[#3b4252]"
+														type="button"
+														title="Retry build"
+													>
+														<RotateCcw size={12} />
+														Retry
+													</button>
+													<button
+														onclick={() => dismissBuild(repo.buildSession!.id)}
+														class="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium whitespace-nowrap text-[#bf616a] transition-colors hover:bg-[#e5e9f0] dark:hover:bg-[#3b4252]"
+														type="button"
+														title="Dismiss failed build"
+													>
+														<X size={12} />
+														Dismiss
+													</button>
+												{:else}
+													{#if repo.devcontainerConfigs?.length > 1}
+														{@const selectedCfg = getEffectiveConfig(repo)!}
+														<div class="relative">
+															<button
+																onclick={(e) => {
+																	e.stopPropagation();
+																	configPickerRepo =
+																		configPickerRepo === repo.path ? null : repo.path;
+																}}
+																class="flex items-center gap-0.5 rounded-lg px-1.5 py-1 text-xs font-medium whitespace-nowrap text-[#81a1c1] transition-colors hover:bg-[#e5e9f0] dark:hover:bg-[#3b4252]"
+																type="button"
+																title="Select devcontainer config"
+															>
+																<span class="max-w-[72px] truncate"
+																	>{getConfigDisplayName(selectedCfg)}</span
+																>
+																<ChevronDown size={10} />
+															</button>
+															{#if configPickerRepo === repo.path}
+																<div
+																	class="absolute top-full right-0 z-20 mt-1 w-44 overflow-hidden rounded-lg border border-[#d8dee9] bg-white shadow-lg dark:border-[#4c566a] dark:bg-[#3b4252]"
+																>
+																	<div
+																		class="border-b border-[#d8dee9] px-3 py-1.5 text-[10px] font-semibold tracking-wide text-[#4c566a] uppercase dark:border-[#4c566a] dark:text-[#d8dee9]/50"
+																	>
+																		Config
+																	</div>
+																	{#each repo.devcontainerConfigs as cfg (cfg)}
+																		<button
+																			onclick={() => selectConfig(repo.path, cfg)}
+																			class="w-full px-3 py-1.5 text-left text-xs transition-colors hover:bg-[#e5e9f0] dark:hover:bg-[#434c5e] {cfg ===
+																			selectedCfg
+																				? 'font-bold text-[#88c0d0]'
+																				: 'text-[#2e3440] dark:text-[#d8dee9]'}"
+																			type="button"
+																		>
+																			{getConfigDisplayName(cfg)}
+																			{#if cfg === selectedCfg}
+																				<span class="ml-1 text-[#a3be8c]">✓</span>
+																			{/if}
+																		</button>
+																	{/each}
+																</div>
+															{/if}
+														</div>
+													{/if}
+													<button
+														onclick={() =>
+															buildAndStart(repo.path, repo.name, getEffectiveConfig(repo))}
 														class="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium whitespace-nowrap text-[#81a1c1] transition-colors hover:bg-[#e5e9f0] dark:hover:bg-[#3b4252]"
 														type="button"
 													>
@@ -769,7 +874,26 @@
 												class="flex items-center gap-2 border-b border-[#bf616a]/20 bg-[#bf616a]/10 px-8 py-2 text-[#bf616a]"
 											>
 												<TriangleAlert size={14} />
-												<span class="text-sm font-medium">Build failed</span>
+												<span class="flex-1 text-sm font-medium">Build failed</span>
+												<button
+													onclick={() =>
+														buildAndStart(repo.path, repo.name, getEffectiveConfig(repo))}
+													class="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition-colors hover:bg-[#bf616a]/20"
+													type="button"
+													title="Retry build"
+												>
+													<RotateCcw size={12} />
+													Retry
+												</button>
+												<button
+													onclick={() => dismissBuild(repo.buildSession!.id)}
+													class="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition-colors hover:bg-[#bf616a]/20"
+													type="button"
+													title="Dismiss failed build"
+												>
+													<X size={12} />
+													Dismiss
+												</button>
 											</div>
 										{/if}
 										<div class="h-64 overflow-hidden">

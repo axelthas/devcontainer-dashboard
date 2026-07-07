@@ -10,6 +10,41 @@ import type { LocalWorkspaceData, SolutionMetadata } from '$lib/types';
 
 export const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT ?? '/workspaces';
 
+/**
+ * Enumerate all devcontainer.json files within a repo, returning their paths
+ * relative to `repoPath`. Scans:
+ *  - `.devcontainer.json` (root-level alternate)
+ *  - `.devcontainer/devcontainer.json` (standard single-config)
+ *  - `.devcontainer/<name>/devcontainer.json` (one-level named sub-configs)
+ */
+async function findDevcontainerConfigs(repoPath: string): Promise<string[]> {
+	const configs: string[] = [];
+
+	if (existsSync(join(repoPath, '.devcontainer.json'))) {
+		configs.push('.devcontainer.json');
+	}
+
+	const devcontainerDir = join(repoPath, '.devcontainer');
+	if (existsSync(devcontainerDir)) {
+		if (existsSync(join(devcontainerDir, 'devcontainer.json'))) {
+			configs.push('.devcontainer/devcontainer.json');
+		}
+		try {
+			const entries = await readdir(devcontainerDir, { withFileTypes: true });
+			for (const entry of entries) {
+				if (!entry.isDirectory()) continue;
+				if (existsSync(join(devcontainerDir, entry.name, 'devcontainer.json'))) {
+					configs.push(`.devcontainer/${entry.name}/devcontainer.json`);
+				}
+			}
+		} catch {
+			// ignore read errors for subdirectory scan
+		}
+	}
+
+	return configs;
+}
+
 async function readSolutionMetadata(workspacePath: string): Promise<SolutionMetadata | undefined> {
 	const metaPath = join(workspacePath, '.solution-metadata.json');
 	try {
@@ -29,7 +64,7 @@ export async function loadWorkspaces(): Promise<LocalWorkspaceData[]> {
 		if (localFolder) runningPaths.add(localFolder);
 	}
 
-	let taskDirs: string[] = [];
+	let taskDirs: string[];
 	try {
 		const entries = await readdir(WORKSPACE_ROOT, { withFileTypes: true });
 		taskDirs = entries.filter((e) => e.isDirectory()).map((e) => e.name);
@@ -41,7 +76,7 @@ export async function loadWorkspaces(): Promise<LocalWorkspaceData[]> {
 
 	for (const taskName of taskDirs) {
 		const taskPath = join(WORKSPACE_ROOT, taskName);
-		let repoDirs: string[] = [];
+		let repoDirs: string[];
 		try {
 			const entries = await readdir(taskPath, { withFileTypes: true });
 			repoDirs = entries.filter((e) => e.isDirectory()).map((e) => e.name);
@@ -53,7 +88,8 @@ export async function loadWorkspaces(): Promise<LocalWorkspaceData[]> {
 		for (const repoName of repoDirs) {
 			const repoPath = join(taskPath, repoName);
 			if (!existsSync(join(repoPath, '.git'))) continue;
-			const hasDevcontainer = existsSync(join(repoPath, '.devcontainer'));
+			const devcontainerConfigs = await findDevcontainerConfigs(repoPath);
+			const hasDevcontainer = devcontainerConfigs.length > 0;
 			const isRunning = runningPaths.has(repoPath);
 			const currentBranch = await readGitHead(repoPath);
 			const currentTag = !currentBranch ? await readCurrentTag(repoPath) : undefined;
@@ -61,6 +97,7 @@ export async function loadWorkspaces(): Promise<LocalWorkspaceData[]> {
 				name: repoName,
 				path: repoPath,
 				hasDevcontainer,
+				devcontainerConfigs,
 				isRunning,
 				currentBranch,
 				currentTag

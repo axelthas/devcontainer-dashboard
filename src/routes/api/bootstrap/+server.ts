@@ -8,8 +8,8 @@ import type { BootstrapToolInfo } from '$lib/types';
 export const GET: RequestHandler = async ({ url }) => {
 	const providerId = url.searchParams.get('provider');
 
-	let providers = await loadBootstrapProviders();
-	let provider = providerId
+	const providers = await loadBootstrapProviders();
+	const provider = providerId
 		? providers.find((p) => p.id === providerId)
 		: await getActiveProvider();
 
