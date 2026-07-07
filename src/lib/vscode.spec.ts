@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-	buildAttachedContainerUri,
-	buildContainerVscodeUri,
-	buildDevcontainerUri
-} from './vscode';
+import { buildAttachedContainerUri, buildContainerVscodeUri, buildDevcontainerUri } from './vscode';
 
 describe('buildAttachedContainerUri', () => {
 	it('builds a local attached-container URI for running sandbox containers', () => {

@@ -1,5 +1,17 @@
 <script lang="ts">
-	import { Sun, Moon, Layers, Box, Cpu, Power, Server, LayoutGrid, List, Eye, EyeOff } from 'lucide-svelte';
+	import {
+		Sun,
+		Moon,
+		Layers,
+		Box,
+		Cpu,
+		Power,
+		Server,
+		LayoutGrid,
+		List,
+		Eye,
+		EyeOff
+	} from 'lucide-svelte';
 	import { untrack } from 'svelte';
 	import type { ContainerData, LocalWorkspaceData } from '$lib/types';
 	import DevcontainerCard from '$lib/components/DevcontainerCard.svelte';
@@ -154,7 +166,9 @@
 	});
 	const runningCount = $derived(containers.filter((c) => c.state === 'running').length);
 	const stoppedCount = $derived(containers.filter((c) => c.state !== 'running').length);
-	const stoppedDevcontainerCount = $derived(devcontainers.filter((c) => c.state !== 'running').length);
+	const stoppedDevcontainerCount = $derived(
+		devcontainers.filter((c) => c.state !== 'running').length
+	);
 	const visibleDevcontainers = $derived(
 		showStopped ? devcontainers : devcontainers.filter((c) => c.state === 'running')
 	);
@@ -295,46 +309,46 @@
 					<h2 class="text-xl font-extrabold text-[#2e3440] dark:text-[#eceff4]">
 						Active Devcontainers
 					</h2>
-				<div class="ml-auto flex items-center gap-2">
-					{#if stoppedDevcontainerCount > 0}
-						<button
-							onclick={() => (showStopped = !showStopped)}
-							class="flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors {showStopped
-								? 'border-[#5e81ac] bg-[#eceff4] text-[#5e81ac] dark:border-[#81a1c1] dark:bg-[#2e3440] dark:text-[#81a1c1]'
-								: 'border-[#d8dee9] bg-[#eceff4] text-[#4c566a] hover:text-[#2e3440] dark:border-[#434c5e] dark:bg-[#2e3440] dark:text-[#d8dee9]/60 dark:hover:text-[#eceff4]'}"
-							title={showStopped ? 'Hide stopped containers' : 'Show stopped containers'}
+					<div class="ml-auto flex items-center gap-2">
+						{#if stoppedDevcontainerCount > 0}
+							<button
+								onclick={() => (showStopped = !showStopped)}
+								class="flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors {showStopped
+									? 'border-[#5e81ac] bg-[#eceff4] text-[#5e81ac] dark:border-[#81a1c1] dark:bg-[#2e3440] dark:text-[#81a1c1]'
+									: 'border-[#d8dee9] bg-[#eceff4] text-[#4c566a] hover:text-[#2e3440] dark:border-[#434c5e] dark:bg-[#2e3440] dark:text-[#d8dee9]/60 dark:hover:text-[#eceff4]'}"
+								title={showStopped ? 'Hide stopped containers' : 'Show stopped containers'}
+							>
+								{#if showStopped}
+									<EyeOff size={14} />
+								{:else}
+									<Eye size={14} />
+								{/if}
+								<span>{stoppedDevcontainerCount} stopped</span>
+							</button>
+						{/if}
+						<div
+							class="flex items-center gap-1 rounded-lg border border-[#d8dee9] bg-[#eceff4] p-0.5 dark:border-[#434c5e] dark:bg-[#2e3440]"
 						>
-							{#if showStopped}
-								<EyeOff size={14} />
-							{:else}
-								<Eye size={14} />
-							{/if}
-							<span>{stoppedDevcontainerCount} stopped</span>
-						</button>
-					{/if}
-					<div
-						class="flex items-center gap-1 rounded-lg border border-[#d8dee9] bg-[#eceff4] p-0.5 dark:border-[#434c5e] dark:bg-[#2e3440]"
-					>
-						<button
-							onclick={() => (devcontainerView = 'grid')}
-							class="rounded-md p-1.5 transition-colors {devcontainerView === 'grid'
-								? 'bg-white text-[#5e81ac] shadow-sm dark:bg-[#3b4252] dark:text-[#81a1c1]'
-								: 'text-[#4c566a] hover:text-[#2e3440] dark:text-[#d8dee9]/60 dark:hover:text-[#eceff4]'}"
-							title="Grid view"
-						>
-							<LayoutGrid size={16} />
-						</button>
-						<button
-							onclick={() => (devcontainerView = 'list')}
-							class="rounded-md p-1.5 transition-colors {devcontainerView === 'list'
-								? 'bg-white text-[#5e81ac] shadow-sm dark:bg-[#3b4252] dark:text-[#81a1c1]'
-								: 'text-[#4c566a] hover:text-[#2e3440] dark:text-[#d8dee9]/60 dark:hover:text-[#eceff4]'}"
-							title="List view"
-						>
-							<List size={16} />
-						</button>
+							<button
+								onclick={() => (devcontainerView = 'grid')}
+								class="rounded-md p-1.5 transition-colors {devcontainerView === 'grid'
+									? 'bg-white text-[#5e81ac] shadow-sm dark:bg-[#3b4252] dark:text-[#81a1c1]'
+									: 'text-[#4c566a] hover:text-[#2e3440] dark:text-[#d8dee9]/60 dark:hover:text-[#eceff4]'}"
+								title="Grid view"
+							>
+								<LayoutGrid size={16} />
+							</button>
+							<button
+								onclick={() => (devcontainerView = 'list')}
+								class="rounded-md p-1.5 transition-colors {devcontainerView === 'list'
+									? 'bg-white text-[#5e81ac] shadow-sm dark:bg-[#3b4252] dark:text-[#81a1c1]'
+									: 'text-[#4c566a] hover:text-[#2e3440] dark:text-[#d8dee9]/60 dark:hover:text-[#eceff4]'}"
+								title="List view"
+							>
+								<List size={16} />
+							</button>
+						</div>
 					</div>
-				</div>
 				</div>
 
 				{#if devcontainers.length === 0}
@@ -344,9 +358,10 @@
 						{#each visibleDevcontainers as container (container.id)}
 							<DevcontainerCard
 								{container}
-
 								{vscodeSshHost}
-								onRefresh={refreshContainers}								onOpenTerminal={handleOpenTerminal}							/>
+								onRefresh={refreshContainers}
+								onOpenTerminal={handleOpenTerminal}
+							/>
 						{/each}
 					</div>
 				{:else}
@@ -371,8 +386,8 @@
 						{stoppedDevcontainerCount === 1 ? 'stopped container' : 'stopped containers'} hidden —
 						<button
 							onclick={() => (showStopped = true)}
-							class="underline hover:text-[#4c566a] dark:hover:text-[#d8dee9]/70"
-						>show</button>
+							class="underline hover:text-[#4c566a] dark:hover:text-[#d8dee9]/70">show</button
+						>
 					</p>
 				{/if}
 			</section>
@@ -396,9 +411,7 @@
 					class="mb-6 flex items-center gap-2 border-b border-[#d8dee9] pb-2 dark:border-[#4c566a]"
 				>
 					<Cpu size={20} class="text-[#4c566a] dark:text-[#d8dee9]/70" />
-					<h2 class="text-xl font-extrabold text-[#2e3440] dark:text-[#eceff4]">
-						Docker Services
-					</h2>
+					<h2 class="text-xl font-extrabold text-[#2e3440] dark:text-[#eceff4]">Docker Services</h2>
 					<span class="ml-2 text-sm font-medium text-[#4c566a] dark:text-[#d8dee9]/60"
 						>(Compose stacks, databases, and other containers)</span
 					>
@@ -423,16 +436,16 @@
 									containers={group.containers}
 									{vscodeSshHost}
 									onRefresh={refreshContainers}
-								onOpenTerminal={handleOpenTerminal}
-							/>
-						{/each}
-						{#each standaloneSandboxes as container (container.id)}
-							<SandboxRow
-								{container}
-								{vscodeSshHost}
-								onRefresh={refreshContainers}
-								onOpenTerminal={handleOpenTerminal}
-							/>
+									onOpenTerminal={handleOpenTerminal}
+								/>
+							{/each}
+							{#each standaloneSandboxes as container (container.id)}
+								<SandboxRow
+									{container}
+									{vscodeSshHost}
+									onRefresh={refreshContainers}
+									onOpenTerminal={handleOpenTerminal}
+								/>
 							{/each}
 						</div>
 					</div>

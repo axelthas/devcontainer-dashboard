@@ -77,6 +77,12 @@
 
 	<!-- Actions -->
 	<div class="flex shrink-0 items-center justify-end">
-		<ActionControls id={container.id} containerState={container.state} {onRefresh} {vscodeUri} onOpenTerminal={onOpenTerminal && terminalParams ? openTerminal : undefined} />
+		<ActionControls
+			id={container.id}
+			containerState={container.state}
+			{onRefresh}
+			{vscodeUri}
+			onOpenTerminal={onOpenTerminal && terminalParams ? openTerminal : undefined}
+		/>
 	</div>
 </div>
