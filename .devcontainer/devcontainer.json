@@ -12,6 +12,9 @@
 	"remoteUser": "${localEnv:USER}",
 	"updateRemoteUserUID": true,
 
+	"workspaceMount": "source=${localWorkspaceFolder},target=${localWorkspaceFolder},type=bind,consistency=cached",
+	"workspaceFolder": "${localWorkspaceFolder}",
+
 	"features": {
 		"ghcr.io/devcontainers/features/copilot-cli:1": {},
 		"ghcr.io/devcontainers/features/docker-outside-of-docker:1": {},
