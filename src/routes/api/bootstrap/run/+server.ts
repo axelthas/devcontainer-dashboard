@@ -36,7 +36,6 @@ export const POST: RequestHandler = async ({ request }) => {
 	} else {
 		// No destDir provided — use a placeholder keyed on the run ID
 		normalizedDest = '_bootstrap-' + id.slice(0, 8);
-		workspacePath = WORKSPACE_ROOT + '/' + normalizedDest;
 	}
 
 	const run = startBootstrapRun(id, name.trim(), command.trim(), normalizedDest);

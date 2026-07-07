@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
+	import { SvelteURLSearchParams } from 'svelte/reactivity';
 	import { ExternalLink, LayoutDashboard, FolderOpen, Server } from 'lucide-svelte';
 	import { PORT_MAP } from '$lib/portConfig';
 
@@ -26,10 +28,10 @@
 		const config = PORT_MAP[containerPort];
 		const newLabel = config?.label ?? `Port ${containerPort}`;
 		const newUrl = `http://${page.url.hostname}:${hostPort}`;
-		const params = new URLSearchParams(page.url.searchParams);
+		const params = new SvelteURLSearchParams(page.url.searchParams);
 		params.set('url', newUrl);
 		params.set('label', newLabel);
-		goto(`/service?${params}`, { replaceState: true });
+		goto(resolve(`/service?${params}`), { replaceState: true });
 	}
 
 	const THEME_KEY = 'devcontainer-dashboard-theme';
@@ -81,7 +83,7 @@
 		<div class="bar-right">
 			{#if portEntries.length > 1}
 				<div class="switcher">
-					{#each portEntries as [containerPort, hostPort]}
+					{#each portEntries as [containerPort, hostPort] (containerPort)}
 						{@const config = PORT_MAP[containerPort]}
 						{@const portLabel = config?.label ?? `Port ${containerPort}`}
 						{@const IconComponent = config?.icon ?? Server}
@@ -97,7 +99,7 @@
 				</div>
 				<span class="divider"></span>
 			{/if}
-			<a href="/" class="btn">
+			<a href={resolve('/')} class="btn">
 				<LayoutDashboard size={14} />
 				Dashboard
 			</a>

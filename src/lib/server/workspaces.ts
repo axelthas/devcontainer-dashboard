@@ -64,7 +64,7 @@ export async function loadWorkspaces(): Promise<LocalWorkspaceData[]> {
 		if (localFolder) runningPaths.add(localFolder);
 	}
 
-	let taskDirs: string[] = [];
+	let taskDirs: string[];
 	try {
 		const entries = await readdir(WORKSPACE_ROOT, { withFileTypes: true });
 		taskDirs = entries.filter((e) => e.isDirectory()).map((e) => e.name);
@@ -76,7 +76,7 @@ export async function loadWorkspaces(): Promise<LocalWorkspaceData[]> {
 
 	for (const taskName of taskDirs) {
 		const taskPath = join(WORKSPACE_ROOT, taskName);
-		let repoDirs: string[] = [];
+		let repoDirs: string[];
 		try {
 			const entries = await readdir(taskPath, { withFileTypes: true });
 			repoDirs = entries.filter((e) => e.isDirectory()).map((e) => e.name);

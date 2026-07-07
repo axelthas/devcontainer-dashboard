@@ -19,7 +19,7 @@
 		X
 	} from 'lucide-svelte';
 	import { untrack } from 'svelte';
-	import { SvelteMap } from 'svelte/reactivity';
+	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import { generateId } from '$lib/index';
 	import type { ContainerData, LocalWorkspaceData, RepositoryData } from '$lib/types';
 	import BootstrapStatus from './BootstrapStatus.svelte';
@@ -68,8 +68,8 @@
 			}
 		});
 	});
-	let expanded = $state<Set<string>>(new Set());
-	let expandedRepos = $state<Set<string>>(new Set());
+	let expanded = new SvelteSet<string>();
+	let expandedRepos = new SvelteSet<string>();
 	let refreshing = $state(false);
 	let buildingRepos = $state<Set<string>>(new Set());
 	let deletingWorkspaces = $state<Set<string>>(new Set());
@@ -133,17 +133,13 @@
 	}
 
 	function toggleExpand(id: string) {
-		const next = new Set(expanded);
-		if (next.has(id)) next.delete(id);
-		else next.add(id);
-		expanded = next;
+		if (expanded.has(id)) expanded.delete(id);
+		else expanded.add(id);
 	}
 
 	function toggleRepoExpand(path: string) {
-		const next = new Set(expandedRepos);
-		if (next.has(path)) next.delete(path);
-		else next.add(path);
-		expandedRepos = next;
+		if (expandedRepos.has(path)) expandedRepos.delete(path);
+		else expandedRepos.add(path);
 	}
 
 	async function dismissBuild(buildId: string) {
@@ -339,54 +335,39 @@
 		}
 	}
 
-	function runInTerminal(command: string, name: string) {
-		const id = generateId();
-		onOpenTerminal(id, command, name, workspaceRoot);
-	}
-
 	interface RerunSession {
 		sessionId: string;
 		visible: boolean;
 		failed: boolean;
 	}
-	let rerunSessions = $state<Map<string, RerunSession>>(new Map());
+	let rerunSessions = new SvelteMap<string, RerunSession>();
 
 	function rerunBootstrap(ws: LocalWorkspaceData) {
 		const id = generateId();
-		rerunSessions = new Map([
-			...rerunSessions,
-			[ws.id, { sessionId: id, visible: false, failed: false }]
-		]);
+		rerunSessions.set(ws.id, { sessionId: id, visible: false, failed: false });
 		if (!expanded.has(ws.id)) toggleExpand(ws.id);
 	}
 
 	function toggleRerunTerminal(wsId: string) {
 		const session = rerunSessions.get(wsId);
 		if (!session) return;
-		rerunSessions = new Map([...rerunSessions, [wsId, { ...session, visible: !session.visible }]]);
+		rerunSessions.set(wsId, { ...session, visible: !session.visible });
 	}
 
 	function dismissRerun(wsId: string) {
-		const next = new Map(rerunSessions);
-		next.delete(wsId);
-		rerunSessions = next;
+		rerunSessions.delete(wsId);
 	}
 
 	function onRerunExit(wsId: string, exitCode: number) {
 		if (exitCode === 0) {
 			// Success: auto-close terminal and refresh workspace data
-			const next = new Map(rerunSessions);
-			next.delete(wsId);
-			rerunSessions = next;
+			rerunSessions.delete(wsId);
 			onRefreshWorkspaces();
 		} else {
 			// Failure: keep terminal open so the user can inspect the output
 			const session = rerunSessions.get(wsId);
 			if (!session) return;
-			rerunSessions = new Map([
-				...rerunSessions,
-				[wsId, { ...session, visible: true, failed: true }]
-			]);
+			rerunSessions.set(wsId, { ...session, visible: true, failed: true });
 		}
 	}
 </script>
@@ -411,7 +392,7 @@
 
 	<!-- Bootstrap tool info bar -->
 	<div class="mb-4">
-		<BootstrapStatus onRunInTerminal={runInTerminal} {onBootstrap} />
+		<BootstrapStatus {onBootstrap} />
 	</div>
 
 	{#if workspaces.length === 0}

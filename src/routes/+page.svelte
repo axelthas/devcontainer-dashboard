@@ -13,6 +13,7 @@
 		EyeOff
 	} from 'lucide-svelte';
 	import { untrack } from 'svelte';
+	import { SvelteMap } from 'svelte/reactivity';
 	import type { ContainerData, LocalWorkspaceData } from '$lib/types';
 	import DevcontainerCard from '$lib/components/DevcontainerCard.svelte';
 	import DevcontainerRow from '$lib/components/DevcontainerRow.svelte';
@@ -25,7 +26,7 @@
 	interface Props {
 		data: {
 			containers: ContainerData[];
-			hostname: string;
+
 			workspaces: LocalWorkspaceData[];
 			workspaceRoot: string;
 			vscodeSshHost: string;
@@ -149,7 +150,7 @@
 	const sandboxes = $derived(sortContainers(containers.filter((c) => !c.isDevcontainer)));
 	const standaloneSandboxes = $derived(sandboxes.filter((c) => !c.composeProject));
 	const composeGroups = $derived.by(() => {
-		const map = new Map<string, ContainerData[]>();
+		const map = new SvelteMap<string, ContainerData[]>();
 		for (const c of sandboxes) {
 			if (!c.composeProject) continue;
 			const list = map.get(c.composeProject);
@@ -207,7 +208,7 @@
 		if (terminalSessions.length === 0) terminalOpen = false;
 	}
 
-	function handleRunBackground(_id: string, _workspacePath: string, _name: string) {
+	function handleRunBackground() {
 		// Workspace row is tracked server-side; refresh so it appears immediately
 		refreshWorkspaces();
 	}

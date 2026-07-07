@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { SvelteURLSearchParams } from 'svelte/reactivity';
 	import type { Terminal } from '@xterm/xterm';
 	import type { FitAddon } from '@xterm/addon-fit';
 
@@ -60,7 +61,7 @@
 			terminal.open(node);
 
 			const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-			const params = new URLSearchParams({ sessionId });
+			const params = new SvelteURLSearchParams({ sessionId });
 			if (command) params.set('command', command);
 			if (cwd) params.set('cwd', cwd);
 			const wsUrl = `${proto}://${location.host}/api/terminal?${params}`;

@@ -36,7 +36,6 @@
 	let dragging = $state(false);
 
 	const MIN_HEIGHT = 150;
-	const DEFAULT_HEIGHT = 320;
 
 	function addGenericShell() {
 		const id = generateId();
