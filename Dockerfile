@@ -16,14 +16,20 @@ COPY . .
 RUN npm run build && npm run build:server
 
 # Run stage
-FROM node:22-bookworm-slim
+# ubuntu:noble is the same base used by the devcontainer, giving consistent tooling
+# behaviour and avoiding the pre-existing node/1000 group on the node: images.
+FROM ubuntu:noble
 
 ENV DEBIAN_FRONTEND=noninteractive
 
 # ── System setup (root) ────────────────────────────────────────────────────────
 
-# Create the ddash user with sudo access
-RUN groupadd --gid 1000 ddash \
+# ubuntu:noble ships with an 'ubuntu' user at UID 1000. Remove it first so we
+# can create 'ddash' at the same UID without conflicts.
+RUN if id -u ubuntu >/dev/null 2>&1 && [ "$(id -u ubuntu)" = "1000" ]; then \
+        userdel -r ubuntu; \
+    fi \
+    && groupadd --gid 1000 ddash \
     && useradd --uid 1000 --gid 1000 --shell /bin/zsh -m ddash \
     && apt-get update \
     && apt-get install -y --no-install-recommends sudo \
@@ -49,6 +55,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     zsh \
     && rm -rf /var/lib/apt/lists/*
 
+# Install Node.js 22 via NodeSource (ubuntu:noble does not ship with Node)
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install GitHub CLI (required for gh copilot extension and useful for AI sessions)
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
         | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
@@ -71,14 +82,15 @@ USER ddash
 RUN mkdir -p /home/ddash/.npm-global \
     && npm config set prefix '/home/ddash/.npm-global'
 
-# Install global npm tools: AI tools + devcontainer CLI
-RUN /home/ddash/.npm-global/bin/npm install -g npm@latest \
-    && /home/ddash/.npm-global/bin/npm install -g opencode-ai @devcontainers/cli
+# Install global npm tools: AI tools + devcontainer CLI.
+# Use the system npm from NodeSource; packages install into the configured prefix.
+RUN npm install -g npm@latest opencode-ai @devcontainers/cli
 
-# Install GitHub Copilot CLI extension.
-# Fails gracefully so a transient network issue doesn't break the build.
-RUN GH_NO_UPDATE_NOTIFIER=1 gh extension install github/gh-copilot \
-    || echo "[WARN] gh copilot extension install failed — run 'gh extension install github/gh-copilot' manually"
+# GitHub Copilot CLI is now a built-in gh command (gh copilot) — no extension needed.
+# Attempt to install the extension anyway for forwards compatibility with older gh versions,
+# suppressing the "matches built-in" warning that newer gh emits.
+RUN GH_NO_UPDATE_NOTIFIER=1 gh extension install github/gh-copilot 2>/dev/null \
+    || true
 
 # Install Oh My Zsh (--unattended skips the chsh prompt and auto-zsh launch)
 RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
