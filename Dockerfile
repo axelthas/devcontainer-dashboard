@@ -53,12 +53,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     openssh-client \
     zsh \
+    python3 \
+    python3.12-venv \
+    python3-pip-whl \
     && rm -rf /var/lib/apt/lists/*
+
+# Install docker-outside-of-docker (dood) for running docker commands from within the container
+RUN curl -sL https://raw.githubusercontent.com/devcontainers/features/refs/heads/main/src/docker-outside-of-docker/install.sh | bash
+
+# Install copilot-cli the devcontainer feature way
+# RUN curl -sL https://raw.githubusercontent.com/devcontainers/features/refs/heads/main/src/copilot-cli/install.sh | bash
 
 # Install Node.js 22 via NodeSource (ubuntu:noble does not ship with Node)
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
+
 
 # Install GitHub CLI (required for gh copilot extension and useful for AI sessions)
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
@@ -142,4 +152,5 @@ USER ddash
 
 EXPOSE 3000
 
-CMD ["sh", "docker-entrypoint.sh"]
+# CMD ["sh", "docker-entrypoint.sh"]
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
