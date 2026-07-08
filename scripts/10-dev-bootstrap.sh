@@ -4,17 +4,31 @@
 # This script is shipped inside the production image at:
 #   /opt/dashboard/hooks/10-dev-bootstrap.sh
 #
-# It is NOT activated by default. To enable it, add the following to your
-# docker-compose.yml (or equivalent docker run flags):
+# It is NOT activated by default. To enable it, choose one of:
 #
-#   volumes:
-#     # Activate the hook by bind-mounting it into the entrypoint directory
-#     - /opt/dashboard/hooks/10-dev-bootstrap.sh:/docker-entrypoint.d/10-dev-bootstrap.sh:ro
-#     # Provide SSH access for the private GitLab clone (choose one or both):
-#     - ${SSH_AUTH_SOCK}:/tmp/ssh-agent.socket:ro        # SSH agent socket
-#     - ${HOME}/.ssh:/home/ddash/.ssh:ro                 # SSH key directory
-#   environment:
-#     SSH_AUTH_SOCK: /tmp/ssh-agent.socket               # required when using agent socket
+# Option A — entrypoint argument (recommended, no volume mount needed):
+#
+#   services:
+#     dashboard:
+#       command: ["sh", "docker-entrypoint.sh", "dev-bootstrap"]
+#       volumes:
+#         # Provide SSH access for the private GitLab clone (choose one or both):
+#         - ${SSH_AUTH_SOCK}:/tmp/ssh-agent.socket:ro    # SSH agent socket
+#         - ${HOME}/.ssh:/home/ddash/.ssh:ro             # SSH key directory
+#       environment:
+#         SSH_AUTH_SOCK: /tmp/ssh-agent.socket           # required when using agent socket
+#
+# Option B — volume-mount the hook into /docker-entrypoint.d/:
+#
+#   services:
+#     dashboard:
+#       volumes:
+#         - /opt/dashboard/hooks/10-dev-bootstrap.sh:/docker-entrypoint.d/10-dev-bootstrap.sh:ro
+#         # Provide SSH access for the private GitLab clone (choose one or both):
+#         - ${SSH_AUTH_SOCK}:/tmp/ssh-agent.socket:ro    # SSH agent socket
+#         - ${HOME}/.ssh:/home/ddash/.ssh:ro             # SSH key directory
+#       environment:
+#         SSH_AUTH_SOCK: /tmp/ssh-agent.socket           # required when using agent socket
 #
 # The script is idempotent: if ~/.devbootstrap already exists it re-runs the
 # installer to pick up any upstream changes but does not re-clone.
