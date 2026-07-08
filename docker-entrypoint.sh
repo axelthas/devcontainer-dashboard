@@ -3,6 +3,7 @@ set -e
 
 # Add ddash to the host's Docker group so it can access /var/run/docker.sock.
 # The host Docker group GID varies by machine, so we resolve it at runtime.
+DOCKER_GROUP=""
 if [ -S /var/run/docker.sock ]; then
     DOCKER_GID=$(stat -c '%g' /var/run/docker-host.sock)
     if ! getent group "$DOCKER_GID" > /dev/null 2>&1; then
@@ -54,4 +55,10 @@ if [ -d /docker-entrypoint.d ]; then
     done
 fi
 
+# Use sg to start node with the docker group active in the process credentials.
+# usermod updates /etc/group but the current shell doesn't pick up new groups
+# without a session reload.
+if [ -n "$DOCKER_GROUP" ]; then
+    exec sg "$DOCKER_GROUP" -c "exec node build/server.js"
+fi
 exec node build/server.js
