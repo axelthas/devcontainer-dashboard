@@ -1,6 +1,19 @@
 #!/bin/sh
 set -e
 
+# Add ddash to the host's Docker group so it can access /var/run/docker.sock.
+# The host Docker group GID varies by machine, so we resolve it at runtime.
+if [ -S /var/run/docker.sock ]; then
+    DOCKER_GID=$(stat -c '%g' /var/run/docker-host.sock)
+    if ! getent group "$DOCKER_GID" > /dev/null 2>&1; then
+        sudo groupadd --gid "$DOCKER_GID" docker-host
+    fi
+    DOCKER_GROUP=$(getent group "$DOCKER_GID" | cut -d: -f1)
+    if ! id -nG ddash | grep -qw "$DOCKER_GROUP"; then
+        sudo usermod -aG "$DOCKER_GROUP" ddash
+    fi
+fi
+
 # Optional first argument: the short name of a bundled hook script to run.
 # Bundled hooks live in /opt/dashboard/hooks/ and follow the naming convention
 # "<NN>-<name>.sh". Pass the descriptive suffix without prefix or extension, e.g.:
