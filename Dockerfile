@@ -129,6 +129,9 @@ RUN sed -i 's/^ZSH_THEME=.*/ZSH_THEME="spaceship"/' /home/ddash/.zshrc \
 # Tell the dashboard terminal which shell to spawn (read by terminal.ts)
 ENV SHELL=/bin/zsh
 
+# Ensure npm-global and local pip/pipx binaries are on PATH for all contexts
+ENV PATH="/home/ddash/.npm-global/bin:/home/ddash/.local/bin:${PATH}"
+
 # ── Application artifacts (root for COPY, back to ddash for CMD) ───────────────
 
 USER root
