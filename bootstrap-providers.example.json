@@ -1,24 +1,24 @@
 [
-  {
-    "id": "interactive",
-    "name": "Interactive Mode",
-    "command": "devbootstrap",
-    "interactive": "true",
-    "fields": ["command"]
-  },
-  {
-    "id": "polaris-ice-all",
-    "name": "[ICE] Polaris Everything",
-    "command": "devbootstrap -s polaris-ice -d {destDir} -p polaris-asd polaris-fdd polaris-eds polaris-eds-interface polaris polaris-fdp-interface polaris-wss polaris-wss-interface polaris-wds polaris-wds-interface polaris-simulated-time-interface sdps polaris-sns polaris-asd-editor rocky-polaris-mag-dev implementation-proposals polaris-tern polaris-backend-library tern-framework tern-map"
-  },
-  {
-    "id": "polaris-mag-all",
-    "name": "[MAG] Polaris Everything",
-    "command": "devbootstrap -s polaris-mag -d {destDir} -p polaris-asd polaris-fdd polaris-eds polaris-eds-interface polaris polaris-fdp-interface polaris-wss polaris-wss-interface polaris-wds polaris-wds-interface polaris-simulated-time-interface sdps polaris-sns polaris-asd-editor rocky-polaris-mag-dev implementation-proposals polaris-tern polaris-backend-library tern-framework tern-map"
-  },
-  {
-    "id": "polaris-ice-asd",
-    "name": "[ICE] Polaris ASD",
-    "command": "devbootstrap -s polaris-ice -d {destDir} -p polaris-asd polaris-fdd polaris-backend-library tern-framework tern-map"
-  }
+	{
+		"id": "interactive",
+		"name": "Interactive Mode",
+		"command": "devbootstrap",
+		"interactive": "true",
+		"fields": ["command"]
+	},
+	{
+		"id": "polaris-ice-all",
+		"name": "[ICE] Polaris Everything",
+		"command": "devbootstrap -s polaris-ice -d {destDir} -p polaris-asd polaris-fdd polaris-eds polaris-eds-interface polaris polaris-fdp-interface polaris-wss polaris-wss-interface polaris-wds polaris-wds-interface polaris-simulated-time-interface sdps polaris-sns polaris-asd-editor rocky-polaris-mag-dev implementation-proposals polaris-tern polaris-backend-library tern-framework tern-map"
+	},
+	{
+		"id": "polaris-mag-all",
+		"name": "[MAG] Polaris Everything",
+		"command": "devbootstrap -s polaris-mag -d {destDir} -p polaris-asd polaris-fdd polaris-eds polaris-eds-interface polaris polaris-fdp-interface polaris-wss polaris-wss-interface polaris-wds polaris-wds-interface polaris-simulated-time-interface sdps polaris-sns polaris-asd-editor rocky-polaris-mag-dev implementation-proposals polaris-tern polaris-backend-library tern-framework tern-map"
+	},
+	{
+		"id": "polaris-ice-asd",
+		"name": "[ICE] Polaris ASD",
+		"command": "devbootstrap -s polaris-ice -d {destDir} -p polaris-asd polaris-fdd polaris-backend-library tern-framework tern-map"
+	}
 ]
