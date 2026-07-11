@@ -3,6 +3,11 @@ services:
     image: ghcr.io/axelthas/devcontainer-dashboard:latest
     ports:
       - '3000:3000'
+    # ── dev-bootstrap setup hook (TernDev internal) ───────────────────────────
+    # Passes "dev-bootstrap" as a command argument to the entrypoint, which
+    # runs the bundled hook at /opt/dashboard/hooks/10-dev-bootstrap.sh.
+    # Requires SSH access (agent socket or key directory) for the private clone.
+    # command: ["dev-bootstrap"]
     environment:
       HOST_HOSTNAME: ${HOSTNAME:-}
       WORKSPACE_ROOT: ${WORKSPACE_ROOT:-/workspaces}
@@ -23,11 +28,6 @@ services:
       # - ${SSH_AUTH_SOCK}:/tmp/ssh-agent.socket:ro
       # SSH key directory — alternative or complement to the agent socket:
       # - ${HOME}/.ssh:/home/ddash/.ssh:ro
-      # ── dev-bootstrap setup hook (TernDev internal) ───────────────────────────
-      # The hook script is bundled in the image at /opt/dashboard/hooks/.
-      # Mount it into /docker-entrypoint.d/ to activate it on container start.
-      # Requires SSH access (see above) to clone the private GitLab repository.
-      # - /opt/dashboard/hooks/10-dev-bootstrap.sh:/docker-entrypoint.d/10-dev-bootstrap.sh:ro
       # ── Operator hooks (optional) ────────────────────────────────────────────
       # Drop additional executable .sh scripts into a host directory and mount it:
       # - ${HOME}/my-dashboard-hooks:/docker-entrypoint.d:ro

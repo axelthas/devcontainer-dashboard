@@ -1,6 +1,9 @@
 #!/bin/sh
 set -e
 
+# Ensure /data is owned by ddash (Docker named volumes start root-owned).
+sudo mkdir -p /data && sudo chown ddash:ddash /data
+
 # Add ddash to the host's Docker group so it can access /var/run/docker.sock.
 # The host Docker group GID varies by machine, so we resolve it at runtime.
 DOCKER_GROUP=""

@@ -33,11 +33,11 @@ read -r ENABLE_DEVBOOTSTRAP </dev/tty
 if [[ "${ENABLE_DEVBOOTSTRAP,,}" == "y" ]]; then
   SSH_AUTH_ENV='      SSH_AUTH_SOCK: /tmp/ssh-agent.socket'
   SSH_AGENT_VOLUME='      - ${SSH_AUTH_SOCK}:/tmp/ssh-agent.socket:ro'
-  DEVBOOTSTRAP_VOLUME='      - /opt/dashboard/hooks/10-dev-bootstrap.sh:/docker-entrypoint.d/10-dev-bootstrap.sh:ro'
+  DEVBOOTSTRAP_COMMAND='    command: ["dev-bootstrap"]'
 else
   SSH_AUTH_ENV='      # SSH_AUTH_SOCK: /tmp/ssh-agent.socket'
   SSH_AGENT_VOLUME='      # - ${SSH_AUTH_SOCK}:/tmp/ssh-agent.socket:ro'
-  DEVBOOTSTRAP_VOLUME='      # - /opt/dashboard/hooks/10-dev-bootstrap.sh:/docker-entrypoint.d/10-dev-bootstrap.sh:ro'
+  DEVBOOTSTRAP_COMMAND='    # command: ["dev-bootstrap"]'
 fi
 
 # ── Write docker-compose.yml ─────────────────────────────────────────────────
@@ -53,6 +53,11 @@ services:
     image: ${IMAGE}
     ports:
       - '3000:3000'
+    # ── dev-bootstrap setup hook (TernDev internal) ──────────────────────────
+    # Passes "dev-bootstrap" as a command argument to the entrypoint, which
+    # runs the bundled hook at /opt/dashboard/hooks/10-dev-bootstrap.sh.
+    # Requires SSH access (agent socket or key directory) for the private clone.
+${DEVBOOTSTRAP_COMMAND}
     environment:
       HOST_HOSTNAME: ${HOSTNAME:-}
       WORKSPACE_ROOT: ${WORKSPACE_ROOT}
@@ -72,11 +77,6 @@ ${SSH_AUTH_ENV}
 ${SSH_AGENT_VOLUME}
       # SSH key directory — alternative or complement to the agent socket:
       # - \${HOME}/.ssh:/home/ddash/.ssh:ro
-      # ── dev-bootstrap setup hook (TernDev internal) ──────────────────────────
-      # The hook script is bundled in the image at /opt/dashboard/hooks/.
-      # Mount it into /docker-entrypoint.d/ to activate it on container start.
-      # Requires SSH access (see above) to clone the private GitLab repository.
-${DEVBOOTSTRAP_VOLUME}
       # ── Operator hooks (optional) ────────────────────────────────────────────
       # Drop additional executable .sh scripts into a host directory and mount it:
       # - \${HOME}/my-dashboard-hooks:/docker-entrypoint.d:ro
@@ -97,7 +97,7 @@ echo ""
 # ── Pull + start ─────────────────────────────────────────────────────────────
 
 echo "Pulling latest image..."
-docker compose -f "${COMPOSE_FILE}" pull
+# docker compose -f "${COMPOSE_FILE}" pull
 
 echo ""
 echo "Starting devcontainer-dashboard — press Ctrl+C to stop."
