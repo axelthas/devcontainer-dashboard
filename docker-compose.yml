@@ -1,13 +1,11 @@
-version: '3.8'
-
 services:
   dashboard:
-    build: .
+    image: ghcr.io/axelthas/devcontainer-dashboard:latest
     ports:
       - '3000:3000'
     environment:
       HOST_HOSTNAME: ${HOSTNAME:-}
-      WORKSPACE_ROOT: /bootstrap_workspaces
+      WORKSPACE_ROOT: ${WORKSPACE_ROOT:-/workspaces}
       PRESETS_FILE: /data/presets.json
       VSCODE_SSH_HOST: ${VSCODE_SSH_HOST:-}
       # ── SSH for terminal sessions and dev-bootstrap cloning ──────────────────
@@ -15,7 +13,8 @@ services:
       # SSH_AUTH_SOCK: /tmp/ssh-agent.socket
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ${HOME:-/root}/git.workspaces:/bootstrap_workspaces:rw
+      # Workspace root — must match WORKSPACE_ROOT above so devcontainer paths resolve correctly:
+      - ${WORKSPACE_ROOT:-/workspaces}:${WORKSPACE_ROOT:-/workspaces}:rw
       - dashboard_data:/data
       # ── Persistent zsh history for the integrated terminal ───────────────────
       - ddash_zsh_data:/home/ddash/.zsh_data
