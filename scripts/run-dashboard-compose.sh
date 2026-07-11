@@ -97,7 +97,7 @@ echo ""
 # ── Pull + start ─────────────────────────────────────────────────────────────
 
 echo "Pulling latest image..."
-# docker compose -f "${COMPOSE_FILE}" pull
+docker compose -f "${COMPOSE_FILE}" pull
 
 echo ""
 echo "Starting devcontainer-dashboard — press Ctrl+C to stop."
