@@ -52,6 +52,14 @@ npm run test
 
 The repository includes a Docker image and a compose file for local deployment. The compose setup mounts the Docker socket, the workspace tree, and a data volume for presets and bootstrap provider metadata.
 
+The fastest way to get the dashboard running is the bundled setup script:
+
+```bash
+curl -sL https://raw.githubusercontent.com/axelthas/devcontainer-dashboard/main/scripts/run-dashboard-compose.sh | bash
+```
+
+The script prompts for a workspace directory (defaults to `~/ddash-workspace`) and whether to enable the TernDev dev-bootstrap hook. It then writes a `docker-compose.yml` to `~/.config/devcontainer-dashboard/`, pulls the latest image, and starts the stack in the foreground. Press Ctrl+C to stop.
+
 ## Architecture
 
 The dashboard is built with SvelteKit and runs with a custom Node server entry point so the HTTP server can also host the terminal WebSocket upgrade path.
