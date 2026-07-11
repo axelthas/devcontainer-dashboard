@@ -25,6 +25,21 @@ WORKSPACE_ROOT="${WORKSPACE_ROOT/#\~/$HOME}"
 
 mkdir -p "${WORKSPACE_ROOT}"
 
+# ── Prompt: enable TernDev dev-bootstrap hook ────────────────────────────────
+
+printf 'Enable TernDev dev-bootstrap hook? [y/N]: ' >/dev/tty
+read -r ENABLE_DEVBOOTSTRAP </dev/tty
+
+if [[ "${ENABLE_DEVBOOTSTRAP,,}" == "y" ]]; then
+  SSH_AUTH_ENV='      SSH_AUTH_SOCK: /tmp/ssh-agent.socket'
+  SSH_AGENT_VOLUME='      - ${SSH_AUTH_SOCK}:/tmp/ssh-agent.socket:ro'
+  DEVBOOTSTRAP_VOLUME='      - /opt/dashboard/hooks/10-dev-bootstrap.sh:/docker-entrypoint.d/10-dev-bootstrap.sh:ro'
+else
+  SSH_AUTH_ENV='      # SSH_AUTH_SOCK: /tmp/ssh-agent.socket'
+  SSH_AGENT_VOLUME='      # - ${SSH_AUTH_SOCK}:/tmp/ssh-agent.socket:ro'
+  DEVBOOTSTRAP_VOLUME='      # - /opt/dashboard/hooks/10-dev-bootstrap.sh:/docker-entrypoint.d/10-dev-bootstrap.sh:ro'
+fi
+
 # ── Write docker-compose.yml ─────────────────────────────────────────────────
 
 mkdir -p "${CONFIG_DIR}"
@@ -44,8 +59,7 @@ services:
       PRESETS_FILE: /data/presets.json
       VSCODE_SSH_HOST: \${VSCODE_SSH_HOST:-}
       # ── SSH for terminal sessions and dev-bootstrap cloning ─────────────────
-      # Uncomment and set to your host agent socket path to forward SSH auth:
-      # SSH_AUTH_SOCK: /tmp/ssh-agent.socket
+${SSH_AUTH_ENV}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       # Workspace root — must match WORKSPACE_ROOT above so devcontainer paths resolve correctly:
@@ -55,14 +69,14 @@ services:
       - ddash_zsh_data:/home/ddash/.zsh_data
       # ── SSH access (choose one or both) ─────────────────────────────────────
       # SSH agent socket — forward the host agent so clones and git ops work:
-      # - \${SSH_AUTH_SOCK}:/tmp/ssh-agent.socket:ro
+${SSH_AGENT_VOLUME}
       # SSH key directory — alternative or complement to the agent socket:
       # - \${HOME}/.ssh:/home/ddash/.ssh:ro
       # ── dev-bootstrap setup hook (TernDev internal) ──────────────────────────
       # The hook script is bundled in the image at /opt/dashboard/hooks/.
       # Mount it into /docker-entrypoint.d/ to activate it on container start.
       # Requires SSH access (see above) to clone the private GitLab repository.
-      # - /opt/dashboard/hooks/10-dev-bootstrap.sh:/docker-entrypoint.d/10-dev-bootstrap.sh:ro
+${DEVBOOTSTRAP_VOLUME}
       # ── Operator hooks (optional) ────────────────────────────────────────────
       # Drop additional executable .sh scripts into a host directory and mount it:
       # - \${HOME}/my-dashboard-hooks:/docker-entrypoint.d:ro
@@ -75,6 +89,9 @@ EOF
 
 echo "Compose file written to: ${COMPOSE_FILE}"
 echo "Workspace:               ${WORKSPACE_ROOT}"
+if [[ "${ENABLE_DEVBOOTSTRAP,,}" == "y" ]]; then
+  echo "dev-bootstrap hook:      enabled (SSH_AUTH_SOCK must be set in your environment)"
+fi
 echo ""
 
 # ── Pull + start ─────────────────────────────────────────────────────────────
