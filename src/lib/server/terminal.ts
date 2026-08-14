@@ -3,6 +3,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import type { IncomingMessage, Server } from 'node:http';
 import type { Duplex } from 'node:stream';
 import type { IPty } from 'node-pty';
+import { isCookieHeaderAuthenticated } from './auth.js';
 
 const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT ?? '/workspaces';
 
@@ -27,6 +28,7 @@ function buildFilteredEnv(): Record<string, string> {
 	for (const [key, value] of Object.entries(process.env)) {
 		if (value === undefined) continue;
 		if (key.startsWith('VSCODE_')) continue;
+		if (key === 'DASHBOARD_PASSWORD') continue;
 		if (key === 'TERM_PROGRAM' || key === 'TERM_PROGRAM_VERSION') continue;
 		if (key === 'GIT_ASKPASS' || key === 'BROWSER') continue;
 		filteredEnv[key] = value;
@@ -92,6 +94,25 @@ export function deletePersistentSession(sessionId: string): void {
 	persistentSessions.delete(sessionId);
 }
 
+export function isTerminalUpgradeAuthorized(request: IncomingMessage): boolean {
+	if (!isCookieHeaderAuthenticated(request.headers.cookie)) return false;
+
+	const origin = request.headers.origin;
+	const host = request.headers.host;
+	if (!origin || !host) return false;
+
+	try {
+		return new URL(origin).host === host;
+	} catch {
+		return false;
+	}
+}
+
+function rejectUpgrade(socket: Duplex): void {
+	socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+	socket.destroy();
+}
+
 export function attachTerminalServer(httpServer: Server): void {
 	const wss = new WebSocketServer({ noServer: true });
 
@@ -99,6 +120,10 @@ export function attachTerminalServer(httpServer: Server): void {
 		const url = new URL(request.url ?? '/', `http://localhost`);
 		if (url.pathname !== '/api/terminal') {
 			return; // let other handlers (e.g. Vite HMR) deal with their own upgrades
+		}
+		if (!isTerminalUpgradeAuthorized(request)) {
+			rejectUpgrade(socket);
+			return;
 		}
 		wss.handleUpgrade(request, socket, head, (ws) => {
 			wss.emit('connection', ws, request);

@@ -3,16 +3,21 @@ import { defineConfig } from 'vitest/config';
 import { playwright } from '@vitest/browser-playwright';
 import { sveltekit } from '@sveltejs/kit/vite';
 import type { Plugin } from 'vite';
+import { assertAuthConfigured } from './src/lib/server/auth.js';
 import { attachTerminalServer } from './src/lib/server/terminal.js';
 
 function terminalDevPlugin(): Plugin {
 	return {
 		name: 'terminal-ws-dev',
 		configureServer(server) {
+			if (!process.env.VITEST) assertAuthConfigured();
 			server.httpServer?.once('listening', () => {
 				// eslint-disable-next-line @typescript-eslint/no-explicit-any
 				attachTerminalServer(server.httpServer as any);
 			});
+		},
+		configurePreviewServer() {
+			assertAuthConfigured();
 		}
 	};
 }

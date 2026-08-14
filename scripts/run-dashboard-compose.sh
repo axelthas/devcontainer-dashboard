@@ -25,6 +25,19 @@ WORKSPACE_ROOT="${WORKSPACE_ROOT/#\~/$HOME}"
 
 mkdir -p "${WORKSPACE_ROOT}"
 
+# ── Prompt for dashboard password ────────────────────────────────────────────
+
+if [[ -z "${DASHBOARD_PASSWORD:-}" ]]; then
+  printf 'Dashboard password: ' >/dev/tty
+  read -r -s DASHBOARD_PASSWORD </dev/tty
+  printf '\n' >/dev/tty
+fi
+if [[ -z "${DASHBOARD_PASSWORD}" ]]; then
+  echo "Dashboard password must not be empty." >&2
+  exit 1
+fi
+export DASHBOARD_PASSWORD
+
 # ── Prompt: enable TernDev dev-bootstrap hook ────────────────────────────────
 
 printf 'Enable TernDev dev-bootstrap hook? [y/N]: ' >/dev/tty
@@ -59,6 +72,7 @@ services:
     # Requires SSH access (agent socket or key directory) for the private clone.
 ${DEVBOOTSTRAP_COMMAND}
     environment:
+      DASHBOARD_PASSWORD: \${DASHBOARD_PASSWORD:?DASHBOARD_PASSWORD must be set}
       HOST_HOSTNAME: ${HOSTNAME:-}
       WORKSPACE_ROOT: ${WORKSPACE_ROOT}
       PRESETS_FILE: /data/presets.json

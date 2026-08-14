@@ -10,7 +10,8 @@
 		LayoutGrid,
 		List,
 		Eye,
-		EyeOff
+		EyeOff,
+		LogOut
 	} from 'lucide-svelte';
 	import { untrack } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
@@ -296,6 +297,17 @@
 							<Moon size={20} />
 						{/if}
 					</button>
+
+					<form method="POST" action="/logout">
+						<button
+							type="submit"
+							class="rounded-full border border-[#d8dee9] bg-[#eceff4] p-2 text-[#4c566a] transition-opacity hover:opacity-80 dark:border-[#434c5e] dark:bg-[#2e3440] dark:text-[#d8dee9]"
+							title="Sign out"
+							aria-label="Sign out"
+						>
+							<LogOut size={20} />
+						</button>
+					</form>
 				</div>
 			</div>
 		</header>

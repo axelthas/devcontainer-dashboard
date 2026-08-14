@@ -1,13 +1,21 @@
 // Custom server entry point that extends the SvelteKit-built handler with WebSocket support.
 // This file is compiled separately (see build script) and runs as: node build/server.js
 import { createServer } from 'node:http';
-// @ts-expect-error — build output, types not available at source time
-import { handler } from './handler.js';
 import { attachTerminalServer } from './lib/server/terminal.js';
+import { assertAuthConfigured } from './lib/server/auth.js';
 
 const PORT = parseInt(process.env.PORT ?? '3000', 10);
 
-const server = createServer(handler);
+assertAuthConfigured();
+process.env.PROTOCOL_HEADER ??= 'x-forwarded-proto';
+
+// @ts-expect-error — build output, types not available at source time
+const { handler } = await import('./handler.js');
+
+const server = createServer((request, response) => {
+	request.headers['x-forwarded-proto'] ??= 'http';
+	handler(request, response);
+});
 
 attachTerminalServer(server);
 
