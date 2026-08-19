@@ -1,7 +1,11 @@
 import { basename } from 'node:path';
 import { hostname } from 'node:os';
 import docker from '$lib/server/docker';
-import { loadMergedWorkspaces, WORKSPACE_ROOT } from '$lib/server/workspaces';
+import {
+	loadMergedWorkspaces,
+	resolveContainerWorkspaceFolder,
+	WORKSPACE_ROOT
+} from '$lib/server/workspaces';
 import type { ContainerData } from '$lib/types';
 import type { PageServerLoad } from './$types';
 
@@ -81,6 +85,10 @@ export const load: PageServerLoad = async () => {
 			ports,
 			image,
 			localWorkspacePath,
+			devcontainerConfigFile: labels['devcontainer.config_file'] ?? undefined,
+			containerWorkspaceFolder: localWorkspacePath
+				? resolveContainerWorkspaceFolder(c.Mounts, localWorkspacePath)
+				: undefined,
 			composeProject
 		});
 	}
