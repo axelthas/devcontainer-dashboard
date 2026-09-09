@@ -15,7 +15,7 @@
 	} from 'lucide-svelte';
 	import { untrack } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
-	import type { ContainerData, LocalWorkspaceData } from '$lib/types';
+	import type { ContainerData, LocalWorkspaceData, TerminalSession } from '$lib/types';
 	import DevcontainerCard from '$lib/components/DevcontainerCard.svelte';
 	import DevcontainerRow from '$lib/components/DevcontainerRow.svelte';
 	import SandboxRow from '$lib/components/SandboxRow.svelte';
@@ -106,8 +106,15 @@
 	$effect(() => {
 		const interval = setInterval(async () => {
 			await refreshContainers();
+			await refreshTerminalSessions();
 		}, 5000);
 		return () => clearInterval(interval);
+	});
+
+	// Pick up terminal sessions that are already running server-side (e.g. opened from another
+	// browser, or still running from before a reload) so the drawer can reattach to them.
+	$effect(() => {
+		refreshTerminalSessions();
 	});
 
 	async function refreshContainers() {
@@ -181,15 +188,8 @@
 	// Terminal manager state
 	const WORKSPACE_ROOT = data.workspaceRoot;
 
-	interface TerminalSessionState {
-		id: string;
-		name: string;
-		command?: string;
-		cwd?: string;
-	}
-
 	let terminalOpen = $state(false);
-	let terminalSessions = $state<TerminalSessionState[]>([]);
+	let terminalSessions = $state<TerminalSession[]>([]);
 	let activeTerminalId = $state<string | null>(null);
 
 	function openTerminalWith(id: string) {
@@ -197,16 +197,59 @@
 		activeTerminalId = id;
 	}
 
-	function addTerminalSession(session: TerminalSessionState) {
+	function addTerminalSession(session: TerminalSession) {
 		terminalSessions = [...terminalSessions, session];
 	}
 
-	function removeTerminalSession(id: string) {
+	function removeTerminalSessionLocally(id: string) {
 		terminalSessions = terminalSessions.filter((s) => s.id !== id);
+		confirmedTerminalSessionIds.delete(id);
 		if (activeTerminalId === id) {
 			activeTerminalId = terminalSessions[terminalSessions.length - 1]?.id ?? null;
 		}
 		if (terminalSessions.length === 0) terminalOpen = false;
+	}
+
+	async function closeTerminalSession(id: string) {
+		try {
+			await fetch('/api/terminal/sessions', {
+				method: 'DELETE',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ id })
+			});
+		} finally {
+			removeTerminalSessionLocally(id);
+		}
+	}
+
+	// Tracks which local tabs have been confirmed to exist server-side at least once, so a
+	// freshly-opened tab isn't dropped by reconciliation before its WebSocket has connected.
+	const confirmedTerminalSessionIds = new Set<string>();
+
+	async function refreshTerminalSessions() {
+		const res = await fetch('/api/terminal/sessions');
+		if (!res.ok) return;
+		const serverSessions: TerminalSession[] = await res.json();
+		const serverIds = new Set(serverSessions.map((s) => s.id));
+		const localIds = new Set(terminalSessions.map((s) => s.id));
+
+		for (const id of serverIds) confirmedTerminalSessionIds.add(id);
+
+		// Drop local tabs whose confirmed session no longer exists server-side (killed/exited
+		// elsewhere); leave not-yet-confirmed tabs alone so brand-new tabs aren't removed early.
+		const kept = terminalSessions.filter(
+			(s) => serverIds.has(s.id) || !confirmedTerminalSessionIds.has(s.id)
+		);
+		// Add tabs for sessions that exist server-side but aren't open locally yet
+		const added = serverSessions.filter((s) => !localIds.has(s.id));
+
+		if (kept.length !== terminalSessions.length || added.length > 0) {
+			terminalSessions = [...kept, ...added];
+			if (activeTerminalId && !terminalSessions.some((s) => s.id === activeTerminalId)) {
+				activeTerminalId = terminalSessions[terminalSessions.length - 1]?.id ?? null;
+			}
+			if (terminalSessions.length === 0) terminalOpen = false;
+		}
 	}
 
 	function handleRunBackground() {
@@ -483,7 +526,7 @@
 		workspaceRoot={WORKSPACE_ROOT}
 		onToggle={() => (terminalOpen = !terminalOpen)}
 		onAddSession={addTerminalSession}
-		onRemoveSession={removeTerminalSession}
+		onCloseSession={closeTerminalSession}
 		onSetActive={(id) => (activeTerminalId = id)}
 	/>
 </div>

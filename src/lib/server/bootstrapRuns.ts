@@ -42,7 +42,7 @@ export function startBootstrapRun(
 	};
 	activeRuns.set(id, run);
 
-	createPersistentSession(id, command, WORKSPACE_ROOT);
+	createPersistentSession(id, command, WORKSPACE_ROOT, { name, kind: 'bootstrap' });
 
 	// Poll for session exit to update run status
 	const poll = setInterval(() => {

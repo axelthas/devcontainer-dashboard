@@ -94,4 +94,8 @@ export interface BootstrapPreset {
 export interface TerminalSession {
 	id: string;
 	name: string;
+	command?: string;
+	cwd?: string;
+	startedAt?: string;
+	status?: 'running' | 'exited';
 }
