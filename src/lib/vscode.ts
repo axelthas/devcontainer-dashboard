@@ -40,7 +40,24 @@ function toFileUriString(path: string): string {
  * Mirrors the authority payload VS Code itself writes: a marshalled URI (`$mid: 1`)
  * pointing at the exact devcontainer.json.
  */
-function buildAuthorityPayload(localWorkspacePath: string, configFile: string): string {
+function buildAuthorityPayload(
+	localWorkspacePath: string,
+	configFile: string,
+	vscodeSshHost?: string
+): string {
+	// Over SSH the config lives on the Docker host; a `file` URI makes VS Code copy it from the client.
+	if (vscodeSshHost) {
+		return JSON.stringify({
+			hostPath: localWorkspacePath,
+			localDocker: false,
+			configFile: {
+				$mid: 1,
+				path: configFile,
+				scheme: 'vscode-fileHost'
+			}
+		});
+	}
+
 	return JSON.stringify({
 		hostPath: localWorkspacePath,
 		configFile: {
@@ -72,7 +89,7 @@ export function buildDevcontainerUri(
 
 	const payload =
 		configFile && !isWellKnownConfigFile(localWorkspacePath, configFile)
-			? buildAuthorityPayload(localWorkspacePath, configFile)
+			? buildAuthorityPayload(localWorkspacePath, configFile, vscodeSshHost)
 			: localWorkspacePath;
 	const target = `dev-container+${hexEncode(payload)}`;
 

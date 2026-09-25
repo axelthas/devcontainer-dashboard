@@ -115,7 +115,29 @@ describe('buildDevcontainerUri', () => {
 		});
 
 		expect(uri).toContain('@ssh-remote+devbox/workspace/repo?windowId=_blank');
-		expect(JSON.parse(decodeAuthority(uri)).hostPath).toBe('/workspaces/task/repo');
+		expect(JSON.parse(decodeAuthority(uri))).toEqual({
+			hostPath: '/workspaces/task/repo',
+			localDocker: false,
+			configFile: {
+				$mid: 1,
+				path: '/workspaces/task/repo/.devcontainer/rocky8/devcontainer.json',
+				scheme: 'vscode-fileHost'
+			}
+		});
+	});
+
+	it('matches the SSH authority VS Code writes for a sub-folder config', () => {
+		// Captured from a working "Reopen in Container" over SSH.
+		const workspace = '/home/axel/git.workspaces/git.polaris-ice.code-reviews/polaris-wss';
+		const uri = buildDevcontainerUri(workspace, {
+			vscodeSshHost: 'ts-axel-workstation',
+			configFile: `${workspace}/.devcontainer/rocky8/devcontainer.json`,
+			containerWorkspaceFolder: '/workspace/polaris-wss'
+		});
+
+		expect(uri).toBe(
+			'vscode://vscode-remote/dev-container+7b22686f737450617468223a222f686f6d652f6178656c2f6769742e776f726b7370616365732f6769742e706f6c617269732d6963652e636f64652d726576696577732f706f6c617269732d777373222c226c6f63616c446f636b6572223a66616c73652c22636f6e66696746696c65223a7b22246d6964223a312c2270617468223a222f686f6d652f6178656c2f6769742e776f726b7370616365732f6769742e706f6c617269732d6963652e636f64652d726576696577732f706f6c617269732d7773732f2e646576636f6e7461696e65722f726f636b79382f646576636f6e7461696e65722e6a736f6e222c22736368656d65223a227673636f64652d66696c65486f7374227d7d@ssh-remote+ts-axel-workstation/workspace/polaris-wss?windowId=_blank'
+		);
 	});
 });
 
