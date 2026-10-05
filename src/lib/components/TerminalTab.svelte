@@ -5,6 +5,7 @@
 
 	interface Props {
 		sessionId: string;
+		name?: string;
 		command?: string;
 		cwd?: string;
 		active: boolean;
@@ -12,7 +13,7 @@
 		onExit?: (exitCode: number) => void;
 	}
 
-	let { sessionId, command, cwd, active, fontSize = 13, onExit }: Props = $props();
+	let { sessionId, name, command, cwd, active, fontSize = 13, onExit }: Props = $props();
 
 	let terminal: Terminal | null = null;
 	let fitAddon: FitAddon | null = null;
@@ -62,6 +63,7 @@
 
 			const proto = location.protocol === 'https:' ? 'wss' : 'ws';
 			const params = new SvelteURLSearchParams({ sessionId });
+			if (name) params.set('name', name);
 			if (command) params.set('command', command);
 			if (cwd) params.set('cwd', cwd);
 			const wsUrl = `${proto}://${location.host}/api/terminal?${params}`;

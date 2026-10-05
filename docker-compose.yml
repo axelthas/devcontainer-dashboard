@@ -9,6 +9,7 @@ services:
     # Requires SSH access (agent socket or key directory) for the private clone.
     # command: ["dev-bootstrap"]
     environment:
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:?DASHBOARD_PASSWORD must be set}
       HOST_HOSTNAME: ${HOSTNAME:-}
       WORKSPACE_ROOT: ${WORKSPACE_ROOT:-/workspaces}
       PRESETS_FILE: /data/presets.json

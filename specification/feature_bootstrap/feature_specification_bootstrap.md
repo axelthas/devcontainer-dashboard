@@ -73,7 +73,7 @@ Due to the interactive, streaming nature of terminals, standard HTTP routes are 
   - Backend → Frontend: stdout/stderr from the pty process.
   - Frontend → Backend: stdin keystrokes from the user.
 - **Execution:** Upon WebSocket connection, an optional `command` parameter triggers automatic script execution (e.g., `dev-bootstrap` or `devcontainer up`). **Prerequisite:** the `devcontainer` CLI must be installed and in PATH for "Build & Start" actions.
-- **Session Lifetime:** pty sessions are tied to the WebSocket connection. Navigating away from the page terminates all active processes.
+- **Session Lifetime:** pty sessions are persistent server-side processes, independent of any single WebSocket connection. Navigating away, reloading, or closing the browser detaches viewers but leaves the process running; any browser can reattach later by connecting with the same session id, replaying buffered output. A session only terminates when its process exits or a client explicitly closes/dismisses it (`DELETE /api/terminal/sessions`, `/api/devcontainer/build`, or bootstrap-run dismissal).
 
 ## **4\. Frontend Specification Additions (Svelte 5\)**
 
@@ -93,7 +93,7 @@ Due to the interactive, streaming nature of terminals, standard HTTP routes are 
 - **State Management:** Maintain an array of active terminal sessions (`{ id, name, socket }`). The Root Terminal is always index 0.
 - **Tab Bar:** Horizontal scrollable area. Clicking a tab switches the active view. A `+` button opens a new generic shell session. All tabs except Root Terminal include an `×` button to terminate the session.
 - **Terminal View:** Uses **xterm.js** with `xterm-addon-fit` for full ANSI rendering and correct sizing. Must auto-scroll to bottom on new output. The xterm.js `Terminal` instance must be initialised inside a Svelte `$effect` after its DOM container is mounted.
-- **Session Lifetime:** pty sessions terminate when the WebSocket closes (tab closed or page navigation).
+- **Session Lifetime:** pty sessions persist in the background once created; closing a tab (×) explicitly kills the underlying process via `DELETE /api/terminal/sessions`, but merely closing the browser or reloading the page does not. On load, the dashboard fetches `GET /api/terminal/sessions` (polled alongside container state) to rehydrate the drawer with any sessions still running server-side, including ones started from another browser.
 
 ### **4.3 Bootstrap Modal**
 

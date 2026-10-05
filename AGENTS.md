@@ -25,19 +25,21 @@ npm run test             # unit + e2e combined
 - **Icons**: `lucide-svelte`
 - **Docker**: `dockerode` connecting to `/var/run/docker.sock`
 - **Terminal**: `node-pty` + `ws` WebSocket server on `/api/terminal`, rendered with `@xterm/xterm`
+- **Authentication**: Required shared password creates opaque, process-local sessions; `src/hooks.server.ts` gates HTTP and `src/lib/server/terminal.ts` gates WebSocket upgrades
 - **Deployment**: Multi-stage Docker build. The build image runs `npm run build && npm run build:server`; the runtime image starts the custom Node server on port 3000.
 - **Server entry point**: `src/server.ts` creates the HTTP server, attaches the terminal WebSocket handler, and listens on `PORT`
 
 ### Environment variables
 
-| Variable                   | Default                          | Purpose                                              |
-| -------------------------- | -------------------------------- | ---------------------------------------------------- |
-| `WORKSPACE_ROOT`           | `/workspaces`                    | Root directory scanned for local workspace discovery |
-| `HOST_HOSTNAME`            | `os.hostname()`                  | Displayed hostname in dashboard header               |
-| `VSCODE_SSH_HOST`          | (empty)                          | SSH host for VS Code remote URIs                     |
-| `PRESETS_FILE`             | `/data/presets.json`             | Path to bootstrap presets JSON file                  |
-| `BOOTSTRAP_PROVIDERS_FILE` | `/data/bootstrap-providers.json` | Path to bootstrap provider definitions               |
-| `PORT`                     | `3000`                           | Port used by the custom server entry point           |
+| Variable                   | Default                          | Purpose                                               |
+| -------------------------- | -------------------------------- | ----------------------------------------------------- |
+| `DASHBOARD_PASSWORD`       | required                         | Shared password used to create authenticated sessions |
+| `WORKSPACE_ROOT`           | `/workspaces`                    | Root directory scanned for local workspace discovery  |
+| `HOST_HOSTNAME`            | `os.hostname()`                  | Displayed hostname in dashboard header                |
+| `VSCODE_SSH_HOST`          | (empty)                          | SSH host for VS Code remote URIs                      |
+| `PRESETS_FILE`             | `/data/presets.json`             | Path to bootstrap presets JSON file                   |
+| `BOOTSTRAP_PROVIDERS_FILE` | `/data/bootstrap-providers.json` | Path to bootstrap provider definitions                |
+| `PORT`                     | `3000`                           | Port used by the custom server entry point            |
 
 ### Runtime notes
 
@@ -45,6 +47,8 @@ npm run test             # unit + e2e combined
 - The client polling endpoint is [src/routes/api/containers/+server.ts](src/routes/api/containers/+server.ts); keep its response shape aligned with the page load data.
 - Workspace discovery lives in [src/lib/server/workspaces.ts](src/lib/server/workspaces.ts) and merges in-memory bootstrap and devcontainer build sessions.
 - Bootstrap provider loading lives in [src/lib/server/bootstrap.ts](src/lib/server/bootstrap.ts), with a fallback to `~/.devbootstrap` if no providers file exists.
+- Runtime startup fails when `DASHBOARD_PASSWORD` is empty. Sessions are in memory and end on logout, browser close, or process restart.
+- Keep `DASHBOARD_PASSWORD` excluded from terminal child-process environments in [src/lib/server/terminal.ts](src/lib/server/terminal.ts).
 
 ### Route structure
 
@@ -71,6 +75,7 @@ npm run test             # unit + e2e combined
 
 | File                                   | Purpose                                                                                        |
 | -------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `src/lib/server/auth.ts`               | Password validation, login throttling, opaque sessions, and cookie helpers                     |
 | `src/lib/server/docker.ts`             | Dockerode client singleton                                                                     |
 | `src/lib/server/terminal.ts`           | WebSocket PTY server (attaches to Vite dev or production HTTP server)                          |
 | `src/lib/server/workspaces.ts`         | Scans `WORKSPACE_ROOT` for task/repo pairs with `.devcontainer`                                |

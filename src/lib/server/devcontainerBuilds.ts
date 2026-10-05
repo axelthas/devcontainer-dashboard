@@ -53,7 +53,7 @@ export function startDevcontainerBuild(
 	const command = configPath
 		? `devcontainer up --workspace-folder ${repoPath} --config ${join(repoPath, configPath)}`
 		: `devcontainer up --workspace-folder ${repoPath}`;
-	createPersistentSession(id, command, repoPath);
+	createPersistentSession(id, command, repoPath, { name: repoName, kind: 'devcontainer-build' });
 
 	// Poll for session exit to update build status
 	const poll = setInterval(() => {

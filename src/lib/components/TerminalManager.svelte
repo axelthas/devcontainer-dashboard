@@ -16,7 +16,7 @@
 		workspaceRoot: string;
 		onToggle: () => void;
 		onAddSession: (session: TerminalSessionState) => void;
-		onRemoveSession: (id: string) => void;
+		onCloseSession: (id: string) => Promise<void>;
 		onSetActive: (id: string) => void;
 	}
 
@@ -27,13 +27,14 @@
 		workspaceRoot,
 		onToggle,
 		onAddSession,
-		onRemoveSession,
+		onCloseSession,
 		onSetActive
 	}: Props = $props();
 
 	let height = $state(320);
 	let maximized = $state(false);
 	let dragging = $state(false);
+	let closingIds = $state<Set<string>>(new Set());
 
 	const MIN_HEIGHT = 150;
 
@@ -44,8 +45,14 @@
 		if (!open) onToggle();
 	}
 
-	function closeSession(id: string) {
-		onRemoveSession(id);
+	async function closeSession(id: string) {
+		if (closingIds.has(id)) return;
+		closingIds = new Set([...closingIds, id]);
+		try {
+			await onCloseSession(id);
+		} finally {
+			closingIds = new Set([...closingIds].filter((existing) => existing !== id));
+		}
 	}
 
 	function toggleMaximize() {
@@ -112,8 +119,9 @@
 					<span class="max-w-28 truncate">{session.name}</span>
 				</button>
 				<button
-					class="pr-2 text-[#d8dee9]/40 transition-colors hover:text-[#bf616a]"
+					class="pr-2 text-[#d8dee9]/40 transition-colors hover:text-[#bf616a] disabled:cursor-wait disabled:opacity-50"
 					onclick={() => closeSession(session.id)}
+					disabled={closingIds.has(session.id)}
 					type="button"
 					aria-label="Close tab"
 				>
@@ -172,6 +180,7 @@
 				<div class="absolute inset-2">
 					<TerminalTab
 						sessionId={session.id}
+						name={session.name}
 						command={session.command}
 						cwd={session.cwd ?? workspaceRoot}
 						active={activeId === session.id}

@@ -16,8 +16,22 @@
  */
 import { expect, test } from '@playwright/test';
 
-test('demo page renders with the expected heading', async ({ page }) => {
+test('protected page requires a valid dashboard session', async ({ page }) => {
 	await page.goto('/demo/playwright');
+	await expect(page).toHaveURL(/\/login\?next=%2Fdemo%2Fplaywright$/);
+
+	await page.getByLabel('Password').fill('wrong-password');
+	await page.getByRole('button', { name: 'Sign in' }).click();
+	await expect(page.getByRole('alert')).toHaveText('Invalid password');
+
+	await page.getByLabel('Password').fill('playwright-test-password');
+	await page.getByRole('button', { name: 'Sign in' }).click();
+	await expect(page).toHaveURL('/demo/playwright');
 	await expect(page.locator('h1')).toBeVisible();
 	await expect(page.locator('h1')).toHaveText('Playwright e2e test demo');
+
+	const logout = await page.request.post('/logout', { maxRedirects: 0 });
+	expect(logout.status()).toBe(303);
+	await page.goto('/demo/playwright');
+	await expect(page).toHaveURL(/\/login\?next=%2Fdemo%2Fplaywright$/);
 });

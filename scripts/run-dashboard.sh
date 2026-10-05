@@ -9,12 +9,23 @@ read -r -p "Workspace directory [${DEFAULT_WORKSPACE}]: " WORKSPACE_ROOT </dev/t
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-$DEFAULT_WORKSPACE}"
 WORKSPACE_ROOT="${WORKSPACE_ROOT/#\~/$HOME}"
 
+if [[ -z "${DASHBOARD_PASSWORD:-}" ]]; then
+    read -r -s -p "Dashboard password: " DASHBOARD_PASSWORD </dev/tty
+    printf '\n' >/dev/tty
+fi
+if [[ -z "$DASHBOARD_PASSWORD" ]]; then
+    echo "Dashboard password must not be empty." >&2
+    exit 1
+fi
+export DASHBOARD_PASSWORD
+
 mkdir -p "$WORKSPACE_ROOT"
 
 echo "Pulling latest image..."
 docker pull "$IMAGE"
 
 docker run  --rm \
+            -e DASHBOARD_PASSWORD \
             -e HOST_HOSTNAME=$HOSTNAME \
             -e WORKSPACE_ROOT="$WORKSPACE_ROOT" \
             -e SSH_AUTH_SOCK=$CONTAINER_SSH_SOCKET \

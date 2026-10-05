@@ -3,13 +3,32 @@ import { WebSocketServer, WebSocket } from 'ws';
 import type { IncomingMessage, Server } from 'node:http';
 import type { Duplex } from 'node:stream';
 import type { IPty } from 'node-pty';
+import { isCookieHeaderAuthenticated } from './auth.js';
 
 const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT ?? '/workspaces';
 
+// Cap buffered scrollback per session so long-lived interactive shells don't leak memory.
+const MAX_OUTPUT_BUFFER_CHARS = 500_000;
+
+export type PersistentSessionKind = 'shell' | 'bootstrap' | 'devcontainer-build';
+
 interface PersistentSession {
 	pty: IPty;
+	name: string;
+	kind: PersistentSessionKind;
+	startedAt: string;
 	outputBuffer: string[];
+	outputBufferLength: number;
 	viewers: Set<WebSocket>;
+	status: 'running' | 'exited';
+	exitCode?: number;
+}
+
+export interface PersistentSessionInfo {
+	id: string;
+	name: string;
+	kind: PersistentSessionKind;
+	startedAt: string;
 	status: 'running' | 'exited';
 	exitCode?: number;
 }
@@ -27,6 +46,7 @@ function buildFilteredEnv(): Record<string, string> {
 	for (const [key, value] of Object.entries(process.env)) {
 		if (value === undefined) continue;
 		if (key.startsWith('VSCODE_')) continue;
+		if (key === 'DASHBOARD_PASSWORD') continue;
 		if (key === 'TERM_PROGRAM' || key === 'TERM_PROGRAM_VERSION') continue;
 		if (key === 'GIT_ASKPASS' || key === 'BROWSER') continue;
 		filteredEnv[key] = value;
@@ -35,21 +55,40 @@ function buildFilteredEnv(): Record<string, string> {
 	return filteredEnv;
 }
 
-export function createPersistentSession(sessionId: string, command: string, cwd: string): void {
+export function createPersistentSession(
+	sessionId: string,
+	command: string | undefined,
+	cwd: string,
+	options?: { name?: string; kind?: PersistentSessionKind }
+): void {
 	if (persistentSessions.has(sessionId)) return;
 
-	// Spawn the command directly via bash -c so it runs immediately without shell init delays
-	const ptyProcess = pty.spawn('/bin/bash', ['-c', command], {
-		name: 'xterm-256color',
-		cols: 120,
-		rows: 30,
-		cwd,
-		env: buildFilteredEnv()
-	});
+	// With no command, spawn an interactive login shell; otherwise run the command directly via
+	// bash -c so it starts immediately without shell init delays.
+	const shell = process.env.SHELL ?? '/bin/bash';
+	const ptyProcess = command
+		? pty.spawn('/bin/bash', ['-c', command], {
+				name: 'xterm-256color',
+				cols: 120,
+				rows: 30,
+				cwd,
+				env: buildFilteredEnv()
+			})
+		: pty.spawn(shell, [], {
+				name: 'xterm-256color',
+				cols: 120,
+				rows: 30,
+				cwd,
+				env: buildFilteredEnv()
+			});
 
 	const session: PersistentSession = {
 		pty: ptyProcess,
+		name: options?.name ?? 'Shell',
+		kind: options?.kind ?? 'shell',
+		startedAt: new Date().toISOString(),
 		outputBuffer: [],
+		outputBufferLength: 0,
 		viewers: new Set(),
 		status: 'running'
 	};
@@ -57,6 +96,14 @@ export function createPersistentSession(sessionId: string, command: string, cwd:
 
 	ptyProcess.onData((data: string) => {
 		session.outputBuffer.push(data);
+		session.outputBufferLength += data.length;
+		while (
+			session.outputBufferLength > MAX_OUTPUT_BUFFER_CHARS &&
+			session.outputBuffer.length > 1
+		) {
+			const dropped = session.outputBuffer.shift()!;
+			session.outputBufferLength -= dropped.length;
+		}
 		for (const viewer of session.viewers) {
 			if (viewer.readyState === WebSocket.OPEN) {
 				viewer.send(JSON.stringify({ type: 'data', data }));
@@ -77,6 +124,22 @@ export function createPersistentSession(sessionId: string, command: string, cwd:
 	});
 }
 
+export function listPersistentSessions(kind?: PersistentSessionKind): PersistentSessionInfo[] {
+	const infos: PersistentSessionInfo[] = [];
+	for (const [id, session] of persistentSessions) {
+		if (kind && session.kind !== kind) continue;
+		infos.push({
+			id,
+			name: session.name,
+			kind: session.kind,
+			startedAt: session.startedAt,
+			status: session.status,
+			exitCode: session.exitCode
+		});
+	}
+	return infos;
+}
+
 export function getPersistentSession(sessionId: string): PersistentSession | undefined {
 	return persistentSessions.get(sessionId);
 }
@@ -92,6 +155,27 @@ export function deletePersistentSession(sessionId: string): void {
 	persistentSessions.delete(sessionId);
 }
 
+export const killPersistentSession = deletePersistentSession;
+
+export function isTerminalUpgradeAuthorized(request: IncomingMessage): boolean {
+	if (!isCookieHeaderAuthenticated(request.headers.cookie)) return false;
+
+	const origin = request.headers.origin;
+	const host = request.headers.host;
+	if (!origin || !host) return false;
+
+	try {
+		return new URL(origin).host === host;
+	} catch {
+		return false;
+	}
+}
+
+function rejectUpgrade(socket: Duplex): void {
+	socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+	socket.destroy();
+}
+
 export function attachTerminalServer(httpServer: Server): void {
 	const wss = new WebSocketServer({ noServer: true });
 
@@ -100,6 +184,10 @@ export function attachTerminalServer(httpServer: Server): void {
 		if (url.pathname !== '/api/terminal') {
 			return; // let other handlers (e.g. Vite HMR) deal with their own upgrades
 		}
+		if (!isTerminalUpgradeAuthorized(request)) {
+			rejectUpgrade(socket);
+			return;
+		}
 		wss.handleUpgrade(request, socket, head, (ws) => {
 			wss.emit('connection', ws, request);
 		});
@@ -107,87 +195,47 @@ export function attachTerminalServer(httpServer: Server): void {
 
 	wss.on('connection', (ws: WebSocket, request: IncomingMessage) => {
 		const url = new URL(request.url ?? '/', `http://localhost`);
-		const sessionId = url.searchParams.get('sessionId') ?? null;
-		const command = url.searchParams.get('command') ?? null;
+		const sessionId = url.searchParams.get('sessionId');
+		const command = url.searchParams.get('command') || undefined;
 		const cwd = url.searchParams.get('cwd') ?? WORKSPACE_ROOT;
+		const name = url.searchParams.get('name') || undefined;
+		const kindParam = url.searchParams.get('kind');
+		const kind: PersistentSessionKind =
+			kindParam === 'bootstrap' || kindParam === 'devcontainer-build' ? kindParam : 'shell';
 
-		// Attach to an existing persistent session (background bootstrap run)
-		if (sessionId && persistentSessions.has(sessionId)) {
-			const session = persistentSessions.get(sessionId)!;
-
-			// Replay buffered output so the viewer sees the full history
-			if (session.outputBuffer.length > 0) {
-				ws.send(JSON.stringify({ type: 'data', data: session.outputBuffer.join('') }));
-			}
-
-			// If already exited, notify immediately
-			if (session.status === 'exited') {
-				ws.send(JSON.stringify({ type: 'exit', exitCode: session.exitCode ?? 0 }));
-				ws.close();
-				return;
-			}
-
-			session.viewers.add(ws);
-
-			ws.on('message', (rawMsg: Buffer | string) => {
-				try {
-					const msg = JSON.parse(rawMsg.toString());
-					if (msg.type === 'data') {
-						session.pty.write(msg.data);
-					} else if (msg.type === 'resize') {
-						session.pty.resize(msg.cols, msg.rows);
-					}
-				} catch {
-					// ignore malformed messages
-				}
-			});
-
-			ws.on('close', () => {
-				session.viewers.delete(ws);
-				// Do NOT kill the PTY — session continues in the background
-			});
-
+		if (!sessionId) {
+			ws.close();
 			return;
 		}
 
-		// --- Ephemeral terminal (existing behaviour) ---
-		const shell = process.env.SHELL ?? '/bin/bash';
-
-		const ptyProcess = pty.spawn(shell, [], {
-			name: 'xterm-256color',
-			cols: 80,
-			rows: 24,
-			cwd,
-			env: buildFilteredEnv()
-		});
-
-		ptyProcess.onData((data: string) => {
-			if (ws.readyState === WebSocket.OPEN) {
-				ws.send(JSON.stringify({ type: 'data', data }));
-			}
-		});
-
-		ptyProcess.onExit(({ exitCode }) => {
-			if (ws.readyState === WebSocket.OPEN) {
-				ws.send(JSON.stringify({ type: 'exit', exitCode: exitCode ?? 0 }));
-				ws.close();
-			}
-		});
-
-		if (command) {
-			// Small delay to let the shell initialise
-			setTimeout(() => {
-				ptyProcess.write(command + '\r');
-			}, 300);
+		// All terminal sessions are persistent: they keep running in the background once the
+		// WebSocket disconnects, and any client can reattach later using the same sessionId.
+		if (!persistentSessions.has(sessionId)) {
+			createPersistentSession(sessionId, command, cwd, { name, kind });
 		}
+		const session = persistentSessions.get(sessionId)!;
+
+		// Replay buffered output so the viewer sees the full history
+		if (session.outputBuffer.length > 0) {
+			ws.send(JSON.stringify({ type: 'data', data: session.outputBuffer.join('') }));
+		}
+
+		// If already exited, notify immediately
+		if (session.status === 'exited') {
+			ws.send(JSON.stringify({ type: 'exit', exitCode: session.exitCode ?? 0 }));
+			ws.close();
+			return;
+		}
+
+		session.viewers.add(ws);
 
 		ws.on('message', (rawMsg: Buffer | string) => {
 			try {
 				const msg = JSON.parse(rawMsg.toString());
 				if (msg.type === 'data') {
-					ptyProcess.write(msg.data);
+					session.pty.write(msg.data);
 				} else if (msg.type === 'resize') {
-					ptyProcess.resize(msg.cols, msg.rows);
+					session.pty.resize(msg.cols, msg.rows);
 				}
 			} catch {
 				// ignore malformed messages
@@ -195,11 +243,8 @@ export function attachTerminalServer(httpServer: Server): void {
 		});
 
 		ws.on('close', () => {
-			try {
-				ptyProcess.kill();
-			} catch {
-				// already dead
-			}
+			session.viewers.delete(ws);
+			// Do NOT kill the PTY — session continues in the background
 		});
 	});
 }

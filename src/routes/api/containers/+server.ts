@@ -1,6 +1,7 @@
 import { basename } from 'node:path';
 import { json } from '@sveltejs/kit';
 import docker from '$lib/server/docker';
+import { resolveContainerWorkspaceFolder } from '$lib/server/workspaces';
 import type { ContainerData } from '$lib/types';
 import type { RequestHandler } from './$types';
 
@@ -81,6 +82,10 @@ export const GET: RequestHandler = async () => {
 			ports,
 			image,
 			localWorkspacePath,
+			devcontainerConfigFile: labels['devcontainer.config_file'] ?? undefined,
+			containerWorkspaceFolder: localWorkspacePath
+				? resolveContainerWorkspaceFolder(c.Mounts, localWorkspacePath)
+				: undefined,
 			composeProject
 		});
 	}
