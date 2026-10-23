@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AUTH_COOKIE_NAME, createSession, resetAuthStateForTesting } from './auth';
-import { isTerminalUpgradeAuthorized } from './terminal';
+import { isCancelledExit, isTerminalUpgradeAuthorized } from './terminal';
 
 function request(headers: Record<string, string>) {
 	return { headers } as never;
@@ -56,5 +56,25 @@ describe('terminal WebSocket authorization', () => {
 			)
 		).toBe(false);
 		expect(isTerminalUpgradeAuthorized(request({ cookie, host: 'localhost:3000' }))).toBe(false);
+	});
+});
+
+describe('isCancelledExit', () => {
+	it('treats hangup, interrupt, and termination as a cancellation', () => {
+		expect(isCancelledExit(0, 1)).toBe(true);
+		expect(isCancelledExit(0, 2)).toBe(true);
+		expect(isCancelledExit(0, 15)).toBe(true);
+		expect(isCancelledExit(129)).toBe(true);
+		expect(isCancelledExit(130)).toBe(true);
+		expect(isCancelledExit(143)).toBe(true);
+	});
+
+	it('treats other exits as the result of the process', () => {
+		expect(isCancelledExit(0)).toBe(false);
+		expect(isCancelledExit(1)).toBe(false);
+		expect(isCancelledExit(0, 0)).toBe(false);
+		// SIGKILL, for example from the out-of-memory killer, is a failure.
+		expect(isCancelledExit(137)).toBe(false);
+		expect(isCancelledExit(0, 9)).toBe(false);
 	});
 });

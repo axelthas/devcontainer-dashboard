@@ -14,6 +14,16 @@ const MAX_OUTPUT_BUFFER_CHARS = 500_000;
 // instead of starting a new shell with the same id.
 const EXITED_SESSION_RETENTION_MS = 5 * 60_000;
 
+// SIGHUP (terminal closed or process stopped), SIGINT (Ctrl+C), and SIGTERM mean a cancellation.
+const CANCEL_SIGNALS = new Set([1, 2, 15]);
+
+/** True when a process ended because the user cancelled it, not because of its own result. */
+export function isCancelledExit(exitCode: number, signal?: number): boolean {
+	if (signal !== undefined && CANCEL_SIGNALS.has(signal)) return true;
+	// Shells report a process that a signal stopped as exit code 128 + signal number.
+	return CANCEL_SIGNALS.has(exitCode - 128);
+}
+
 export type PersistentSessionKind = 'shell' | 'bootstrap' | 'devcontainer-build';
 
 interface PersistentSession {
@@ -21,6 +31,7 @@ interface PersistentSession {
 	name: string;
 	kind: PersistentSessionKind;
 	startedAt: string;
+	maxOutputChars: number;
 	outputBuffer: string[];
 	outputBufferLength: number;
 	viewers: Set<WebSocket>;
@@ -37,11 +48,20 @@ export interface PersistentSessionInfo {
 	exitCode?: number;
 }
 
+export interface PersistentSessionExit {
+	exitCode: number;
+	signal?: number;
+	/** Buffered output, limited to the session's maxOutputChars */
+	output: string;
+}
+
 interface PersistentSessionOptions {
 	name?: string;
 	kind?: PersistentSessionKind;
+	/** Output kept for replay and for onExit; defaults to MAX_OUTPUT_BUFFER_CHARS */
+	maxOutputChars?: number;
 	/** Called once when the process exits */
-	onExit?: (exitCode: number) => void;
+	onExit?: (exit: PersistentSessionExit) => void;
 }
 
 // Use globalThis so that the vite.config.ts plugin import and the Vite SSR API-route
@@ -98,6 +118,7 @@ export function createPersistentSession(
 		name: options?.name ?? 'Shell',
 		kind: options?.kind ?? 'shell',
 		startedAt: new Date().toISOString(),
+		maxOutputChars: options?.maxOutputChars ?? MAX_OUTPUT_BUFFER_CHARS,
 		outputBuffer: [],
 		outputBufferLength: 0,
 		viewers: new Set(),
@@ -109,7 +130,7 @@ export function createPersistentSession(
 		session.outputBuffer.push(data);
 		session.outputBufferLength += data.length;
 		while (
-			session.outputBufferLength > MAX_OUTPUT_BUFFER_CHARS &&
+			session.outputBufferLength > session.maxOutputChars &&
 			session.outputBuffer.length > 1
 		) {
 			const dropped = session.outputBuffer.shift()!;
@@ -122,9 +143,10 @@ export function createPersistentSession(
 		}
 	});
 
-	ptyProcess.onExit(({ exitCode }) => {
+	ptyProcess.onExit(({ exitCode, signal }) => {
 		session.status = 'exited';
 		session.exitCode = exitCode;
+		const output = session.outputBuffer.join('');
 		// Viewers close their terminal on exit, so the scrollback is no longer needed.
 		session.outputBuffer = [];
 		session.outputBufferLength = 0;
@@ -135,7 +157,7 @@ export function createPersistentSession(
 			}
 		}
 		session.viewers.clear();
-		options?.onExit?.(exitCode ?? 0);
+		options?.onExit?.({ exitCode: exitCode ?? 0, signal, output });
 
 		const cleanup = setTimeout(() => {
 			if (persistentSessions.get(sessionId) === session) persistentSessions.delete(sessionId);
