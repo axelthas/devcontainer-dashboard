@@ -78,6 +78,7 @@ The main server responsibilities are split across the app, Docker helpers, works
 | VSCODE_SSH_HOST          | empty                          | SSH host used when building VS Code remote URIs                       |
 | PRESETS_FILE             | /data/presets.json             | JSON file containing bootstrap presets                                |
 | BOOTSTRAP_PROVIDERS_FILE | /data/bootstrap-providers.json | JSON file containing bootstrap provider definitions                   |
+| BUILD_LOG_DIR            | /data/build-logs               | Directory for logs of failed devcontainer builds and bootstrap runs   |
 | PORT                     | 3000                           | Port used by the custom Node server                                   |
 | ORIGIN                   | empty                          | Public URL of the dashboard behind a reverse proxy                    |
 | PROTOCOL_HEADER          | empty                          | Trusted proxy header that carries the original protocol               |
@@ -87,6 +88,12 @@ The main server responsibilities are split across the app, Docker helpers, works
 `DASHBOARD_PASSWORD` must be non-empty. Development and production startup fail closed when it is absent. A successful login creates an opaque in-memory session and an `HttpOnly`, `SameSite=Strict` cookie that lasts until the browser session ends. Logout, process restart, or password rotation invalidates the session.
 
 All dashboard pages, API routes, service views, and terminal WebSocket connections require the session. The configured password is removed from integrated-terminal environments. The login endpoint and required static assets are the only public application resources.
+
+## Run Logs
+
+A terminal closes when its process exits. A failed devcontainer build or bootstrap run keeps its output as a log in `BUILD_LOG_DIR`, so you can view or download it from the Local Workspaces section later, also after a restart. A cancelled run (the Cancel button, Ctrl+C, or a closed terminal) and a successful run keep no log. Retry or Dismiss deletes the log, and logs are deleted after 7 days. If the directory is not writable, the log stays in memory until the dashboard restarts.
+
+A log can contain secrets that a build or bootstrap script prints. Logs are only available to signed-in users, but they stay on disk until they are deleted.
 
 ## Routes
 
@@ -101,12 +108,13 @@ All dashboard pages, API routes, service views, and terminal WebSocket connectio
 | /api/workspaces (GET, DELETE) | Returns merged workspace and build state or deletes a workspace path |
 | /api/bootstrap                | Returns bootstrap provider installation and branch metadata          |
 | /api/bootstrap/providers      | Returns configured bootstrap providers                               |
-| /api/bootstrap/run            | Starts a bootstrap run                                               |
+| /api/bootstrap/run            | Starts, stops, or dismisses a bootstrap run                          |
 | /api/bootstrap/pull           | Pulls the active bootstrap provider repository                       |
 | /api/bootstrap/checkout       | Checks out a branch in the active bootstrap provider repository      |
 | /api/repos/branches           | Returns local branches, remote branches, and tags for a repository   |
 | /api/repos/checkout           | Checks out a branch or tag in a repository                           |
-| /api/devcontainer/build       | Starts a devcontainer build for a repository                         |
+| /api/devcontainer/build       | Starts, cancels, or dismisses a devcontainer build                   |
+| /api/run-logs/[id]            | Returns the kept log of a failed run; add ?download for plain text   |
 | /api/terminal                 | WebSocket terminal sessions                                          |
 
 ## Deployment

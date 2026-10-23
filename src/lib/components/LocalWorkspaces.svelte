@@ -16,6 +16,7 @@
 		TriangleAlert,
 		Code,
 		TerminalSquare,
+		FileText,
 		X
 	} from 'lucide-svelte';
 	import { untrack } from 'svelte';
@@ -23,6 +24,7 @@
 	import { generateId } from '$lib/index';
 	import type { ContainerData, LocalWorkspaceData, RepositoryData } from '$lib/types';
 	import BootstrapStatus from './BootstrapStatus.svelte';
+	import LogViewer from './LogViewer.svelte';
 	import ServiceButton from './ServiceButton.svelte';
 	import TerminalTab from './TerminalTab.svelte';
 
@@ -73,6 +75,9 @@
 	let refreshing = $state(false);
 	let buildingRepos = $state<Set<string>>(new Set());
 	let deletingWorkspaces = $state<Set<string>>(new Set());
+
+	// Read-only viewer for the kept log of a failed build or bootstrap run
+	let logViewer = $state<{ id: string; title: string } | null>(null);
 
 	// Branch picker state
 	let branchPickerRepo = $state<string | null>(null);
@@ -142,12 +147,38 @@
 		else expandedRepos.add(path);
 	}
 
+	function openLog(id: string, title: string) {
+		logViewer = { id, title };
+	}
+
+	function openBuildLog(repo: RepositoryData) {
+		if (repo.buildSession) openLog(repo.buildSession.id, `${repo.name} build log`);
+	}
+
+	function openBootstrapLog(ws: LocalWorkspaceData) {
+		if (ws.buildSession) openLog(ws.buildSession.id, `${ws.name} bootstrap log`);
+	}
+
+	// Cancels a running build, or dismisses a failed build and deletes its log.
 	async function dismissBuild(buildId: string) {
 		try {
 			await fetch('/api/devcontainer/build', {
 				method: 'DELETE',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ id: buildId })
+			});
+		} finally {
+			onRefreshWorkspaces();
+		}
+	}
+
+	// Dismisses a failed bootstrap run and deletes its log.
+	async function dismissBootstrapRun(runId: string) {
+		try {
+			await fetch('/api/bootstrap/run', {
+				method: 'DELETE',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ id: runId })
 			});
 		} finally {
 			onRefreshWorkspaces();
@@ -515,6 +546,34 @@
 						</div>
 					{:else}
 						<div class="bg-[#f0f4f8] dark:bg-[#2e3440]">
+							{#if ws.buildSession?.status === 'failed'}
+								<!-- Failed bootstrap run: the output is kept as a log until dismissed -->
+								<div
+									class="flex items-center gap-2 border-b border-[#bf616a]/20 bg-[#bf616a]/10 px-5 py-2 text-[#bf616a]"
+								>
+									<TriangleAlert size={14} />
+									<span class="flex-1 text-sm font-medium">Bootstrap failed</span>
+									{#if ws.buildSession.hasLog}
+										<button
+											onclick={() => openBootstrapLog(ws)}
+											class="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition-colors hover:bg-[#bf616a]/20"
+											type="button"
+										>
+											<FileText size={12} />
+											View log
+										</button>
+									{/if}
+									<button
+										onclick={() => dismissBootstrapRun(ws.buildSession!.id)}
+										class="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition-colors hover:bg-[#bf616a]/20"
+										type="button"
+										title="Dismiss and delete the log"
+									>
+										<X size={12} />
+										Dismiss
+									</button>
+								</div>
+							{/if}
 							{#if rerunSessions.has(ws.id)}
 								{@const rerunSession = rerunSessions.get(ws.id)!}
 								<!-- Rerun progress row -->
@@ -763,7 +822,29 @@
 														<Loader size={12} class="animate-spin" />
 														Building
 													</span>
+													{#if repo.buildSession?.status === 'running'}
+														<button
+															onclick={() => dismissBuild(repo.buildSession!.id)}
+															class="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium whitespace-nowrap text-[#bf616a] transition-colors hover:bg-[#e5e9f0] dark:hover:bg-[#3b4252]"
+															type="button"
+															title="Cancel the build; no log is kept"
+														>
+															<X size={12} />
+															Cancel
+														</button>
+													{/if}
 												{:else if repo.buildSession?.status === 'failed'}
+													{#if repo.buildSession.hasLog}
+														<button
+															onclick={() => openBuildLog(repo)}
+															class="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium whitespace-nowrap text-[#81a1c1] transition-colors hover:bg-[#e5e9f0] dark:hover:bg-[#3b4252]"
+															type="button"
+															title="View the build log"
+														>
+															<FileText size={12} />
+															Log
+														</button>
+													{/if}
 													<button
 														onclick={() =>
 															buildAndStart(repo.path, repo.name, getEffectiveConfig(repo))}
@@ -868,5 +949,9 @@
 				{/if}
 			{/each}
 		</div>
+	{/if}
+
+	{#if logViewer}
+		<LogViewer logId={logViewer.id} title={logViewer.title} onClose={() => (logViewer = null)} />
 	{/if}
 </section>
