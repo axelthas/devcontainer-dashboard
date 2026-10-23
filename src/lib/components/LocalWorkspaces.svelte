@@ -338,13 +338,12 @@
 	interface RerunSession {
 		sessionId: string;
 		visible: boolean;
-		failed: boolean;
 	}
 	let rerunSessions = new SvelteMap<string, RerunSession>();
 
 	function rerunBootstrap(ws: LocalWorkspaceData) {
 		const id = generateId();
-		rerunSessions.set(ws.id, { sessionId: id, visible: false, failed: false });
+		rerunSessions.set(ws.id, { sessionId: id, visible: false });
 		if (!expanded.has(ws.id)) toggleExpand(ws.id);
 	}
 
@@ -354,21 +353,22 @@
 		rerunSessions.set(wsId, { ...session, visible: !session.visible });
 	}
 
-	function dismissRerun(wsId: string) {
+	// Cancel stops the rerun process; it does not only hide the terminal.
+	async function dismissRerun(wsId: string) {
+		const session = rerunSessions.get(wsId);
 		rerunSessions.delete(wsId);
+		if (!session) return;
+		await fetch('/api/terminal/sessions', {
+			method: 'DELETE',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ id: session.sessionId })
+		});
 	}
 
-	function onRerunExit(wsId: string, exitCode: number) {
-		if (exitCode === 0) {
-			// Success: auto-close terminal and refresh workspace data
-			rerunSessions.delete(wsId);
-			onRefreshWorkspaces();
-		} else {
-			// Failure: keep terminal open so the user can inspect the output
-			const session = rerunSessions.get(wsId);
-			if (!session) return;
-			rerunSessions.set(wsId, { ...session, visible: true, failed: true });
-		}
+	// Close the rerun terminal when the process exits, whatever the exit code.
+	function onRerunExit(wsId: string) {
+		rerunSessions.delete(wsId);
+		onRefreshWorkspaces();
 	}
 </script>
 
@@ -453,7 +453,7 @@
 					</div>
 					<div class="flex items-center gap-2">
 						{#if ws.solutionMetadata}
-							{#if rerunSessions.has(ws.id) && !rerunSessions.get(ws.id)!.failed}
+							{#if rerunSessions.has(ws.id)}
 								<button
 									disabled
 									class="flex cursor-not-allowed items-center gap-1.5 rounded-lg border border-[#b48ead]/30 bg-[#b48ead]/15 px-2.5 py-1 text-xs font-medium text-[#b48ead] opacity-75"
@@ -502,37 +502,29 @@
 				</div>
 
 				{#if expanded.has(ws.id)}
-					{#if ws.buildSession?.status === 'running' || ws.buildSession?.status === 'failed'}
-						<!-- Inline terminal view for running/failed bootstrap -->
+					{#if ws.buildSession?.status === 'running'}
+						<!-- Inline terminal view for a running bootstrap; closes when the process exits -->
 						<div class="border-b border-[#d8dee9] dark:border-[#4c566a]">
-							{#if ws.buildSession.status === 'failed'}
-								<div
-									class="flex items-center gap-2 border-b border-[#bf616a]/20 bg-[#bf616a]/10 px-5 py-2 text-[#bf616a]"
-								>
-									<TriangleAlert size={14} />
-									<span class="text-sm font-medium">Bootstrap failed</span>
-								</div>
-							{/if}
 							<div class="h-64 overflow-hidden">
-								<TerminalTab sessionId={ws.buildSession.id} active={true} />
+								<TerminalTab
+									sessionId={ws.buildSession.id}
+									active={true}
+									onExit={onRefreshWorkspaces}
+								/>
 							</div>
 						</div>
 					{:else}
 						<div class="bg-[#f0f4f8] dark:bg-[#2e3440]">
 							{#if rerunSessions.has(ws.id)}
 								{@const rerunSession = rerunSessions.get(ws.id)!}
-								<!-- Rerun progress / error row -->
+								<!-- Rerun progress row -->
 								<div
-									class="flex items-center gap-2 border-b px-5 py-1.5 {rerunSession.failed
-										? 'border-[#bf616a]/20 bg-[#bf616a]/10'
-										: 'border-[#b48ead]/20 bg-[#b48ead]/10'}"
+									class="flex items-center gap-2 border-b border-[#b48ead]/20 bg-[#b48ead]/10 px-5 py-1.5"
 								>
 									<button
 										onclick={() => toggleRerunTerminal(ws.id)}
 										type="button"
-										class="shrink-0 rounded p-0.5 transition-colors {rerunSession.failed
-											? 'text-[#bf616a]/70 hover:bg-[#bf616a]/20 hover:text-[#bf616a]'
-											: 'text-[#b48ead]/70 hover:bg-[#b48ead]/20 hover:text-[#b48ead]'}"
+										class="shrink-0 rounded p-0.5 text-[#b48ead]/70 transition-colors hover:bg-[#b48ead]/20 hover:text-[#b48ead]"
 										aria-label={rerunSession.visible ? 'Hide output' : 'Show output'}
 									>
 										{#if rerunSession.visible}
@@ -541,27 +533,18 @@
 											<ChevronRight size={13} />
 										{/if}
 									</button>
-									{#if rerunSession.failed}
-										<TriangleAlert size={12} class="text-[#bf616a]" />
-										<span class="text-xs font-medium text-[#bf616a]">Bootstrap failed</span>
-									{:else}
-										<Loader2 size={12} class="animate-spin text-[#b48ead]" />
-										<span class="text-xs font-medium text-[#b48ead]">Rerunning bootstrap…</span>
-									{/if}
+									<Loader2 size={12} class="animate-spin text-[#b48ead]" />
+									<span class="text-xs font-medium text-[#b48ead]">Rerunning bootstrap…</span>
 									<button
 										onclick={() => dismissRerun(ws.id)}
-										class="ml-auto rounded p-0.5 transition-colors {rerunSession.failed
-											? 'text-[#bf616a]/60 hover:bg-[#bf616a]/20 hover:text-[#bf616a]'
-											: 'text-[#b48ead]/60 hover:bg-[#b48ead]/20 hover:text-[#b48ead]'}"
+										class="ml-auto rounded p-0.5 text-[#b48ead]/60 transition-colors hover:bg-[#b48ead]/20 hover:text-[#b48ead]"
 										type="button"
-										aria-label={rerunSession.failed ? 'Dismiss' : 'Cancel'}>✕</button
+										aria-label="Cancel">✕</button
 									>
 								</div>
 								<!-- Terminal: always mounted to keep WebSocket alive; shown/hidden via display -->
 								<div
-									class="overflow-hidden {rerunSession.failed
-										? 'border-b border-[#bf616a]/20'
-										: 'border-b border-[#b48ead]/20'}"
+									class="overflow-hidden border-b border-[#b48ead]/20"
 									style:display={rerunSession.visible ? 'block' : 'none'}
 									style:height={rerunSession.visible ? '16rem' : '0'}
 								>
@@ -569,15 +552,15 @@
 										sessionId={rerunSession.sessionId}
 										command="devbootstrap --rerun -d {ws.path}"
 										cwd={ws.path}
+										kind="bootstrap"
 										active={rerunSession.visible}
-										onExit={(code) => onRerunExit(ws.id, code)}
+										onExit={() => onRerunExit(ws.id)}
 									/>
 								</div>
 							{/if}
 							{#each ws.repos as repo (repo.path)}
 								{@const matchedContainer = findContainerForRepo(repo.path)}
-								{@const repoExpandable =
-									repo.buildSession?.status === 'running' || repo.buildSession?.status === 'failed'}
+								{@const repoExpandable = repo.buildSession?.status === 'running'}
 								{@const folderUri = vscodeSshHost
 									? `vscode://vscode-remote/ssh-remote+${vscodeSshHost}${repo.path}?windowId=_blank`
 									: `vscode://file${repo.path}?windowId=_blank`}
@@ -868,36 +851,14 @@
 									</div>
 								</div>
 								{#if repoExpandable && repo.buildSession && expandedRepos.has(repo.path)}
+									<!-- Build output while the build runs; closes when the process exits -->
 									<div class="border-b border-[#d8dee9]/60 dark:border-[#4c566a]/60">
-										{#if repo.buildSession.status === 'failed'}
-											<div
-												class="flex items-center gap-2 border-b border-[#bf616a]/20 bg-[#bf616a]/10 px-8 py-2 text-[#bf616a]"
-											>
-												<TriangleAlert size={14} />
-												<span class="flex-1 text-sm font-medium">Build failed</span>
-												<button
-													onclick={() =>
-														buildAndStart(repo.path, repo.name, getEffectiveConfig(repo))}
-													class="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition-colors hover:bg-[#bf616a]/20"
-													type="button"
-													title="Retry build"
-												>
-													<RotateCcw size={12} />
-													Retry
-												</button>
-												<button
-													onclick={() => dismissBuild(repo.buildSession!.id)}
-													class="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition-colors hover:bg-[#bf616a]/20"
-													type="button"
-													title="Dismiss failed build"
-												>
-													<X size={12} />
-													Dismiss
-												</button>
-											</div>
-										{/if}
 										<div class="h-64 overflow-hidden">
-											<TerminalTab sessionId={repo.buildSession.id} active={true} />
+											<TerminalTab
+												sessionId={repo.buildSession.id}
+												active={true}
+												onExit={onRefreshWorkspaces}
+											/>
 										</div>
 									</div>
 								{/if}
