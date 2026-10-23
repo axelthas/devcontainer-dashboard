@@ -264,9 +264,14 @@
 		</div>
 
 		{#if interactiveSessionId}
-			<!-- Interactive terminal view -->
+			<!-- Interactive terminal view: closes with the modal when the process exits -->
 			<div class="mb-5 h-[32rem] overflow-hidden rounded-lg border border-[#4c566a]">
-				<TerminalTab sessionId={interactiveSessionId} active={true} fontSize={11} />
+				<TerminalTab
+					sessionId={interactiveSessionId}
+					active={true}
+					fontSize={11}
+					onExit={sendToBackground}
+				/>
 			</div>
 			<div class="flex items-center justify-end">
 				<button
