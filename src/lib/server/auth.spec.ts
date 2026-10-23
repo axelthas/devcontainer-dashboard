@@ -11,9 +11,11 @@ import {
 	validatePassword
 } from './auth';
 
+const PASSWORD = 'correct horse battery staple';
+
 describe('dashboard authentication', () => {
 	beforeEach(() => {
-		process.env.DASHBOARD_PASSWORD = 'correct horse battery staple';
+		process.env.DASHBOARD_PASSWORD = PASSWORD;
 		resetAuthStateForTesting();
 	});
 
@@ -27,23 +29,31 @@ describe('dashboard authentication', () => {
 		expect(() => assertAuthConfigured()).toThrow(/DASHBOARD_PASSWORD/);
 	});
 
-	it('validates the configured password', () => {
-		expect(validatePassword('correct horse battery staple', 'client')).toBe('valid');
-		expect(validatePassword('wrong', 'client')).toBe('invalid');
+	it('validates the configured password', async () => {
+		expect(await validatePassword(PASSWORD, 'client')).toBe('valid');
+		expect(await validatePassword('wrong', 'client')).toBe('invalid');
 	});
 
-	it('throttles a client after repeated failures', () => {
+	it('throttles a client after repeated failures', async () => {
 		for (let attempt = 0; attempt < 4; attempt += 1) {
-			expect(validatePassword('wrong', 'client', 1_000)).toBe('invalid');
+			expect(await validatePassword('wrong', 'client', 1_000)).toBe('invalid');
 		}
-		expect(validatePassword('wrong', 'client', 1_000)).toBe('throttled');
-		expect(validatePassword('correct horse battery staple', 'client', 1_001)).toBe('throttled');
-		expect(validatePassword('correct horse battery staple', 'client', 61_001)).toBe('valid');
+		expect(await validatePassword('wrong', 'client', 1_000)).toBe('throttled');
+		expect(await validatePassword(PASSWORD, 'client', 1_001)).toBe('throttled');
+		expect(await validatePassword(PASSWORD, 'client', 61_001)).toBe('valid');
+	});
+
+	it('counts concurrent failures before the password check completes', async () => {
+		const results = await Promise.all(
+			Array.from({ length: 8 }, () => validatePassword('wrong', 'client', 1_000))
+		);
+		expect(results.filter((result) => result === 'invalid')).toHaveLength(4);
+		expect(results.filter((result) => result === 'throttled')).toHaveLength(4);
 	});
 
 	it('creates and revokes opaque sessions', () => {
 		const token = createSession();
-		expect(token).not.toContain('correct horse battery staple');
+		expect(token).not.toContain(PASSWORD);
 		expect(isSessionValid(token)).toBe(true);
 		revokeSession(token);
 		expect(isSessionValid(token)).toBe(false);

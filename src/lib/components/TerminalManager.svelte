@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { X, Plus, Terminal, ChevronDown, ChevronUp, Maximize2, Minimize2 } from 'lucide-svelte';
+	import { SvelteSet } from 'svelte/reactivity';
 	import TerminalTab from './TerminalTab.svelte';
 	import { generateId } from '$lib/index';
 	import type { TerminalSession } from '$lib/types';
@@ -34,7 +35,7 @@
 	let height = $state(320);
 	let maximized = $state(false);
 	let dragging = $state(false);
-	let closingIds = $state<Set<string>>(new Set());
+	const closingIds = new SvelteSet<string>();
 
 	const MIN_HEIGHT = 150;
 
@@ -47,11 +48,11 @@
 
 	async function closeSession(id: string) {
 		if (closingIds.has(id)) return;
-		closingIds = new Set([...closingIds, id]);
+		closingIds.add(id);
 		try {
 			await onCloseSession(id);
 		} finally {
-			closingIds = new Set([...closingIds].filter((existing) => existing !== id));
+			closingIds.delete(id);
 		}
 	}
 

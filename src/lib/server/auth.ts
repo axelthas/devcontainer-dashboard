@@ -1,18 +1,26 @@
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 
 export const AUTH_COOKIE_NAME = 'devcontainer-dashboard-session';
 
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_MS = 60_000;
+const PASSWORD_KEY_LENGTH = 32;
+const PASSWORD_SALT_LENGTH = 16;
 
 interface LoginAttempt {
 	failedAttempts: number;
 	blockedUntil: number;
 }
 
+interface PasswordVerifier {
+	salt: Buffer;
+	key: Buffer;
+}
+
 interface AuthState {
 	sessions: Set<string>;
 	loginAttempts: Map<string, LoginAttempt>;
+	passwordVerifier?: Promise<PasswordVerifier>;
 }
 
 const globalAuth = globalThis as typeof globalThis & {
@@ -24,10 +32,6 @@ const authState = (globalAuth.__devcontainerDashboardAuth ??= {
 	loginAttempts: new Map()
 });
 
-function digest(value: string): Buffer {
-	return createHash('sha256').update(value).digest();
-}
-
 function configuredPassword(): string {
 	const password = process.env.DASHBOARD_PASSWORD;
 	if (!password) {
@@ -36,8 +40,34 @@ function configuredPassword(): string {
 	return password;
 }
 
+function deriveKey(password: string, salt: Buffer): Promise<Buffer> {
+	return new Promise((resolve, reject) => {
+		scrypt(password, salt, PASSWORD_KEY_LENGTH, (error, key) => {
+			if (error) reject(error);
+			else resolve(key);
+		});
+	});
+}
+
+// Derive the scrypt key of the configured password once per process, with a random salt.
+function passwordVerifier(): Promise<PasswordVerifier> {
+	if (!authState.passwordVerifier) {
+		const password = configuredPassword();
+		const salt = randomBytes(PASSWORD_SALT_LENGTH);
+		authState.passwordVerifier = deriveKey(password, salt).then((key) => ({ salt, key }));
+	}
+	return authState.passwordVerifier;
+}
+
+async function passwordMatches(providedPassword: string): Promise<boolean> {
+	const { salt, key } = await passwordVerifier();
+	const candidate = await deriveKey(providedPassword, salt);
+	return timingSafeEqual(candidate, key);
+}
+
+// Session tokens are 256-bit random values, so a fast digest is sufficient for them.
 function sessionDigest(token: string): string {
-	return digest(token).toString('base64url');
+	return createHash('sha256').update(token).digest('base64url');
 }
 
 export function assertAuthConfigured(): void {
@@ -46,33 +76,36 @@ export function assertAuthConfigured(): void {
 
 export type PasswordValidationResult = 'valid' | 'invalid' | 'throttled';
 
-export function validatePassword(
+export async function validatePassword(
 	providedPassword: string,
 	clientKey: string,
 	now = Date.now()
-): PasswordValidationResult {
-	const attempt = authState.loginAttempts.get(clientKey);
+): Promise<PasswordValidationResult> {
+	let attempt = authState.loginAttempts.get(clientKey);
 	if (attempt && attempt.blockedUntil > now) return 'throttled';
-	if (attempt?.blockedUntil && attempt.blockedUntil <= now) {
-		authState.loginAttempts.delete(clientKey);
+	if (!attempt || attempt.blockedUntil) {
+		attempt = { failedAttempts: 0, blockedUntil: 0 };
+		authState.loginAttempts.set(clientKey, attempt);
 	}
 
-	const matches = timingSafeEqual(digest(providedPassword), digest(configuredPassword()));
-	if (matches) {
+	// Count the attempt before the asynchronous key derivation, so that concurrent
+	// guesses cannot bypass the limit.
+	attempt.failedAttempts += 1;
+	const attemptNumber = attempt.failedAttempts;
+	if (attemptNumber > MAX_FAILED_ATTEMPTS) {
+		attempt.blockedUntil = now + LOCKOUT_MS;
+		return 'throttled';
+	}
+
+	if (await passwordMatches(providedPassword)) {
 		authState.loginAttempts.delete(clientKey);
 		return 'valid';
 	}
 
-	const failedAttempts = (attempt?.failedAttempts ?? 0) + 1;
-	if (failedAttempts >= MAX_FAILED_ATTEMPTS) {
-		authState.loginAttempts.set(clientKey, {
-			failedAttempts,
-			blockedUntil: now + LOCKOUT_MS
-		});
+	if (attemptNumber >= MAX_FAILED_ATTEMPTS) {
+		attempt.blockedUntil = now + LOCKOUT_MS;
 		return 'throttled';
 	}
-
-	authState.loginAttempts.set(clientKey, { failedAttempts, blockedUntil: 0 });
 	return 'invalid';
 }
 
@@ -117,4 +150,5 @@ export function isCookieHeaderAuthenticated(cookieHeader: string | undefined): b
 export function resetAuthStateForTesting(): void {
 	authState.sessions.clear();
 	authState.loginAttempts.clear();
+	authState.passwordVerifier = undefined;
 }

@@ -21,7 +21,7 @@ export const actions: Actions = {
 			return fail(400, { message: 'Invalid password', next });
 		}
 
-		const result = validatePassword(password, getClientAddress());
+		const result = await validatePassword(password, getClientAddress());
 		if (result === 'throttled') {
 			return fail(429, { message: 'Too many attempts. Try again in one minute.', next });
 		}
