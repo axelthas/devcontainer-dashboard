@@ -72,6 +72,7 @@ describe('toPlainText', () => {
 	});
 
 	it('keeps the final state of lines rewritten with carriage returns', () => {
-		expect(toPlainText('step 1\r\nprogress 10%\rprogress 100%\r\n')).toBe('step 1\nprogress 100%\n');
+		const output = 'step 1\r\nprogress 10%\rprogress 100%\r\n';
+		expect(toPlainText(output)).toBe('step 1\nprogress 100%\n');
 	});
 });

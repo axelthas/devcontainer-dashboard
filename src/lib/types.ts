@@ -35,6 +35,8 @@ export interface RepositoryData {
 		id: string;
 		status: 'running' | 'success' | 'failed';
 		startedAt: string;
+		/** True when the output of a failed build is kept as a log */
+		hasLog?: boolean;
 	};
 }
 
@@ -48,6 +50,8 @@ export interface LocalWorkspaceData {
 		id: string;
 		status: 'running' | 'success' | 'failed';
 		startedAt: string;
+		/** True when the output of a failed bootstrap run is kept as a log */
+		hasLog?: boolean;
 	};
 }
 

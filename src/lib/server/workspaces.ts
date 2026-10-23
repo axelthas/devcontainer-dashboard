@@ -164,7 +164,12 @@ export async function loadMergedWorkspaces(): Promise<LocalWorkspaceData[]> {
 	// Merge active bootstrap runs into the workspace list
 	for (const run of runs) {
 		const existing = workspaces.find((w) => w.path === run.workspacePath);
-		const buildSession = { id: run.id, status: run.status, startedAt: run.startedAt };
+		const buildSession = {
+			id: run.id,
+			status: run.status,
+			startedAt: run.startedAt,
+			hasLog: run.hasLog
+		};
 
 		if (existing) {
 			existing.buildSession = buildSession;
@@ -185,7 +190,12 @@ export async function loadMergedWorkspaces(): Promise<LocalWorkspaceData[]> {
 		for (const ws of workspaces) {
 			const repo = ws.repos.find((r) => r.path === build.repoPath);
 			if (repo) {
-				repo.buildSession = { id: build.id, status: build.status, startedAt: build.startedAt };
+				repo.buildSession = {
+					id: build.id,
+					status: build.status,
+					startedAt: build.startedAt,
+					hasLog: build.hasLog
+				};
 				break;
 			}
 		}
