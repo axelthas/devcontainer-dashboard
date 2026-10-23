@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { startBootstrapRun } from '$lib/server/bootstrapRuns';
+import { removeBootstrapRun, startBootstrapRun } from '$lib/server/bootstrapRuns';
 import { randomUUID } from 'node:crypto';
 import { normalize } from 'node:path';
 
@@ -41,4 +41,19 @@ export const POST: RequestHandler = async ({ request }) => {
 	const run = startBootstrapRun(id, name.trim(), command.trim(), normalizedDest);
 
 	return json({ id: run.id, workspacePath: run.workspacePath });
+};
+
+// Stops a running bootstrap run, or dismisses a failed run and deletes its log.
+export const DELETE: RequestHandler = async ({ request }) => {
+	const body = await request.json().catch(() => null);
+
+	if (!body || typeof body !== 'object') throw error(400, 'Invalid JSON body');
+
+	const { id } = body as Record<string, unknown>;
+
+	if (typeof id !== 'string' || !id.trim()) throw error(400, 'id is required');
+
+	removeBootstrapRun(id.trim());
+
+	return json({ success: true });
 };

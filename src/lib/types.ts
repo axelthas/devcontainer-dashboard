@@ -7,6 +7,10 @@ export interface ContainerData {
 	ports: Record<string, string>;
 	image: string;
 	localWorkspacePath?: string;
+	/** Absolute host path of the devcontainer.json the container was built from */
+	devcontainerConfigFile?: string;
+	/** Path the workspace is mounted at inside the container */
+	containerWorkspaceFolder?: string;
 	composeProject?: string;
 }
 
@@ -31,6 +35,8 @@ export interface RepositoryData {
 		id: string;
 		status: 'running' | 'success' | 'failed';
 		startedAt: string;
+		/** True when the output of a failed build is kept as a log */
+		hasLog?: boolean;
 	};
 }
 
@@ -44,6 +50,8 @@ export interface LocalWorkspaceData {
 		id: string;
 		status: 'running' | 'success' | 'failed';
 		startedAt: string;
+		/** True when the output of a failed bootstrap run is kept as a log */
+		hasLog?: boolean;
 	};
 }
 
@@ -90,4 +98,8 @@ export interface BootstrapPreset {
 export interface TerminalSession {
 	id: string;
 	name: string;
+	command?: string;
+	cwd?: string;
+	startedAt?: string;
+	status?: 'running' | 'exited';
 }

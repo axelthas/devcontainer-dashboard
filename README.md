@@ -26,7 +26,7 @@ The app is designed for a local operator running against a Docker socket and a w
 
 ```bash
 npm install
-npm run dev
+DASHBOARD_PASSWORD='choose-a-strong-password' npm run dev
 ```
 
 For production-style builds:
@@ -34,7 +34,7 @@ For production-style builds:
 ```bash
 npm run build
 npm run build:server
-npm run preview
+DASHBOARD_PASSWORD='choose-a-strong-password' npm run preview
 ```
 
 Useful checks:
@@ -58,7 +58,7 @@ The fastest way to get the dashboard running is the bundled setup script:
 curl -sL https://raw.githubusercontent.com/axelthas/devcontainer-dashboard/main/scripts/run-dashboard-compose.sh | bash
 ```
 
-The script prompts for a workspace directory (defaults to `~/ddash-workspace`) and whether to enable the TernDev dev-bootstrap hook. It then writes a `docker-compose.yml` to `~/.config/devcontainer-dashboard/`, pulls the latest image, and starts the stack in the foreground. Press Ctrl+C to stop.
+The script prompts for a workspace directory (defaults to `~/ddash-workspace`), a dashboard password using hidden input, and whether to enable the TernDev dev-bootstrap hook. It then writes a parameterized `docker-compose.yml` to `~/.config/devcontainer-dashboard/`, pulls the latest image, and starts the stack in the foreground. The literal password is not written to that file. Press Ctrl+C to stop.
 
 ## Architecture
 
@@ -72,12 +72,28 @@ The main server responsibilities are split across the app, Docker helpers, works
 
 | Variable                 | Default                        | Purpose                                                               |
 | ------------------------ | ------------------------------ | --------------------------------------------------------------------- |
+| DASHBOARD_PASSWORD       | required                       | Shared password required to access the dashboard                      |
 | WORKSPACE_ROOT           | /workspaces                    | Root directory scanned for local workspace discovery and repo actions |
 | HOST_HOSTNAME            | os.hostname()                  | Hostname displayed in the dashboard header                            |
 | VSCODE_SSH_HOST          | empty                          | SSH host used when building VS Code remote URIs                       |
 | PRESETS_FILE             | /data/presets.json             | JSON file containing bootstrap presets                                |
 | BOOTSTRAP_PROVIDERS_FILE | /data/bootstrap-providers.json | JSON file containing bootstrap provider definitions                   |
+| BUILD_LOG_DIR            | /data/build-logs               | Directory for logs of failed devcontainer builds and bootstrap runs   |
 | PORT                     | 3000                           | Port used by the custom Node server                                   |
+| ORIGIN                   | empty                          | Public URL of the dashboard behind a reverse proxy                    |
+| PROTOCOL_HEADER          | empty                          | Trusted proxy header that carries the original protocol               |
+| ADDRESS_HEADER           | empty                          | Trusted proxy header that carries the client IP address               |
+| XFF_DEPTH                | 1                              | Number of trusted proxies when ADDRESS_HEADER is x-forwarded-for      |
+
+`DASHBOARD_PASSWORD` must be non-empty. Development and production startup fail closed when it is absent. A successful login creates an opaque in-memory session and an `HttpOnly`, `SameSite=Strict` cookie that lasts until the browser session ends. Logout, process restart, or password rotation invalidates the session.
+
+All dashboard pages, API routes, service views, and terminal WebSocket connections require the session. The configured password is removed from integrated-terminal environments. The login endpoint and required static assets are the only public application resources.
+
+## Run Logs
+
+A terminal closes when its process exits. A failed devcontainer build or bootstrap run keeps its output as a log in `BUILD_LOG_DIR`, so you can view or download it from the Local Workspaces section later, also after a restart. A cancelled run (the Cancel button, Ctrl+C, or a closed terminal) and a successful run keep no log. Retry or Dismiss deletes the log, and logs are deleted after 7 days. If the directory is not writable, the log stays in memory until the dashboard restarts.
+
+A log can contain secrets that a build or bootstrap script prints. Logs are only available to signed-in users, but they stay on disk until they are deleted.
 
 ## Routes
 
@@ -92,12 +108,13 @@ The main server responsibilities are split across the app, Docker helpers, works
 | /api/workspaces (GET, DELETE) | Returns merged workspace and build state or deletes a workspace path |
 | /api/bootstrap                | Returns bootstrap provider installation and branch metadata          |
 | /api/bootstrap/providers      | Returns configured bootstrap providers                               |
-| /api/bootstrap/run            | Starts a bootstrap run                                               |
+| /api/bootstrap/run            | Starts, stops, or dismisses a bootstrap run                          |
 | /api/bootstrap/pull           | Pulls the active bootstrap provider repository                       |
 | /api/bootstrap/checkout       | Checks out a branch in the active bootstrap provider repository      |
 | /api/repos/branches           | Returns local branches, remote branches, and tags for a repository   |
 | /api/repos/checkout           | Checks out a branch or tag in a repository                           |
-| /api/devcontainer/build       | Starts a devcontainer build for a repository                         |
+| /api/devcontainer/build       | Starts, cancels, or dismisses a devcontainer build                   |
+| /api/run-logs/[id]            | Returns the kept log of a failed run; add ?download for plain text   |
 | /api/terminal                 | WebSocket terminal sessions                                          |
 
 ## Deployment
@@ -105,6 +122,10 @@ The main server responsibilities are split across the app, Docker helpers, works
 The production image is built in two stages. The build stage installs native dependencies needed by node-pty, runs the SvelteKit build, and compiles the custom server entry point. The runtime stage installs git, openssh-client, and the devcontainer CLI before starting the entrypoint script.
 
 The default Docker Compose setup binds port 3000, mounts the Docker socket, and maps a host workspace directory into the container so the dashboard can discover repos on disk.
+
+The shared password is intended for localhost or another trusted private access path. It does not encrypt traffic and does not provide individual identities, roles, MFA, or audit history. Use HTTPS and preferably reverse-proxy OIDC/SSO before exposing the dashboard to a LAN or the public internet.
+
+Behind a TLS reverse proxy, set `ORIGIN` or `PROTOCOL_HEADER=x-forwarded-proto`. Also set `ADDRESS_HEADER=x-forwarded-for` and set `XFF_DEPTH` to the number of trusted proxies. Without these variables, the server ignores forwarded headers and treats each request as plain HTTP. Login throttling then applies to the proxy address, so repeated failed logins from one user can lock out all users for one minute.
 
 ## References
 

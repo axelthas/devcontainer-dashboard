@@ -1,6 +1,6 @@
 # Devcontainer Dashboard Architecture
 
-_Last updated: 2026-06-15_
+_Last updated: 2026-08-11_
 
 This document is a living architecture reference for Devcontainer Dashboard. It follows the structure of the architecture.md template, but it is tailored to this repository’s actual runtime, data flow, and deployment model.
 
@@ -66,7 +66,7 @@ Key source areas:
 [Git repositories] <---------> [Dashboard Server]
 ```
 
-The dashboard server is the central orchestration layer. It reads Docker state, scans the workspace tree, queries git metadata, tracks bootstrap and build sessions in memory, and serves both SSR and client API requests.
+The dashboard server is the central orchestration layer. It authenticates browser sessions, reads Docker state, scans the workspace tree, queries git metadata, tracks bootstrap and build sessions in memory, and serves both SSR and client API requests.
 
 ## 3. Core Components
 
@@ -162,7 +162,7 @@ Purpose: Defines reusable bootstrap commands that the UI can render as presets.
 
 Key Schemas/Collections: preset id, name, command, interactive flag, optional visible fields
 
-### 4.5 In-Memory Session State
+### 4.5 In-Memory Operation State
 
 Name: Active bootstrap runs and devcontainer builds
 
@@ -171,6 +171,16 @@ Type: Process memory
 Purpose: Keeps transient progress state visible across page loads and API polls until the operation completes or is removed.
 
 Key Schemas/Collections: run/build id, status, startedAt timestamp, workspace/repo path, display name
+
+### 4.6 Authentication Sessions
+
+Name: Dashboard login sessions
+
+Type: Process memory plus an `HttpOnly` browser-session cookie
+
+Purpose: Exchanges the required shared `DASHBOARD_PASSWORD` for a random opaque token. Only a digest of each active token is retained by the server. Sessions are intentionally lost on process restart and are revoked on logout.
+
+Key Schemas/Collections: session-token digest, per-client failed-login count, temporary lockout timestamp
 
 ## 5. External Integrations / APIs
 
@@ -221,17 +231,19 @@ Container runtime notes:
 
 ## 7. Security Considerations
 
-Authentication: None built into the application. It assumes access is controlled by the local network, Docker socket permissions, and the deployment environment.
+Authentication: A required shared password is validated by [src/lib/server/auth.ts](src/lib/server/auth.ts). [src/hooks.server.ts](src/hooks.server.ts) protects rendered pages and HTTP APIs, while the terminal server independently validates the same session cookie and request origin before accepting a WebSocket upgrade. Login creates an opaque process-local session; the password is never stored in browser JavaScript or sent in a URL.
 
-Authorization: Route handlers validate container actions, workspace paths, and repository paths before mutating state. Workspace and repo endpoints reject paths outside `WORKSPACE_ROOT`.
+Authorization: Every authenticated user has full operator access. Route handlers additionally validate container actions, workspace paths, and repository paths before mutating state. Workspace and repo endpoints reject paths outside `WORKSPACE_ROOT`.
 
 Data Encryption: Not provided by the application itself. Transport security depends on the reverse proxy or host environment.
 
 Key Security Practices:
 
 - Restrict Docker socket access to trusted users.
+- Require a strong `DASHBOARD_PASSWORD`; startup fails closed when it is missing or empty.
+- Keep the password out of terminal child-process environments, logs, URLs, and generated Compose files.
 - Validate path inputs before touching the filesystem.
-- Avoid exposing the dashboard directly to untrusted networks without an upstream auth layer.
+- Use HTTPS and preferably reverse-proxy OIDC/SSO for any access beyond localhost or another trusted private path. The shared password does not provide per-user identity, MFA, or auditing.
 - Treat bootstrap provider commands and preset commands as operator-controlled inputs.
 
 ## 8. Development & Testing Environment

@@ -2,17 +2,21 @@
 	import { SvelteURLSearchParams } from 'svelte/reactivity';
 	import type { Terminal } from '@xterm/xterm';
 	import type { FitAddon } from '@xterm/addon-fit';
+	import { TERMINAL_FONT_FAMILY, TERMINAL_THEME } from '$lib/terminalTheme';
 
 	interface Props {
 		sessionId: string;
+		name?: string;
 		command?: string;
 		cwd?: string;
+		/** Session kind for new sessions; only shell sessions are listed in the terminal drawer */
+		kind?: 'shell' | 'bootstrap' | 'devcontainer-build';
 		active: boolean;
 		fontSize?: number;
 		onExit?: (exitCode: number) => void;
 	}
 
-	let { sessionId, command, cwd, active, fontSize = 13, onExit }: Props = $props();
+	let { sessionId, name, command, cwd, kind, active, fontSize = 13, onExit }: Props = $props();
 
 	let terminal: Terminal | null = null;
 	let fitAddon: FitAddon | null = null;
@@ -29,28 +33,8 @@
 			if (destroyed) return;
 
 			terminal = new XTerm({
-				theme: {
-					background: '#2e3440',
-					foreground: '#d8dee9',
-					cursor: '#d8dee9',
-					black: '#3b4252',
-					red: '#bf616a',
-					green: '#a3be8c',
-					yellow: '#ebcb8b',
-					blue: '#81a1c1',
-					magenta: '#b48ead',
-					cyan: '#88c0d0',
-					white: '#e5e9f0',
-					brightBlack: '#4c566a',
-					brightRed: '#bf616a',
-					brightGreen: '#a3be8c',
-					brightYellow: '#ebcb8b',
-					brightBlue: '#81a1c1',
-					brightMagenta: '#b48ead',
-					brightCyan: '#8fbcbb',
-					brightWhite: '#eceff4'
-				},
-				fontFamily: '"Cascadia Code", "Fira Code", monospace',
+				theme: TERMINAL_THEME,
+				fontFamily: TERMINAL_FONT_FAMILY,
 				fontSize,
 				cursorBlink: true,
 				scrollback: 5000
@@ -62,8 +46,10 @@
 
 			const proto = location.protocol === 'https:' ? 'wss' : 'ws';
 			const params = new SvelteURLSearchParams({ sessionId });
+			if (name) params.set('name', name);
 			if (command) params.set('command', command);
 			if (cwd) params.set('cwd', cwd);
+			if (kind) params.set('kind', kind);
 			const wsUrl = `${proto}://${location.host}/api/terminal?${params}`;
 
 			socket = new WebSocket(wsUrl);

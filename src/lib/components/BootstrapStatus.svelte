@@ -115,16 +115,13 @@
 	}
 
 	function onUpdateExit(exitCode: number) {
+		// The terminal closes when the process exits; a failure stays visible as a status line.
 		updating = false;
 		if (exitCode === 0) {
-			// Success: auto-hide terminal after a brief delay, refresh info
-			setTimeout(() => {
-				updateTerminalVisible = false;
-				updateSessionId = null;
-			}, 2000);
+			updateTerminalVisible = false;
+			updateSessionId = null;
 			fetchBootstrapInfo();
 		} else {
-			// Failure: keep terminal visible for inspection
 			updateFailed = true;
 		}
 	}
@@ -308,14 +305,17 @@
 						</button>
 					{/if}
 				</div>
-				<div class="h-40">
-					<TerminalTab
-						sessionId={updateSessionId}
-						command={provider.commands.update}
-						active={true}
-						onExit={onUpdateExit}
-					/>
-				</div>
+				{#if updating}
+					<div class="h-40">
+						<TerminalTab
+							sessionId={updateSessionId}
+							command={provider.commands.update}
+							kind="bootstrap"
+							active={true}
+							onExit={onUpdateExit}
+						/>
+					</div>
+				{/if}
 			</div>
 		{/if}
 	</div>

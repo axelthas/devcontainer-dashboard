@@ -55,6 +55,35 @@ async function readSolutionMetadata(workspacePath: string): Promise<SolutionMeta
 	}
 }
 
+export interface ContainerMount {
+	Type?: string;
+	Source?: string;
+	Destination?: string;
+}
+
+/**
+ * Map a host workspace path to the path it is mounted at inside the container.
+ * The workspace itself may be bind-mounted directly, or inherited from a mounted
+ * ancestor directory, so the longest matching bind mount wins.
+ */
+export function resolveContainerWorkspaceFolder(
+	mounts: ContainerMount[] | undefined,
+	localWorkspacePath: string
+): string | undefined {
+	let best: { source: string; destination: string } | undefined;
+
+	for (const mount of mounts ?? []) {
+		if (mount.Type !== 'bind' || !mount.Source || !mount.Destination) continue;
+		const source = mount.Source.replace(/\/+$/, '');
+		if (localWorkspacePath !== source && !localWorkspacePath.startsWith(`${source}/`)) continue;
+		if (best && best.source.length >= source.length) continue;
+		best = { source, destination: mount.Destination.replace(/\/+$/, '') };
+	}
+
+	if (!best) return undefined;
+	return `${best.destination}${localWorkspacePath.slice(best.source.length)}`;
+}
+
 export async function loadWorkspaces(): Promise<LocalWorkspaceData[]> {
 	// Gather running container local_folder labels
 	const runningContainers = await docker.listContainers({ all: false });
@@ -135,7 +164,12 @@ export async function loadMergedWorkspaces(): Promise<LocalWorkspaceData[]> {
 	// Merge active bootstrap runs into the workspace list
 	for (const run of runs) {
 		const existing = workspaces.find((w) => w.path === run.workspacePath);
-		const buildSession = { id: run.id, status: run.status, startedAt: run.startedAt };
+		const buildSession = {
+			id: run.id,
+			status: run.status,
+			startedAt: run.startedAt,
+			hasLog: run.hasLog
+		};
 
 		if (existing) {
 			existing.buildSession = buildSession;
@@ -156,7 +190,12 @@ export async function loadMergedWorkspaces(): Promise<LocalWorkspaceData[]> {
 		for (const ws of workspaces) {
 			const repo = ws.repos.find((r) => r.path === build.repoPath);
 			if (repo) {
-				repo.buildSession = { id: build.id, status: build.status, startedAt: build.startedAt };
+				repo.buildSession = {
+					id: build.id,
+					status: build.status,
+					startedAt: build.startedAt,
+					hasLog: build.hasLog
+				};
 				break;
 			}
 		}
