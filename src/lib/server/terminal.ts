@@ -129,10 +129,7 @@ export function createPersistentSession(
 	ptyProcess.onData((data: string) => {
 		session.outputBuffer.push(data);
 		session.outputBufferLength += data.length;
-		while (
-			session.outputBufferLength > session.maxOutputChars &&
-			session.outputBuffer.length > 1
-		) {
+		while (session.outputBufferLength > session.maxOutputChars && session.outputBuffer.length > 1) {
 			const dropped = session.outputBuffer.shift()!;
 			session.outputBufferLength -= dropped.length;
 		}

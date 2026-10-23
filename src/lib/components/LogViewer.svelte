@@ -19,6 +19,11 @@
 		if (event.key === 'Escape') onClose();
 	}
 
+	// The server sends the plain-text log as an attachment, so the page stays open.
+	function downloadLog() {
+		window.location.assign(`${logUrl}?download`);
+	}
+
 	// Renders the kept output read-only, with the colours of the original terminal.
 	function logAttachment(node: HTMLDivElement) {
 		let destroyed = false;
@@ -103,15 +108,14 @@
 		{/if}
 
 		<div class="flex items-center justify-end">
-			<a
-				href="{logUrl}?download"
-				rel="external"
-				download
+			<button
+				onclick={downloadLog}
 				class="flex items-center gap-2 rounded-xl bg-[#4c566a] px-5 py-2.5 text-sm font-semibold text-[#eceff4] transition-colors hover:bg-[#5e6c7e]"
+				type="button"
 			>
 				<Download size={16} />
 				Download
-			</a>
+			</button>
 		</div>
 	</div>
 </div>
