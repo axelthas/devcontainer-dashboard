@@ -10,6 +10,7 @@ const PASSWORD_SALT_LENGTH = 16;
 interface LoginAttempt {
 	failedAttempts: number;
 	blockedUntil: number;
+	lastAttemptAt: number;
 }
 
 interface PasswordVerifier {
@@ -76,21 +77,33 @@ export function assertAuthConfigured(): void {
 
 export type PasswordValidationResult = 'valid' | 'invalid' | 'throttled';
 
+// Forget clients whose lockout and failure window have both expired, so the map stays bounded.
+function pruneLoginAttempts(now: number): void {
+	for (const [clientKey, attempt] of authState.loginAttempts) {
+		if (Math.max(attempt.blockedUntil, attempt.lastAttemptAt + LOCKOUT_MS) <= now) {
+			authState.loginAttempts.delete(clientKey);
+		}
+	}
+}
+
 export async function validatePassword(
 	providedPassword: string,
 	clientKey: string,
 	now = Date.now()
 ): Promise<PasswordValidationResult> {
+	pruneLoginAttempts(now);
+
 	let attempt = authState.loginAttempts.get(clientKey);
 	if (attempt && attempt.blockedUntil > now) return 'throttled';
-	if (!attempt || attempt.blockedUntil) {
-		attempt = { failedAttempts: 0, blockedUntil: 0 };
+	if (!attempt) {
+		attempt = { failedAttempts: 0, blockedUntil: 0, lastAttemptAt: now };
 		authState.loginAttempts.set(clientKey, attempt);
 	}
 
 	// Count the attempt before the asynchronous key derivation, so that concurrent
 	// guesses cannot bypass the limit.
 	attempt.failedAttempts += 1;
+	attempt.lastAttemptAt = now;
 	const attemptNumber = attempt.failedAttempts;
 	if (attemptNumber > MAX_FAILED_ATTEMPTS) {
 		attempt.blockedUntil = now + LOCKOUT_MS;

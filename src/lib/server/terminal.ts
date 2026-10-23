@@ -10,6 +10,9 @@ const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT ?? '/workspaces';
 // Cap buffered scrollback per session so long-lived interactive shells don't leak memory.
 const MAX_OUTPUT_BUFFER_CHARS = 500_000;
 
+// Exited shells stay available for reattachment for this long, unless a client closes them first.
+const EXITED_SHELL_RETENTION_MS = 5 * 60_000;
+
 export type PersistentSessionKind = 'shell' | 'bootstrap' | 'devcontainer-build';
 
 interface PersistentSession {
@@ -121,6 +124,14 @@ export function createPersistentSession(
 			}
 		}
 		session.viewers.clear();
+
+		// Bootstrap and devcontainer-build sessions are removed by their own run trackers.
+		if (session.kind === 'shell') {
+			const cleanup = setTimeout(() => {
+				if (persistentSessions.get(sessionId) === session) persistentSessions.delete(sessionId);
+			}, EXITED_SHELL_RETENTION_MS);
+			cleanup.unref();
+		}
 	});
 }
 

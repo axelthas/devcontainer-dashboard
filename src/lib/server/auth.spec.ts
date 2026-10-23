@@ -51,6 +51,13 @@ describe('dashboard authentication', () => {
 		expect(results.filter((result) => result === 'throttled')).toHaveLength(4);
 	});
 
+	it('forgets failures after the lockout window', async () => {
+		for (let attempt = 0; attempt < 4; attempt += 1) {
+			expect(await validatePassword('wrong', 'client', 1_000)).toBe('invalid');
+		}
+		expect(await validatePassword('wrong', 'client', 61_001)).toBe('invalid');
+	});
+
 	it('creates and revokes opaque sessions', () => {
 		const token = createSession();
 		expect(token).not.toContain(PASSWORD);

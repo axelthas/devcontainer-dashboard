@@ -79,6 +79,10 @@ The main server responsibilities are split across the app, Docker helpers, works
 | PRESETS_FILE             | /data/presets.json             | JSON file containing bootstrap presets                                |
 | BOOTSTRAP_PROVIDERS_FILE | /data/bootstrap-providers.json | JSON file containing bootstrap provider definitions                   |
 | PORT                     | 3000                           | Port used by the custom Node server                                   |
+| ORIGIN                   | empty                          | Public URL of the dashboard behind a reverse proxy                    |
+| PROTOCOL_HEADER          | empty                          | Trusted proxy header that carries the original protocol               |
+| ADDRESS_HEADER           | empty                          | Trusted proxy header that carries the client IP address               |
+| XFF_DEPTH                | 1                              | Number of trusted proxies when ADDRESS_HEADER is x-forwarded-for      |
 
 `DASHBOARD_PASSWORD` must be non-empty. Development and production startup fail closed when it is absent. A successful login creates an opaque in-memory session and an `HttpOnly`, `SameSite=Strict` cookie that lasts until the browser session ends. Logout, process restart, or password rotation invalidates the session.
 
@@ -112,6 +116,8 @@ The production image is built in two stages. The build stage installs native dep
 The default Docker Compose setup binds port 3000, mounts the Docker socket, and maps a host workspace directory into the container so the dashboard can discover repos on disk.
 
 The shared password is intended for localhost or another trusted private access path. It does not encrypt traffic and does not provide individual identities, roles, MFA, or audit history. Use HTTPS and preferably reverse-proxy OIDC/SSO before exposing the dashboard to a LAN or the public internet.
+
+Behind a TLS reverse proxy, set `ORIGIN` or `PROTOCOL_HEADER=x-forwarded-proto`. Also set `ADDRESS_HEADER=x-forwarded-for` and set `XFF_DEPTH` to the number of trusted proxies. Without these variables, the server ignores forwarded headers and treats each request as plain HTTP. Login throttling then applies to the proxy address, so repeated failed logins from one user can lock out all users for one minute.
 
 ## References
 
