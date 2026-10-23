@@ -14,7 +14,7 @@
 		LogOut
 	} from 'lucide-svelte';
 	import { untrack } from 'svelte';
-	import { SvelteMap } from 'svelte/reactivity';
+	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import type { ContainerData, LocalWorkspaceData, TerminalSession } from '$lib/types';
 	import DevcontainerCard from '$lib/components/DevcontainerCard.svelte';
 	import DevcontainerRow from '$lib/components/DevcontainerRow.svelte';
@@ -224,14 +224,14 @@
 
 	// Tracks which local tabs have been confirmed to exist server-side at least once, so a
 	// freshly-opened tab isn't dropped by reconciliation before its WebSocket has connected.
-	const confirmedTerminalSessionIds = new Set<string>();
+	const confirmedTerminalSessionIds = new SvelteSet<string>();
 
 	async function refreshTerminalSessions() {
 		const res = await fetch('/api/terminal/sessions');
 		if (!res.ok) return;
 		const serverSessions: TerminalSession[] = await res.json();
-		const serverIds = new Set(serverSessions.map((s) => s.id));
-		const localIds = new Set(terminalSessions.map((s) => s.id));
+		const serverIds = new SvelteSet(serverSessions.map((s) => s.id));
+		const localIds = new SvelteSet(terminalSessions.map((s) => s.id));
 
 		for (const id of serverIds) confirmedTerminalSessionIds.add(id);
 
