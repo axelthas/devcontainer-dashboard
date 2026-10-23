@@ -10,8 +10,9 @@ const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT ?? '/workspaces';
 // Cap buffered scrollback per session so long-lived interactive shells don't leak memory.
 const MAX_OUTPUT_BUFFER_CHARS = 500_000;
 
-// Exited shells stay available for reattachment for this long, unless a client closes them first.
-const EXITED_SHELL_RETENTION_MS = 5 * 60_000;
+// Exited sessions stay as tombstones for this long, so a late viewer receives the exit event
+// instead of starting a new shell with the same id.
+const EXITED_SESSION_RETENTION_MS = 5 * 60_000;
 
 export type PersistentSessionKind = 'shell' | 'bootstrap' | 'devcontainer-build';
 
@@ -34,6 +35,13 @@ export interface PersistentSessionInfo {
 	startedAt: string;
 	status: 'running' | 'exited';
 	exitCode?: number;
+}
+
+interface PersistentSessionOptions {
+	name?: string;
+	kind?: PersistentSessionKind;
+	/** Called once when the process exits */
+	onExit?: (exitCode: number) => void;
 }
 
 // Use globalThis so that the vite.config.ts plugin import and the Vite SSR API-route
@@ -62,7 +70,7 @@ export function createPersistentSession(
 	sessionId: string,
 	command: string | undefined,
 	cwd: string,
-	options?: { name?: string; kind?: PersistentSessionKind }
+	options?: PersistentSessionOptions
 ): void {
 	if (persistentSessions.has(sessionId)) return;
 
@@ -117,6 +125,9 @@ export function createPersistentSession(
 	ptyProcess.onExit(({ exitCode }) => {
 		session.status = 'exited';
 		session.exitCode = exitCode;
+		// Viewers close their terminal on exit, so the scrollback is no longer needed.
+		session.outputBuffer = [];
+		session.outputBufferLength = 0;
 		for (const viewer of session.viewers) {
 			if (viewer.readyState === WebSocket.OPEN) {
 				viewer.send(JSON.stringify({ type: 'exit', exitCode: exitCode ?? 0 }));
@@ -124,20 +135,20 @@ export function createPersistentSession(
 			}
 		}
 		session.viewers.clear();
+		options?.onExit?.(exitCode ?? 0);
 
-		// Bootstrap and devcontainer-build sessions are removed by their own run trackers.
-		if (session.kind === 'shell') {
-			const cleanup = setTimeout(() => {
-				if (persistentSessions.get(sessionId) === session) persistentSessions.delete(sessionId);
-			}, EXITED_SHELL_RETENTION_MS);
-			cleanup.unref();
-		}
+		const cleanup = setTimeout(() => {
+			if (persistentSessions.get(sessionId) === session) persistentSessions.delete(sessionId);
+		}, EXITED_SESSION_RETENTION_MS);
+		cleanup.unref();
 	});
 }
 
+/** Lists running sessions. Exited sessions are tombstones and are not listed. */
 export function listPersistentSessions(kind?: PersistentSessionKind): PersistentSessionInfo[] {
 	const infos: PersistentSessionInfo[] = [];
 	for (const [id, session] of persistentSessions) {
+		if (session.status !== 'running') continue;
 		if (kind && session.kind !== kind) continue;
 		infos.push({
 			id,
@@ -226,16 +237,16 @@ export function attachTerminalServer(httpServer: Server): void {
 		}
 		const session = persistentSessions.get(sessionId)!;
 
-		// Replay buffered output so the viewer sees the full history
-		if (session.outputBuffer.length > 0) {
-			ws.send(JSON.stringify({ type: 'data', data: session.outputBuffer.join('') }));
-		}
-
-		// If already exited, notify immediately
+		// An exited session has nothing to show; tell the client to close its terminal.
 		if (session.status === 'exited') {
 			ws.send(JSON.stringify({ type: 'exit', exitCode: session.exitCode ?? 0 }));
 			ws.close();
 			return;
+		}
+
+		// Replay buffered output so the viewer sees the full history
+		if (session.outputBuffer.length > 0) {
+			ws.send(JSON.stringify({ type: 'data', data: session.outputBuffer.join('') }));
 		}
 
 		session.viewers.add(ws);

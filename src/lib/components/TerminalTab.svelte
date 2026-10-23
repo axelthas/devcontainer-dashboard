@@ -8,12 +8,14 @@
 		name?: string;
 		command?: string;
 		cwd?: string;
+		/** Session kind for new sessions; only shell sessions are listed in the terminal drawer */
+		kind?: 'shell' | 'bootstrap' | 'devcontainer-build';
 		active: boolean;
 		fontSize?: number;
 		onExit?: (exitCode: number) => void;
 	}
 
-	let { sessionId, name, command, cwd, active, fontSize = 13, onExit }: Props = $props();
+	let { sessionId, name, command, cwd, kind, active, fontSize = 13, onExit }: Props = $props();
 
 	let terminal: Terminal | null = null;
 	let fitAddon: FitAddon | null = null;
@@ -66,6 +68,7 @@
 			if (name) params.set('name', name);
 			if (command) params.set('command', command);
 			if (cwd) params.set('cwd', cwd);
+			if (kind) params.set('kind', kind);
 			const wsUrl = `${proto}://${location.host}/api/terminal?${params}`;
 
 			socket = new WebSocket(wsUrl);

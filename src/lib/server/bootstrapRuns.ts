@@ -1,8 +1,4 @@
-import {
-	createPersistentSession,
-	getPersistentSession,
-	deletePersistentSession
-} from './terminal.js';
+import { createPersistentSession, deletePersistentSession } from './terminal.js';
 
 const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT ?? '/workspaces';
 const CLEANUP_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -42,21 +38,15 @@ export function startBootstrapRun(
 	};
 	activeRuns.set(id, run);
 
-	createPersistentSession(id, command, WORKSPACE_ROOT, { name, kind: 'bootstrap' });
-
-	// Poll for session exit to update run status
-	const poll = setInterval(() => {
-		const session = getPersistentSession(id);
-		if (!session) {
-			clearInterval(poll);
-			return;
+	createPersistentSession(id, command, WORKSPACE_ROOT, {
+		name,
+		kind: 'bootstrap',
+		// The run ends with its process: a successful run appears as a workspace on disk, and a
+		// failed or cancelled run leaves no placeholder behind.
+		onExit: () => {
+			activeRuns.delete(id);
 		}
-		if (session.status === 'exited') {
-			clearInterval(poll);
-			run.exitCode = session.exitCode;
-			run.status = session.exitCode === 0 ? 'success' : 'failed';
-		}
-	}, 500);
+	});
 
 	return run;
 }

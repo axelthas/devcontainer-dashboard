@@ -1,9 +1,5 @@
 import { join } from 'node:path';
-import {
-	createPersistentSession,
-	getPersistentSession,
-	deletePersistentSession
-} from './terminal.js';
+import { createPersistentSession, deletePersistentSession } from './terminal.js';
 
 const CLEANUP_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -53,21 +49,14 @@ export function startDevcontainerBuild(
 	const command = configPath
 		? `devcontainer up --workspace-folder ${repoPath} --config ${join(repoPath, configPath)}`
 		: `devcontainer up --workspace-folder ${repoPath}`;
-	createPersistentSession(id, command, repoPath, { name: repoName, kind: 'devcontainer-build' });
-
-	// Poll for session exit to update build status
-	const poll = setInterval(() => {
-		const session = getPersistentSession(id);
-		if (!session) {
-			clearInterval(poll);
-			return;
+	createPersistentSession(id, command, repoPath, {
+		name: repoName,
+		kind: 'devcontainer-build',
+		onExit: (exitCode) => {
+			build.exitCode = exitCode;
+			build.status = exitCode === 0 ? 'success' : 'failed';
 		}
-		if (session.status === 'exited') {
-			clearInterval(poll);
-			build.exitCode = session.exitCode;
-			build.status = session.exitCode === 0 ? 'success' : 'failed';
-		}
-	}, 500);
+	});
 
 	return build;
 }
