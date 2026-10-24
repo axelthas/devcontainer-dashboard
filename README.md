@@ -139,6 +139,91 @@ The production image is built in two stages. The build stage installs native dep
 
 The default Docker Compose setup binds host loopback port 3000, mounts the Docker socket, and maps a host workspace directory into the container so the dashboard can discover repos on disk.
 
+### Build and test the production image manually
+
+Use this procedure to test local source changes in the production image, without publishing an image or starting the development server. Run these commands in Bash from the repository root on the Docker host. You need Docker with Buildx, access to a local Docker daemon, and internet access for the image build. You do not need Node or npm on the host: the Dockerfile installs dependencies and builds both application outputs.
+
+1. Check out the source revision you want to test. For the issue #13 fixes:
+
+   ```bash
+   git fetch origin
+   git switch fix/13-production-startup
+   git pull --ff-only
+   git rev-parse HEAD
+   ```
+
+2. Build the final production image and load it into the local Docker image store:
+
+   ```bash
+   docker buildx build \
+     --load \
+     --progress=plain \
+     --tag devcontainer-dashboard:issue-13 \
+     .
+   ```
+
+   This uses the same root Dockerfile and repository build context as `.github/workflows/publish.yml`. It builds the final runtime stage, not only the builder stage. `--load` replaces CI's registry push so you can run the image locally. Do not run `npm run build` or `npm run preview` on the host first.
+
+   The release workflow checks out `main` and runs `npm version VERSION --no-git-tag-version --allow-same-version` before building. It also adds registry tags, OCI metadata labels, and GitHub Actions cache settings. Those publication details are not required to exercise the runtime. To reproduce a particular release's version preparation, run that `npm version` command with its release version in a disposable checkout before building; it modifies the package files and requires npm on the host. The workflow currently builds `main`, not the release tag, so record the source commit as well as the version. The workflow builds and publishes the image; it does not run the container smoke test.
+
+   By default, the local builder selects its own platform. Add `--platform linux/amd64` when you need the architecture used by the workflow's standard `ubuntu-latest` runner. An ARM host needs emulation for that build and run. This reproduces the build procedure, not a byte-identical image: the Dockerfile downloads unpinned external tools.
+
+3. Configure a test password and workspace:
+
+   ```bash
+   read -r -s -p 'Test dashboard password: ' DASHBOARD_PASSWORD
+   printf '\n'
+   export DASHBOARD_PASSWORD
+   export WORKSPACE_ROOT="$HOME/ddash-issue13-workspace"
+   export DOCKER_SOCKET="${DOCKER_SOCKET:-/var/run/docker.sock}"
+   mkdir -p "$WORKSPACE_ROOT"
+   ```
+
+   Use a non-empty password. For rootless Docker, set `DOCKER_SOCKET` to the host daemon's socket path. The container path remains `/var/run/docker.sock`. `WORKSPACE_ROOT` must be an absolute path that exists on the Docker host; mounting it at the same path inside the container preserves devcontainer path handling. If you run these commands inside a devcontainer, use a workspace path shared with the Docker host. A directory that exists only inside your current devcontainer is not a valid host bind source.
+
+4. Start the image with a separate container name, test data volumes, and loopback port 3001:
+
+   ```bash
+   docker run --detach \
+     --name ddash-issue13 \
+     --publish 127.0.0.1:3001:3000 \
+     --env DASHBOARD_PASSWORD \
+     --env WORKSPACE_ROOT \
+     --mount "type=bind,source=$DOCKER_SOCKET,target=/var/run/docker.sock" \
+     --mount "type=bind,source=$WORKSPACE_ROOT,target=$WORKSPACE_ROOT" \
+     --volume ddash_issue13_data:/data \
+     --volume ddash_issue13_zsh:/home/ddash/.zsh_data \
+     devcontainer-dashboard:issue-13
+   ```
+
+   This starts the image's normal entrypoint and compiled HTTP/WebSocket server. It does not use Vite, replace the entrypoint, pull `latest`, or run the optional TernDev bootstrap hook. The Docker socket grants control of the host daemon; use a trusted development machine. Test volumes separate dashboard data, not Docker containers: the dashboard can still see and control containers on that daemon.
+
+5. Check startup and readiness:
+
+   ```bash
+   docker logs ddash-issue13
+   docker inspect --format '{{.State.Status}} {{.State.Health.Status}}' ddash-issue13
+   curl --fail --show-error http://127.0.0.1:3001/healthz
+   curl --silent --output /dev/null --write-out '%{http_code}\n' \
+     http://127.0.0.1:3001/api/containers
+   ```
+
+   Wait for health status `healthy`; the first probe can take about 30 seconds. The readiness response must be `{"status":"ready"}`. The unauthenticated containers request must return `401`. If the container exits or becomes unhealthy, inspect its logs and probe output:
+
+   ```bash
+   docker inspect --format '{{json .State.Health}}' ddash-issue13
+   ```
+
+6. Open `http://127.0.0.1:3001` in your browser. Log in with the test password. Check container discovery. Open a terminal and run `printf 'production-terminal-ok\n'`. This verifies the production WebSocket and PTY path, which a Vite preview does not provide. If the Docker host is remote, use an SSH tunnel to its loopback port instead of publishing on all interfaces.
+
+7. Stop the test when finished:
+
+   ```bash
+   docker stop ddash-issue13
+   ```
+
+   Resume the same test with `docker start ddash-issue13`. To replace it after another build, remove only this stopped test container with `docker rm ddash-issue13`, then repeat the run command. The two named test volumes remain for reuse. Remove `ddash_issue13_data` and `ddash_issue13_zsh` only when you intentionally want to discard that test's saved data.
+
 ### Socket and readiness policy
 
 The container requires a Unix socket at `/var/run/docker.sock`. Mount a rootless or alternate host Docker socket at this same container path. Startup reads the GID from that path, creates a group if necessary, adds `ddash` to it, and checks read/write access using the server's group credentials. A missing socket, inaccessible socket, or failed group setup stops startup with an `[entrypoint] ERROR` diagnostic. The entrypoint does not change host socket ownership or permissions. Hooks run only after these checks and password validation.
