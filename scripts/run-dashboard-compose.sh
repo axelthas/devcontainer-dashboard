@@ -25,6 +25,33 @@ if [[ -z "${DASHBOARD_PASSWORD}" ]]; then
 fi
 export DASHBOARD_PASSWORD
 
+# Read from the terminal, not the script arriving on stdin through curl.
+# Persist the selected origin so future Compose runs do not need DDASH_ORIGIN.
+DEFAULT_ORIGIN="${DDASH_ORIGIN:-}"
+while true; do
+  printf 'Dashboard origin (https://host, blank for local HTTP) [%s]: ' "$DEFAULT_ORIGIN" >/dev/tty
+  read -r DASHBOARD_ORIGIN </dev/tty
+  DASHBOARD_ORIGIN="${DASHBOARD_ORIGIN:-$DEFAULT_ORIGIN}"
+  DASHBOARD_ORIGIN="${DASHBOARD_ORIGIN%/}"
+  if [[ -z "$DASHBOARD_ORIGIN" ]]; then
+    break
+  fi
+  # Only an HTTP(S) scheme, DNS/IPv4 host or bracketed IPv6, and optional port.
+  # Reject paths, credentials, query strings, and Compose/YAML interpolation.
+  if [[ "$DASHBOARD_ORIGIN" =~ ^https?://([A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?|\[[A-Fa-f0-9:]+\])(:[0-9]{1,5})?$ ]]; then
+    ORIGIN_AUTHORITY="${DASHBOARD_ORIGIN#*://}"
+    if [[ "$ORIGIN_AUTHORITY" =~ :([0-9]+)$ ]]; then
+      ORIGIN_PORT=$((10#${BASH_REMATCH[1]}))
+      if (( ORIGIN_PORT < 1 || ORIGIN_PORT > 65535 )); then
+        echo "Origin port must be from 1 to 65535." >/dev/tty
+        continue
+      fi
+    fi
+    break
+  fi
+  echo "Enter an http:// or https:// origin without a path, credentials, query, or fragment." >/dev/tty
+done
+
 printf 'Enable TernDev dev-bootstrap hook? [y/N]: ' >/dev/tty
 read -r ENABLE_DEVBOOTSTRAP </dev/tty
 if [[ "${ENABLE_DEVBOOTSTRAP,,}" == "y" ]]; then
@@ -48,6 +75,7 @@ services:
 ${DEVBOOTSTRAP_COMMAND}
     environment:
       DASHBOARD_PASSWORD: \${DASHBOARD_PASSWORD:?DASHBOARD_PASSWORD must be set}
+      ORIGIN: '${DASHBOARD_ORIGIN}'
       HOST_HOSTNAME: ${HOSTNAME:-}
       WORKSPACE_ROOT: ${WORKSPACE_ROOT}
       PRESETS_FILE: /data/presets.json
@@ -77,5 +105,8 @@ fi
 echo "Pulling latest image..."
 docker compose -f "${COMPOSE_FILE}" pull
 echo "Starting devcontainer-dashboard. Press Ctrl+C to stop."
-echo "Dashboard address: http://${DASHBOARD_BIND_ADDRESS:-127.0.0.1}:3000"
+echo "Dashboard address: ${DASHBOARD_ORIGIN:-http://${DASHBOARD_BIND_ADDRESS:-127.0.0.1}:3000}"
+if [[ -n "$DASHBOARD_ORIGIN" ]]; then
+  echo "Configure your HTTPS/reverse proxy separately; Docker remains loopback-only by default."
+fi
 docker compose -f "${COMPOSE_FILE}" up

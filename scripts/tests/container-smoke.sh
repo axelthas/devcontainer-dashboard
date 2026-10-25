@@ -22,8 +22,8 @@ trap cleanup EXIT
 mkdir -p "${TEMP_DIR}/bin" "${TEMP_DIR}/home"
 printf '#!/bin/sh\nexit 0\n' > "${TEMP_DIR}/bin/docker"
 chmod +x "${TEMP_DIR}/bin/docker"
-printf '%s\nn\n' "$WORKSPACE_ROOT" | \
-  HOME="${TEMP_DIR}/home" PATH="${TEMP_DIR}/bin:$PATH" \
+printf '%s\n\nn\n' "$WORKSPACE_ROOT" | \
+  HOME="${TEMP_DIR}/home" DDASH_ORIGIN="" PATH="${TEMP_DIR}/bin:$PATH" \
   script -q -e -c 'bash scripts/run-dashboard-compose.sh' /dev/null
 GENERATED="${TEMP_DIR}/home/.config/devcontainer-dashboard/docker-compose.yml"
 for compose in docker-compose.yml "$GENERATED"; do

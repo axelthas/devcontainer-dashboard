@@ -167,14 +167,15 @@ test('installer generates parameterized Compose without leaking its password', (
 		['-q', '-e', '-c', 'bash scripts/run-dashboard-compose.sh', '/dev/null'],
 		{
 			cwd: root,
-			input: `${dir}/workspace\nn\n`,
+			input: `${dir}/workspace\n\nn\n`,
 			encoding: 'utf8',
 			timeout: 10000,
 			env: {
 				...process.env,
 				HOME: dir,
 				PATH: `${bin}:${process.env.PATH}`,
-				DASHBOARD_PASSWORD: 'installer-secret-must-not-leak'
+				DASHBOARD_PASSWORD: 'installer-secret-must-not-leak',
+				DDASH_ORIGIN: ''
 			}
 		}
 	);
@@ -188,3 +189,52 @@ test('installer generates parameterized Compose without leaking its password', (
 	assert.ok(generated.includes('/var/run/docker.sock:/var/run/docker.sock'));
 	assert.doesNotMatch(generated, /installer-secret-must-not-leak/);
 });
+
+for (const [name, defaultOrigin, answer, expected] of [
+	['local HTTP', '', '', ''],
+	['environment default', 'https://dashboard.example.ts.net', '', 'https://dashboard.example.ts.net'],
+	['prompt override', 'https://old.example.ts.net', 'https://new.example.ts.net/', 'https://new.example.ts.net'],
+	['explicit port', '', 'https://dashboard.example.ts.net:8443', 'https://dashboard.example.ts.net:8443'],
+	['IPv6 loopback', '', 'http://[::1]:3000', 'http://[::1]:3000'],
+	['invalid path retry', '', 'https://example.com/path\nhttps://example.com', 'https://example.com'],
+	['invalid port retry', '', 'https://example.com:65536\nhttps://example.com', 'https://example.com'],
+	['interpolation retry', '', 'https://${SECRET}\nhttps://example.com', 'https://example.com']
+]) {
+	test(`curl-piped installer persists origin: ${name}`, (t) => {
+		if (process.platform !== 'linux') {
+			t.skip('requires util-linux script');
+			return;
+		}
+		const dir = mkdtempSync(join(tmpdir(), 'ddash-origin-'));
+		t.after(() => rmSync(dir, { recursive: true, force: true }));
+		const bin = join(dir, 'bin');
+		mkdirSync(bin);
+		writeFileSync(join(bin, 'docker'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+		const result = spawnSync(
+			'script',
+			['-q', '-e', '-c', 'cat scripts/run-dashboard-compose.sh | bash', '/dev/null'],
+			{
+				cwd: root,
+				input: `${dir}/workspace\n${answer}\nn\n`,
+				encoding: 'utf8',
+				timeout: 10000,
+				env: {
+					...process.env,
+					HOME: dir,
+					PATH: `${bin}:${process.env.PATH}`,
+					DASHBOARD_PASSWORD: 'fixture-password',
+					DDASH_ORIGIN: defaultOrigin
+				}
+			}
+		);
+		assert.equal(result.status, 0, result.stdout + result.stderr);
+		const generated = readFileSync(
+			join(dir, '.config/devcontainer-dashboard/docker-compose.yml'),
+			'utf8'
+		);
+		assert.ok(generated.includes(`ORIGIN: '${expected}'`));
+		assert.ok(generated.includes('${DASHBOARD_BIND_ADDRESS:-127.0.0.1}:3000:3000'));
+		assert.doesNotMatch(generated, /fixture-password/);
+		if (expected) assert.ok(result.stdout.includes(`Dashboard address: ${expected}`));
+	});
+}
