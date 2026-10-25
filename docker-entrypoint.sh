@@ -12,7 +12,9 @@ fail() {
 # Dockerode and the Docker CLI both use this path. Mount the host socket here.
 DOCKER_SOCKET=/var/run/docker.sock
 [ -S "$DOCKER_SOCKET" ] || fail "$DOCKER_SOCKET is missing or is not a Unix socket; mount the host Docker socket here"
-DOCKER_GID=$(stat -c '%g' "$DOCKER_SOCKET") || fail "Cannot read the group ID of $DOCKER_SOCKET"
+# The Docker tooling can expose this path as a symlink. Resolve the socket's
+# group, not the symlink's group, just as -S and the access checks do.
+DOCKER_GID=$(stat -Lc '%g' "$DOCKER_SOCKET") || fail "Cannot read the group ID of $DOCKER_SOCKET"
 case "$DOCKER_GID" in
     ''|*[!0-9]*) fail "Invalid group ID for $DOCKER_SOCKET" ;;
 esac
