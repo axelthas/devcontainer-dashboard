@@ -37,6 +37,7 @@ fail() {
 
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-${HOME}/ddash-production-workspace}"
 DOCKER_SOCKET="${DOCKER_SOCKET:-/var/run/docker.sock}"
+CONTAINER_SSH_SOCKET="/tmp/ssh-agent.socket"
 HOST_PORT="${DASHBOARD_TEST_PORT:-3001}"
 PLATFORM="${DOCKER_DEFAULT_PLATFORM:-}"
 HEALTH_TIMEOUT="${DASHBOARD_HEALTH_TIMEOUT:-180}"
@@ -127,11 +128,13 @@ docker run --detach "${RUN_ARGS[@]}" \
   --env DASHBOARD_PASSWORD \
   --env WORKSPACE_ROOT \
   --env ORIGIN \
+  --env SSH_AUTH_SOCK="$CONTAINER_SSH_SOCKET" \
   --mount "type=bind,source=$DOCKER_SOCKET,target=/var/run/docker.sock" \
   --mount "type=bind,source=$WORKSPACE_ROOT,target=$WORKSPACE_ROOT" \
+  --mount "type=bind,source=$SSH_AUTH_SOCK,target=$CONTAINER_SSH_SOCKET" \
   --volume "${DATA_VOLUME}:/data" \
   --volume "${ZSH_VOLUME}:/home/ddash/.zsh_data" \
-  "$IMAGE"
+  "$IMAGE" dev-bootstrap
 
 # Retain the test container and data on failure so developers can inspect them.
 printf '\nContainer: %s\nImage: %s\n' "$NAME" "$IMAGE"
