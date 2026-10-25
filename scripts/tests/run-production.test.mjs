@@ -61,6 +61,7 @@ if (args[0] === 'inspect') {
 					DASHBOARD_TEST_PORT: '3001',
 					DASHBOARD_HEALTH_TIMEOUT: '2',
 					DOCKER_DEFAULT_PLATFORM: '',
+					ORIGIN: '',
 					DOCKER_SOCKET: '/host/docker.sock',
 					WORKSPACE_ROOT: join(dir, 'workspace with spaces'),
 					...env
@@ -165,4 +166,17 @@ test('a failed HTTP check cannot report readiness or remove the container', (t) 
 	assert.notEqual(result.status, 0);
 	assert.doesNotMatch(result.stdout, /Ready:/);
 	assert.ok(!result.calls.some((call) => ['rm', 'stop', 'kill'].includes(call[0])));
+});
+
+test('passes the exported external origin to Docker without widening the port binding', (t) => {
+	const result = fixture(t).run([], { ORIGIN: 'https://dashboard.example.ts.net' });
+	assert.equal(result.status, 0, result.stderr);
+	const run = result.calls.find((args) => args[0] === 'run');
+	const index = run.indexOf('ORIGIN');
+	assert.ok(index > 0);
+	assert.equal(run[index - 1], '--env');
+	assert.ok(run.includes('127.0.0.1:3001:3000'));
+	assert.match(result.stdout, /External origin: https:\/\/dashboard\.example\.ts\.net/);
+	const build = result.calls.find((args) => args[0] === 'buildx' && args[1] === 'build');
+	assert.ok(!build.includes('ORIGIN'));
 });

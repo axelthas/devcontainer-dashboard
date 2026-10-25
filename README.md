@@ -173,6 +173,62 @@ node --test scripts/tests/run-production.test.mjs
 
 The script follows the Dockerfile build path used by the release workflow, with `--load` instead of a registry push. The manual procedure below explains release-version and platform differences and shows the individual commands.
 
+### Secure access through Tailscale
+
+Keep the dashboard's Docker port bound to `127.0.0.1`. Use Tailscale Serve on the Docker host to provide tailnet-only HTTPS and WebSocket proxying. Do not use Tailscale Funnel: Funnel publishes the service to the internet.
+
+1. On the Docker host (not inside the devcontainer), check existing Serve configuration:
+
+   ```bash
+   tailscale serve status
+   ```
+
+   Do not replace another service on HTTPS port 443. These examples assume that port is available. Tailscale must be installed and connected to your tailnet on this host.
+
+2. Point Serve at a running dashboard. For the runner's default host port:
+
+   ```bash
+   tailscale serve --bg --https=443 http://127.0.0.1:3001
+   ```
+
+   Keep the spaces between `serve`, `--bg`, and `--https=443`. Follow Tailscale's prompts to enable HTTPS certificates if needed. Record the HTTPS URL printed by Serve. `--bg` persists the Serve configuration across Tailscale and host restarts; it does not restart the dashboard container.
+
+3. Set the dashboard's external origin to that exact URL, without a trailing slash. Replace the example hostname below with the hostname Serve printed:
+
+   ```bash
+   export ORIGIN='https://YOUR-HOST.YOUR-TAILNET.ts.net'
+   bash scripts/run-production.sh --port 3002
+   ```
+
+   The runner passes the exported `ORIGIN` into the container with `--env ORIGIN`. It still publishes only on host loopback. Using port 3002 leaves an existing test on port 3001 untouched. Wait for the new container to become healthy.
+
+   `ORIGIN` configures the external HTTPS origin used for login and secure cookies. It is a runtime setting, not a build argument. Setting it in your shell does not update an already-created container, and `docker restart` does not change container environment variables. Start a new container with the runner. For a manual `docker run`, include `--env ORIGIN` after exporting it. Use the HTTPS URL for login; a direct HTTP login on loopback is no longer the configured origin.
+
+4. On the host, update Serve to point to the new container:
+
+   ```bash
+   tailscale serve --bg --https=443 http://127.0.0.1:3002
+   tailscale serve status
+   ```
+
+   The browser connection uses HTTPS/WSS. Serve terminates TLS and proxies HTTP/WebSocket traffic over host loopback to the production server. Do not bind Docker to `0.0.0.0` or install TLS certificates in the image.
+
+5. Restrict access to this host's TCP 443 to your user or an approved operator group in your tailnet access policy. Review existing broad grants or ACL rules too: adding a narrower rule does not cancel a broader allow rule.
+
+   Keep `DASHBOARD_PASSWORD` enabled. Tailscale controls network access, but the dashboard does not map Tailscale identity to application roles. Every signed-in operator has full Docker and terminal access. With only `ORIGIN` configured, login throttling is shared by clients seen through the proxy; this setup does not configure per-client forwarded-address trust.
+
+6. From another device connected to your tailnet, open the HTTPS URL printed by Serve. Log in and open a terminal. Verify terminal output and check that the browser shows a secure connection. Confirm that an unapproved tailnet device and a device disconnected from the tailnet cannot access the dashboard.
+
+To disable this Serve listener without resetting unrelated Serve configuration:
+
+```bash
+tailscale serve --bg --https=443 off
+```
+
+The dashboard container remains running on loopback. Stop it separately using the command printed by the runner. The script does not configure Tailscale or change tailnet access policies.
+
+See the [Tailscale Serve reference](https://tailscale.com/docs/reference/tailscale-cli/serve) for HTTPS prerequisites, background operation, and listener management.
+
 ### Build and test the production image manually
 
 Use this procedure to test local source changes in the production image, without publishing an image or starting the development server. Run these commands in Bash from the repository root on the Docker host. You need Docker with Buildx, access to a local Docker daemon, and internet access for the image build. You do not need Node or npm on the host: the Dockerfile installs dependencies and builds both application outputs.

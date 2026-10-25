@@ -22,6 +22,7 @@ Options:
 Set DASHBOARD_PASSWORD or enter it at the hidden prompt.
 Optional: DASHBOARD_TEST_NAME (unique image/container/volume prefix),
 DASHBOARD_HEALTH_TIMEOUT (seconds, default 180).
+Optional: export ORIGIN to the external HTTPS origin when using a reverse proxy.
 
 Requires Bash, Git, Docker with Buildx, a local Docker daemon, and internet
 access for the build. Host npm, Node, and curl are not needed.
@@ -124,6 +125,7 @@ docker run --detach "${RUN_ARGS[@]}" \
   --publish "127.0.0.1:${HOST_PORT}:3000" \
   --env DASHBOARD_PASSWORD \
   --env WORKSPACE_ROOT \
+  --env ORIGIN \
   --mount "type=bind,source=$DOCKER_SOCKET,target=/var/run/docker.sock" \
   --mount "type=bind,source=$WORKSPACE_ROOT,target=$WORKSPACE_ROOT" \
   --volume "${DATA_VOLUME}:/data" \
@@ -163,6 +165,9 @@ while (( SECONDS < DEADLINE )); do
         .catch(error => { console.error(error.message); process.exitCode = 1; });
     '
     printf '\nReady: http://127.0.0.1:%s\n' "$HOST_PORT"
+    if [[ -n "${ORIGIN:-}" ]]; then
+      printf 'External origin: %s (use this URL for login through your proxy)\n' "$ORIGIN"
+    fi
     printf '%s\n' 'Health and unauthenticated API checks passed.'
     printf '%s\n' 'Log in with the test password. Open a terminal and run: printf "production-terminal-ok\n"'
     printf '%s\n' 'The container keeps running after this script exits. Nothing was published.'
