@@ -139,6 +139,40 @@ The production image is built in two stages. The build stage installs native dep
 
 The default Docker Compose setup binds host loopback port 3000, mounts the Docker socket, and maps a host workspace directory into the container so the dashboard can discover repos on disk.
 
+### Build and run the current branch with one script
+
+From your checkout, run:
+
+```bash
+bash scripts/run-production.sh
+```
+
+The script builds the current working tree with Docker Buildx and loads the final production image locally. It includes local changes allowed by the Docker build context. It does not fetch source, switch branches, change package versions, publish images, or use Vite. It prints the source branch, commit, and whether the checkout has local changes. No host Node or npm installation is required.
+
+It prompts for a password unless `DASHBOARD_PASSWORD` is set. It starts a new, uniquely named test container on `127.0.0.1:3001`, waits for the image healthcheck, and checks readiness and unauthenticated API rejection inside the container. It then prints the browser URL, logs command, stop/resume commands, and retained test volume names. Log in and check the terminal manually. These startup checks do not replace the login and terminal smoke tests.
+
+Options:
+
+```bash
+bash scripts/run-production.sh \
+  --workspace /absolute/path/shared/with/docker/host \
+  --socket /var/run/docker.sock \
+  --port 3002 \
+  --platform linux/amd64
+```
+
+Omit `--platform` to use your builder's default. An ARM host needs emulation to build and run `linux/amd64`. The workspace defaults to `WORKSPACE_ROOT` or `~/ddash-production-workspace`. The socket defaults to `DOCKER_SOCKET` or `/var/run/docker.sock`. Paths with spaces are supported; paths with commas are not. Inside a devcontainer, use workspace and socket paths available on the Docker host, not paths private to the devcontainer. See `bash scripts/run-production.sh --help` for environment overrides.
+
+Each invocation builds again and creates a new container and separate named data volumes. Existing containers are never stopped or removed automatically. To run two tests simultaneously, choose different ports. Containers and volumes remain after success or failure for inspection; the script prints the commands to manage its container. Remove only test resources you no longer need. The test still has full access to the mounted Docker daemon and its containers.
+
+Run the script's mocked regression tests without Docker:
+
+```bash
+node --test scripts/tests/run-production.test.mjs
+```
+
+The script follows the Dockerfile build path used by the release workflow, with `--load` instead of a registry push. The manual procedure below explains release-version and platform differences and shows the individual commands.
+
 ### Build and test the production image manually
 
 Use this procedure to test local source changes in the production image, without publishing an image or starting the development server. Run these commands in Bash from the repository root on the Docker host. You need Docker with Buildx, access to a local Docker daemon, and internet access for the image build. You do not need Node or npm on the host: the Dockerfile installs dependencies and builds both application outputs.
