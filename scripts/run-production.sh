@@ -40,7 +40,7 @@ DOCKER_SOCKET="${DOCKER_SOCKET:-/var/run/docker.sock}"
 HOST_PORT="${DASHBOARD_TEST_PORT:-3001}"
 PLATFORM="${DOCKER_DEFAULT_PLATFORM:-}"
 HEALTH_TIMEOUT="${DASHBOARD_HEALTH_TIMEOUT:-180}"
-ORIGIN="${TAILSCALE_NETWORK:-}"
+ORIGIN="${ORIGIN:-${DDASH_ORIGIN:-}}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --help|-h) usage; exit 0 ;;
