@@ -90,7 +90,11 @@ test('builds the current working tree and runs the final image without npm or pu
 	assert.ok(!build.includes('--push'));
 	const run = result.calls.find((args) => args[0] === 'run');
 	assert.ok(run.includes('127.0.0.1:3001:3000'));
-	assert.ok(run.includes(`type=bind,source=${f.dir}/workspace with spaces,target=${f.dir}/workspace with spaces`));
+	assert.ok(
+		run.includes(
+			`type=bind,source=${f.dir}/workspace with spaces,target=${f.dir}/workspace with spaces`
+		)
+	);
 	assert.ok(run.includes('type=bind,source=/host/docker.sock,target=/var/run/docker.sock'));
 	assert.ok(run.includes('DASHBOARD_PASSWORD'));
 	assert.equal(run.at(-1), 'devcontainer-dashboard:ddash-test');
@@ -102,10 +106,14 @@ test('builds the current working tree and runs the final image without npm or pu
 test('supports workspace, socket, port, and matching build/run platform overrides', (t) => {
 	const f = fixture(t);
 	const result = f.run([
-		'--workspace', join(f.dir, 'other'),
-		'--socket', '/run/user/1000/docker.sock',
-		'--port', '4317',
-		'--platform', 'linux/amd64'
+		'--workspace',
+		join(f.dir, 'other'),
+		'--socket',
+		'/run/user/1000/docker.sock',
+		'--port',
+		'4317',
+		'--platform',
+		'linux/amd64'
 	]);
 	assert.equal(result.status, 0, result.stderr);
 	for (const operation of ['buildx', 'run']) {

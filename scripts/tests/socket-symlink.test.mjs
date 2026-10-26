@@ -15,7 +15,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
- test('entrypoint resolves a symlinked socket with dereferencing stat', async (t) => {
+test('entrypoint resolves a symlinked socket with dereferencing stat', async (t) => {
 	const dir = mkdtempSync(join(tmpdir(), 'ddash-socket-link-'));
 	t.after(() => rmSync(dir, { recursive: true, force: true }));
 	const target = join(dir, 'host.sock');

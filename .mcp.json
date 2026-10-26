@@ -3,9 +3,7 @@
 		"svelte": {
 			"type": "http",
 			"url": "https://mcp.svelte.dev/mcp",
-			"tools": [
-				"*"
-			]
+			"tools": ["*"]
 		}
 	}
 }

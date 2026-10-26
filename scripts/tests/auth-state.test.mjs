@@ -5,11 +5,8 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import ts from 'typescript';
 
- test('shared auth state supports the optional verifier under strict TypeScript checking', (t) => {
-	const source = readFileSync(
-		new URL('../../src/lib/server/auth.ts', import.meta.url),
-		'utf8'
-	);
+test('shared auth state supports the optional verifier under strict TypeScript checking', (t) => {
+	const source = readFileSync(new URL('../../src/lib/server/auth.ts', import.meta.url), 'utf8');
 	// Compile the actual state declaration in isolation from Node and Svelte.
 	// The Buffer alias is sufficient for the state shape; no crypto implementation is mocked.
 	const state = source.slice(

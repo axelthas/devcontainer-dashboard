@@ -89,10 +89,10 @@ The main server responsibilities are split across the app, Docker helpers, works
 | DASHBOARD_PASSWORD       | required                       | Shared password required to access the dashboard                      |
 | WORKSPACE_ROOT           | /workspaces                    | Root directory scanned for local workspace discovery and repo actions |
 | HOST_HOSTNAME            | os.hostname()                  | Hostname displayed in the dashboard header                            |
-| VSCODE_SSH_HOST          | empty                          | SSH host used when building VS Code remote URIs                        |
-| PRESETS_FILE             | /data/presets.json              | JSON file containing bootstrap presets                                |
+| VSCODE_SSH_HOST          | empty                          | SSH host used when building VS Code remote URIs                       |
+| PRESETS_FILE             | /data/presets.json             | JSON file containing bootstrap presets                                |
 | BOOTSTRAP_PROVIDERS_FILE | /data/bootstrap-providers.json | JSON file containing bootstrap provider definitions                   |
-| BUILD_LOG_DIR            | /data/build-logs                | Directory for logs of failed devcontainer builds and bootstrap runs   |
+| BUILD_LOG_DIR            | /data/build-logs               | Directory for logs of failed devcontainer builds and bootstrap runs   |
 | PORT                     | 3000                           | Port used by the custom Node server                                   |
 | DASHBOARD_BIND_ADDRESS   | 127.0.0.1                      | Host publication address for Compose and installer scripts            |
 | ORIGIN                   | empty                          | Public URL of the dashboard behind a reverse proxy                    |
@@ -117,9 +117,9 @@ A log can contain secrets that a build or bootstrap script prints. Logs are only
 | /                             | Main dashboard with SSR-loaded containers and workspaces             |
 | /service                      | Service iframe viewer opened from the dashboard                      |
 | /demo/playwright              | Playwright test target page                                          |
-| /healthz                      | Public production application readiness (GET or HEAD)                 |
+| /healthz                      | Public production application readiness (GET or HEAD)                |
 | /api/containers               | Lists all visible containers and their port mappings                 |
-| /api/containers/[id]/[action] | Starts, stops, restarts, or deletes a container                       |
+| /api/containers/[id]/[action] | Starts, stops, restarts, or deletes a container                      |
 | /api/presets                  | Returns bootstrap presets                                            |
 | /api/workspaces (GET, DELETE) | Returns merged workspace and build state or deletes a workspace path |
 | /api/bootstrap                | Returns bootstrap provider installation and branch metadata          |

@@ -60,25 +60,25 @@ npm run test             # deployment + unit + e2e combined
 
 ### Route structure
 
-| Route                                  | Purpose                                                                                       |
-| -------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `/`                                    | Main dashboard: SSR loads containers via `+page.server.ts`, polls `/api/containers` every 5s   |
-| `/service`                             | Iframe viewer for a service, opened from service buttons                                      |
-| `/demo/playwright`                     | Playwright test target page                                                                   |
-| `/healthz`                             | Public production readiness (GET or HEAD)                                                     |
-| `/api/containers` (GET)                | Returns all containers with exposed ports as JSON                                             |
-| `/api/containers/[id]/[action]` (POST) | Executes `start`, `stop`, `restart`, or `delete` on a container                               |
-| `/api/presets` (GET)                   | Returns bootstrap presets from `PRESETS_FILE`                                                 |
-| `/api/workspaces` (GET, DELETE)        | Returns discovered local workspaces or removes a workspace directory with `path` in the body  |
-| `/api/bootstrap` (GET)                 | Returns active bootstrap provider install status, branches, and version                       |
-| `/api/bootstrap/providers` (GET)       | Returns configured bootstrap providers and fallback provider info                             |
-| `/api/bootstrap/run` (POST)            | Starts a bootstrap run for a preset or custom command                                         |
-| `/api/bootstrap/pull` (POST)           | Pulls the active bootstrap provider repository                                                |
-| `/api/bootstrap/checkout` (POST)       | Checks out a branch in the active bootstrap provider repository                               |
-| `/api/repos/branches` (GET)            | Returns branches, tags, and current ref information for a repository path                     |
-| `/api/repos/checkout` (POST)           | Checks out a branch or tag in a repository path                                               |
-| `/api/devcontainer/build` (POST)       | Starts a devcontainer build session for a repository                                          |
-| `/api/terminal` (WebSocket)            | PTY terminal sessions via upgrade on the HTTP server                                          |
+| Route                                  | Purpose                                                                                      |
+| -------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `/`                                    | Main dashboard: SSR loads containers via `+page.server.ts`, polls `/api/containers` every 5s |
+| `/service`                             | Iframe viewer for a service, opened from service buttons                                     |
+| `/demo/playwright`                     | Playwright test target page                                                                  |
+| `/healthz`                             | Public production readiness (GET or HEAD)                                                    |
+| `/api/containers` (GET)                | Returns all containers with exposed ports as JSON                                            |
+| `/api/containers/[id]/[action]` (POST) | Executes `start`, `stop`, `restart`, or `delete` on a container                              |
+| `/api/presets` (GET)                   | Returns bootstrap presets from `PRESETS_FILE`                                                |
+| `/api/workspaces` (GET, DELETE)        | Returns discovered local workspaces or removes a workspace directory with `path` in the body |
+| `/api/bootstrap` (GET)                 | Returns active bootstrap provider install status, branches, and version                      |
+| `/api/bootstrap/providers` (GET)       | Returns configured bootstrap providers and fallback provider info                            |
+| `/api/bootstrap/run` (POST)            | Starts a bootstrap run for a preset or custom command                                        |
+| `/api/bootstrap/pull` (POST)           | Pulls the active bootstrap provider repository                                               |
+| `/api/bootstrap/checkout` (POST)       | Checks out a branch in the active bootstrap provider repository                              |
+| `/api/repos/branches` (GET)            | Returns branches, tags, and current ref information for a repository path                    |
+| `/api/repos/checkout` (POST)           | Checks out a branch or tag in a repository path                                              |
+| `/api/devcontainer/build` (POST)       | Starts a devcontainer build session for a repository                                         |
+| `/api/terminal` (WebSocket)            | PTY terminal sessions via upgrade on the HTTP server                                         |
 
 ### Key files
 

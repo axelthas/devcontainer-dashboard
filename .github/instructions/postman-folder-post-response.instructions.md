@@ -44,22 +44,22 @@ const responseBodyJson = pm.response.json();
 
 // Check that the status code is 200
 pm.test('Status code is 200', function () {
-  pm.response.to.have.status(200);
+	pm.response.to.have.status(200);
 });
 
 // Check that the response has a property 'success' set to true
 pm.test('Response has success property set to true', function () {
-  pm.expect(responseJson).to.have.property('success', true);
+	pm.expect(responseJson).to.have.property('success', true);
 });
 
 // Check that the response time is less than 1000ms
 pm.test('Response time is less than 1000ms', function () {
-  pm.expect(pm.response.responseTime).to.be.below(1000);
+	pm.expect(pm.response.responseTime).to.be.below(1000);
 });
 
 // Check that the response contains a non-empty 'data' array
 pm.test('Response contains non-empty data array', function () {
-  pm.expect(responseJson.data).to.be.an('array').that.is.not.empty;
+	pm.expect(responseJson.data).to.be.an('array').that.is.not.empty;
 });
 ```
 
