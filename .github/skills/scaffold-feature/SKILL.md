@@ -1,5 +1,7 @@
 ---
+name: scaffold-feature
 description: 'Scaffold a new dashboard feature end-to-end. Use when: adding a new feature, creating a new dashboard section, adding a new API endpoint with UI.'
+disable-model-invocation: true
 ---
 
 # Scaffold Dashboard Feature

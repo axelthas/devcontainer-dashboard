@@ -28,7 +28,7 @@ const globalAuth = globalThis as typeof globalThis & {
 	__devcontainerDashboardAuth?: AuthState;
 };
 
-const authState = (globalAuth.__devcontainerDashboardAuth ??= {
+const authState: AuthState = (globalAuth.__devcontainerDashboardAuth ??= {
 	sessions: new Set(),
 	loginAttempts: new Map()
 });

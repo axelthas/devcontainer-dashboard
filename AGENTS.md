@@ -8,14 +8,18 @@ A SvelteKit web dashboard for managing and monitoring local Docker containers. D
 npm run dev              # Start dev server (vite, host 0.0.0.0)
 npm run build            # Production build (adapter-node)
 npm run build:server     # Compile the custom Node server entry point
-npm run preview          # Preview production build
+npm start                # Start the built HTTP and terminal WebSocket server
+npm run preview          # Vite preview only, no terminal WebSocket support
 npm run check            # svelte-check type checking
 npm run lint             # prettier --check + eslint
 npm run format           # prettier --write
+npm run test:deployment  # Entrypoint and deployment regressions (no Docker needed)
+npm run test:production  # Built custom-server smoke test (build both outputs first)
+bash scripts/tests/container-smoke.sh # Build and test an isolated container deployment
 npm run test:unit        # vitest (interactive watch mode)
 npm run test:unit -- --run  # vitest single run
-npm run test:e2e         # playwright (builds first, runs on port 4173)
-npm run test             # unit + e2e combined
+npm run test:e2e         # playwright (builds both outputs, runs npm start on port 4173)
+npm run test             # deployment + unit + e2e combined
 ```
 
 ## Architecture
@@ -40,6 +44,7 @@ npm run test             # unit + e2e combined
 | `PRESETS_FILE`             | `/data/presets.json`             | Path to bootstrap presets JSON file                   |
 | `BOOTSTRAP_PROVIDERS_FILE` | `/data/bootstrap-providers.json` | Path to bootstrap provider definitions                |
 | `PORT`                     | `3000`                           | Port used by the custom server entry point            |
+| `DASHBOARD_BIND_ADDRESS`   | `127.0.0.1`                      | Host publication address in Compose and installers    |
 
 ### Runtime notes
 
@@ -49,27 +54,31 @@ npm run test             # unit + e2e combined
 - Bootstrap provider loading lives in [src/lib/server/bootstrap.ts](src/lib/server/bootstrap.ts), with a fallback to `~/.devbootstrap` if no providers file exists.
 - Runtime startup fails when `DASHBOARD_PASSWORD` is empty. Sessions are in memory and end on logout, browser close, or process restart.
 - Keep `DASHBOARD_PASSWORD` excluded from terminal child-process environments in [src/lib/server/terminal.ts](src/lib/server/terminal.ts).
+- Container startup also fails if `/var/run/docker.sock` is missing, inaccessible, or group setup fails. Do not change host socket permissions.
+- `/healthz` is a public production-only application readiness probe with no sensitive state. It does not check Docker daemon availability.
+- Use `npm start`, not Vite preview, for production and terminal integration checks.
 
 ### Route structure
 
-| Route                                  | Purpose                                                                                       |
-| -------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `/`                                    | Main dashboard — SSR loads containers via `+page.server.ts`, polls `/api/containers` every 5s |
-| `/service`                             | Iframe viewer for a service, opened from service buttons                                      |
-| `/demo/playwright`                     | Playwright test target page                                                                   |
-| `/api/containers` (GET)                | Returns all containers with exposed ports as JSON                                             |
-| `/api/containers/[id]/[action]` (POST) | Executes `start`, `stop`, `restart`, or `delete` on a container                               |
-| `/api/presets` (GET)                   | Returns bootstrap presets from `PRESETS_FILE`                                                 |
-| `/api/workspaces` (GET, DELETE)        | Returns discovered local workspaces or removes a workspace directory with `path` in the body  |
-| `/api/bootstrap` (GET)                 | Returns active bootstrap provider install status, branches, and version                       |
-| `/api/bootstrap/providers` (GET)       | Returns configured bootstrap providers and fallback provider info                             |
-| `/api/bootstrap/run` (POST)            | Starts a bootstrap run for a preset or custom command                                         |
-| `/api/bootstrap/pull` (POST)           | Pulls the active bootstrap provider repository                                                |
-| `/api/bootstrap/checkout` (POST)       | Checks out a branch in the active bootstrap provider repository                               |
-| `/api/repos/branches` (GET)            | Returns branches, tags, and current ref information for a repository path                     |
-| `/api/repos/checkout` (POST)           | Checks out a branch or tag in a repository path                                               |
-| `/api/devcontainer/build` (POST)       | Starts a devcontainer build session for a repository                                          |
-| `/api/terminal` (WebSocket)            | PTY terminal sessions via upgrade on the HTTP server                                          |
+| Route                                  | Purpose                                                                                      |
+| -------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `/`                                    | Main dashboard: SSR loads containers via `+page.server.ts`, polls `/api/containers` every 5s |
+| `/service`                             | Iframe viewer for a service, opened from service buttons                                     |
+| `/demo/playwright`                     | Playwright test target page                                                                  |
+| `/healthz`                             | Public production readiness (GET or HEAD)                                                    |
+| `/api/containers` (GET)                | Returns all containers with exposed ports as JSON                                            |
+| `/api/containers/[id]/[action]` (POST) | Executes `start`, `stop`, `restart`, or `delete` on a container                              |
+| `/api/presets` (GET)                   | Returns bootstrap presets from `PRESETS_FILE`                                                |
+| `/api/workspaces` (GET, DELETE)        | Returns discovered local workspaces or removes a workspace directory with `path` in the body |
+| `/api/bootstrap` (GET)                 | Returns active bootstrap provider install status, branches, and version                      |
+| `/api/bootstrap/providers` (GET)       | Returns configured bootstrap providers and fallback provider info                            |
+| `/api/bootstrap/run` (POST)            | Starts a bootstrap run for a preset or custom command                                        |
+| `/api/bootstrap/pull` (POST)           | Pulls the active bootstrap provider repository                                               |
+| `/api/bootstrap/checkout` (POST)       | Checks out a branch in the active bootstrap provider repository                              |
+| `/api/repos/branches` (GET)            | Returns branches, tags, and current ref information for a repository path                    |
+| `/api/repos/checkout` (POST)           | Checks out a branch or tag in a repository path                                              |
+| `/api/devcontainer/build` (POST)       | Starts a devcontainer build session for a repository                                         |
+| `/api/terminal` (WebSocket)            | PTY terminal sessions via upgrade on the HTTP server                                         |
 
 ### Key files
 
@@ -85,7 +94,7 @@ npm run test             # unit + e2e combined
 | `src/lib/types.ts`                     | Shared interfaces: `ContainerData`, `LocalWorkspaceData`, `BootstrapPreset`, `TerminalSession` |
 | `src/lib/portConfig.ts`                | Port-to-label/icon mapping for known services                                                  |
 | `src/lib/components/`                  | UI components (see conventions below)                                                          |
-| `src/routes/+page.server.ts`           | SSR data loader — filters containers, builds port maps                                         |
+| `src/routes/+page.server.ts`           | SSR data loader: filters containers, builds port maps                                          |
 | `src/routes/api/containers/+server.ts` | REST endpoint duplicating page.server logic for client polling                                 |
 
 ### Component conventions
@@ -101,7 +110,7 @@ npm run test             # unit + e2e combined
 
 - **Dark/light theme**: Managed via `localStorage` key `devcontainer-dashboard-theme`, toggled in `+page.svelte`
 - **No `$lib/server/` imports from client**: Server modules are in `src/lib/server/`, excluded from browser test projects
-- **Nord palette only**: Use Nord hex values via Tailwind arbitrary values — no custom theme config
+- **Nord palette only**: Use Nord hex values via Tailwind arbitrary values, no custom theme config
 - **Native dependencies**: `node-pty` requires `build-essential python3` (dev) or `python3 make g++` (Alpine production)
 - **Container metadata**: Compose projects are grouped by `com.docker.compose.project`, while devcontainers are identified from name and image heuristics plus the `devcontainer.local_folder` label.
 
@@ -109,36 +118,39 @@ npm run test             # unit + e2e combined
 
 Two vitest projects configured in `vite.config.ts`:
 
-- **`client`** — browser-mode tests for `.svelte.{test,spec}.ts` files (uses `vitest-browser-svelte` + Playwright chromium)
-- **`server`** — Node environment tests for `.{test,spec}.ts` files (excludes `.svelte.*` test files)
+- **`client`**: browser-mode tests for `.svelte.{test,spec}.ts` files (uses `vitest-browser-svelte` + Playwright chromium)
+- **`server`**: Node environment tests for `.{test,spec}.ts` files (excludes `.svelte.*` test files)
 
 Important:
 
-- `expect.requireAssertions` is enabled — every test MUST contain at least one assertion
+- `expect.requireAssertions` is enabled: every test MUST contain at least one assertion
 - E2E tests: Playwright files match `**/*.e2e.{ts,js}`
 - Example tests in `src/lib/vitest-examples/` demonstrate both patterns
 - When changing server routes, validate the request/response contract with a focused test if one already exists nearby.
 - When changing Svelte components, run the Svelte MCP autofixer before finalizing and keep runes syntax consistent.
+- `test:deployment` uses Node's test runner with mocked privileged commands and a real temporary Unix socket. It requires no npm dependencies.
+- `test:production` exercises the compiled custom server, HTTP login, WebSocket authorization, and PTY output. `SMOKE_BASE_URL` targets a disposable external container.
+- `container-smoke.sh` requires Docker, Compose 2.24.4+, Node 22, util-linux `script`, and installed project dependencies. It cleans up only its isolated Compose project and test resources.
 
 ## Svelte MCP Tools
 
 Use the Svelte MCP server for Svelte 5 and SvelteKit documentation:
 
-1. **list-sections** — Call FIRST to discover available documentation sections
-2. **get-documentation** — Fetch full docs for relevant sections found above
-3. **svelte-autofixer** — MUST run on any Svelte code before finalizing; iterate until no issues remain
-4. **playground-link** — Only after user confirms, and NEVER if code was written to project files
+1. **list-sections**: Call FIRST to discover available documentation sections
+2. **get-documentation**: Fetch full docs for relevant sections found above
+3. **svelte-autofixer**: MUST run on any Svelte code before finalizing; iterate until no issues remain
+4. **playground-link**: Only after user confirms, and NEVER if code was written to project files
 
 ## Authoritative Sources
 
-- [specification/initial_specification.md](specification/initial_specification.md) — Core product behavior and terminology
-- [specification/feature_bootstrap/feature_specification_bootstrap.md](specification/feature_bootstrap/feature_specification_bootstrap.md) — Bootstrap workflow details
-- [src/lib/types.ts](src/lib/types.ts) — Shared data models and session state shapes
-- [src/routes/api/\*_/_.ts](src/routes/api) — Route names, request validation, and response contracts
-- [src/server.ts](src/server.ts) — Production server entry point and PORT handling
+- [specification/initial_specification.md](specification/initial_specification.md): Core product behavior and terminology
+- [specification/feature_bootstrap/feature_specification_bootstrap.md](specification/feature_bootstrap/feature_specification_bootstrap.md): Bootstrap workflow details
+- [src/lib/types.ts](src/lib/types.ts): Shared data models and session state shapes
+- [src/routes/api/\*_/_.ts](src/routes/api): Route names, request validation, and response contracts
+- [src/server.ts](src/server.ts): Production server entry point and PORT handling
 
 ## Documentation
 
-- [specification/initial_specification.md](specification/initial_specification.md) — Full product specification
-- [specification/feature_bootstrap/](specification/feature_bootstrap/) — Bootstrap feature spec
-- [tasks/](tasks/) — Implementation session notes and research
+- [specification/initial_specification.md](specification/initial_specification.md): Full product specification
+- [specification/feature_bootstrap/](specification/feature_bootstrap/): Bootstrap feature spec
+- [tasks/](tasks/): Implementation session notes and research

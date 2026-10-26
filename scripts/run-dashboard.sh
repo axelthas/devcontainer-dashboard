@@ -32,6 +32,6 @@ docker run  --rm \
             -v "$WORKSPACE_ROOT:$WORKSPACE_ROOT" \
             -v $SSH_AUTH_SOCK:$CONTAINER_SSH_SOCKET \
             -v $DOCKER_SOCKET:$DOCKER_SOCKET \
-            -p 3000:3000 \
+            -p "${DASHBOARD_BIND_ADDRESS:-127.0.0.1}:3000:3000" \
             --name devcontainer-dashboard \
             "$IMAGE" dev-bootstrap
