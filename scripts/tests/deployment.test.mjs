@@ -192,12 +192,37 @@ test('installer generates parameterized Compose without leaking its password', (
 
 for (const [name, defaultOrigin, answer, expected] of [
 	['local HTTP', '', '', ''],
-	['environment default', 'https://dashboard.example.ts.net', '', 'https://dashboard.example.ts.net'],
-	['prompt override', 'https://old.example.ts.net', 'https://new.example.ts.net/', 'https://new.example.ts.net'],
-	['explicit port', '', 'https://dashboard.example.ts.net:8443', 'https://dashboard.example.ts.net:8443'],
+	[
+		'environment default',
+		'https://dashboard.example.ts.net',
+		'',
+		'https://dashboard.example.ts.net'
+	],
+	[
+		'prompt override',
+		'https://old.example.ts.net',
+		'https://new.example.ts.net/',
+		'https://new.example.ts.net'
+	],
+	[
+		'explicit port',
+		'',
+		'https://dashboard.example.ts.net:8443',
+		'https://dashboard.example.ts.net:8443'
+	],
 	['IPv6 loopback', '', 'http://[::1]:3000', 'http://[::1]:3000'],
-	['invalid path retry', '', 'https://example.com/path\nhttps://example.com', 'https://example.com'],
-	['invalid port retry', '', 'https://example.com:65536\nhttps://example.com', 'https://example.com'],
+	[
+		'invalid path retry',
+		'',
+		'https://example.com/path\nhttps://example.com',
+		'https://example.com'
+	],
+	[
+		'invalid port retry',
+		'',
+		'https://example.com:65536\nhttps://example.com',
+		'https://example.com'
+	],
 	['interpolation retry', '', 'https://${SECRET}\nhttps://example.com', 'https://example.com']
 ]) {
 	test(`curl-piped installer persists origin: ${name}`, (t) => {
