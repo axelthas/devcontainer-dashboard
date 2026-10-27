@@ -1,112 +1,129 @@
 #!/bin/bash
-# Run with Docker Compose. Reads prompts from /dev/tty for curl | bash use.
-# Writes ~/.config/devcontainer-dashboard/docker-compose.yml.
+# Standalone, including curl | bash. Prompts use /dev/tty.
 set -euo pipefail
+fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
-IMAGE="ghcr.io/axelthas/devcontainer-dashboard:latest"
-CONFIG_DIR="${HOME}/.config/devcontainer-dashboard"
-COMPOSE_FILE="${CONFIG_DIR}/docker-compose.yml"
-
-DEFAULT_WORKSPACE="${HOME}/ddash-workspace"
-printf 'Workspace directory [%s]: ' "${DEFAULT_WORKSPACE}" >/dev/tty
-read -r WORKSPACE_ROOT </dev/tty
-WORKSPACE_ROOT="${WORKSPACE_ROOT:-${DEFAULT_WORKSPACE}}"
-WORKSPACE_ROOT="${WORKSPACE_ROOT/#\~/$HOME}"
-mkdir -p "${WORKSPACE_ROOT}"
-
+# Keep this block identical in all three standalone launchers.
+resolve_identity() {
+  local operator="${SUDO_USER:-$(id -un)}" record
+  if [[ -z "${HOST_USER:-}${HOST_UID:-}${HOST_GID:-}${HOST_HOME:-}" ]]; then
+    record=$(getent passwd "$operator") || fail "Cannot resolve operator; set all four HOST_* identity values"
+    HOST_USER="$operator"
+    HOST_UID=$(printf '%s' "$record" | cut -d: -f3)
+    HOST_GID=$(printf '%s' "$record" | cut -d: -f4)
+    HOST_HOME=$(printf '%s' "$record" | cut -d: -f6)
+  fi
+  [[ -n "${HOST_USER:-}" && -n "${HOST_UID:-}" && -n "${HOST_GID:-}" && -n "${HOST_HOME:-}" ]] || fail "Set all four HOST_* identity values"
+  [[ "$HOST_USER" =~ ^[a-zA-Z_][a-zA-Z0-9_-]*$ && "$HOST_USER" != root ]] || fail "Invalid HOST_USER"
+  [[ "$HOST_UID" =~ ^[1-9][0-9]*$ && "$HOST_GID" =~ ^[1-9][0-9]*$ ]] || fail "HOST_UID and HOST_GID must be positive non-root IDs"
+  [[ "$HOST_HOME" =~ ^/[a-zA-Z0-9_./\ -]+$ && "$HOST_HOME" != *"/../"* && "$HOST_HOME" != */ ]] || fail "Invalid absolute HOST_HOME"
+  export HOST_USER HOST_UID HOST_GID HOST_HOME
+}
+resolve_identity
+IMAGE="${DASHBOARD_IMAGE:-ghcr.io/axelthas/devcontainer-dashboard:latest}"
+CONFIG_DIR="${DDASH_CONFIG_DIR:-${HOME}/.config/devcontainer-dashboard}"
+COMPOSE_FILE="$CONFIG_DIR/docker-compose.yml"
+if [[ -z "${WORKSPACE_ROOT:-}" ]]; then
+  read -r -p "Workspace directory [$HOST_HOME/ddash-workspace]: " WORKSPACE_ROOT </dev/tty
+  WORKSPACE_ROOT="${WORKSPACE_ROOT:-$HOST_HOME/ddash-workspace}"
+fi
+# Values embedded in YAML must not introduce YAML or Compose interpolation.
+[[ "$WORKSPACE_ROOT" =~ ^/[a-zA-Z0-9_./\ -]+$ ]] || fail "Unsupported WORKSPACE_ROOT"
+mkdir -p "$WORKSPACE_ROOT"
 if [[ -z "${DASHBOARD_PASSWORD:-}" ]]; then
-  printf 'Dashboard password: ' >/dev/tty
-  read -r -s DASHBOARD_PASSWORD </dev/tty
+  read -r -s -p 'Dashboard password: ' DASHBOARD_PASSWORD </dev/tty
   printf '\n' >/dev/tty
 fi
-if [[ -z "${DASHBOARD_PASSWORD}" ]]; then
-  echo "Dashboard password must not be empty." >&2
-  exit 1
-fi
-export DASHBOARD_PASSWORD
-
-# Read from the terminal, not the script arriving on stdin through curl.
-# Persist the selected origin so future Compose runs do not need DDASH_ORIGIN.
+[[ -n "$DASHBOARD_PASSWORD" ]] || fail "DASHBOARD_PASSWORD must not be empty"
+export DASHBOARD_PASSWORD WORKSPACE_ROOT
 DEFAULT_ORIGIN="${DDASH_ORIGIN:-}"
 while true; do
-  printf 'Dashboard origin (https://host, blank for local HTTP) [%s]: ' "$DEFAULT_ORIGIN" >/dev/tty
-  read -r DASHBOARD_ORIGIN </dev/tty
+  read -r -p "Dashboard origin (blank for local HTTP) [$DEFAULT_ORIGIN]: " DASHBOARD_ORIGIN </dev/tty
   DASHBOARD_ORIGIN="${DASHBOARD_ORIGIN:-$DEFAULT_ORIGIN}"
   DASHBOARD_ORIGIN="${DASHBOARD_ORIGIN%/}"
-  if [[ -z "$DASHBOARD_ORIGIN" ]]; then
-    break
-  fi
-  # Only an HTTP(S) scheme, DNS/IPv4 host or bracketed IPv6, and optional port.
-  # Reject paths, credentials, query strings, and Compose/YAML interpolation.
+  [[ -n "$DASHBOARD_ORIGIN" ]] || break
   if [[ "$DASHBOARD_ORIGIN" =~ ^https?://([A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?|\[[A-Fa-f0-9:]+\])(:[0-9]{1,5})?$ ]]; then
-    ORIGIN_AUTHORITY="${DASHBOARD_ORIGIN#*://}"
-    if [[ "$ORIGIN_AUTHORITY" =~ :([0-9]+)$ ]]; then
-      ORIGIN_PORT=$((10#${BASH_REMATCH[1]}))
-      if (( ORIGIN_PORT < 1 || ORIGIN_PORT > 65535 )); then
-        echo "Origin port must be from 1 to 65535." >/dev/tty
-        continue
-      fi
+    AUTHORITY="${DASHBOARD_ORIGIN#*://}"
+    if [[ "$AUTHORITY" =~ :([0-9]+)$ ]]; then
+      P=$((10#${BASH_REMATCH[1]}))
+      if (( P < 1 || P > 65535 )); then echo "Invalid origin port" >/dev/tty; continue; fi
     fi
     break
   fi
-  echo "Enter an http:// or https:// origin without a path, credentials, query, or fragment." >/dev/tty
+  echo "Enter an HTTP(S) origin without paths, credentials or interpolation." >/dev/tty
 done
-
-printf 'Enable TernDev dev-bootstrap hook? [y/N]: ' >/dev/tty
-read -r ENABLE_DEVBOOTSTRAP </dev/tty
-if [[ "${ENABLE_DEVBOOTSTRAP,,}" == "y" ]]; then
-  SSH_AUTH_ENV='      SSH_AUTH_SOCK: /tmp/ssh-agent.socket'
-  SSH_AGENT_VOLUME='      - ${SSH_AUTH_SOCK}:/tmp/ssh-agent.socket:ro'
-  DEVBOOTSTRAP_COMMAND='    command: ["dev-bootstrap"]'
-else
-  SSH_AUTH_ENV='      # SSH_AUTH_SOCK: /tmp/ssh-agent.socket'
-  SSH_AGENT_VOLUME='      # - ${SSH_AUTH_SOCK}:/tmp/ssh-agent.socket:ro'
-  DEVBOOTSTRAP_COMMAND='    # command: ["dev-bootstrap"]'
+if [[ -z "${DDASH_DEV_BOOTSTRAP+x}" ]]; then
+  read -r -p 'Enable TernDev dev-bootstrap hook? [y/N]: ' ANSWER </dev/tty
+  DDASH_DEV_BOOTSTRAP=0
+  [[ "${ANSWER,,}" != y ]] || DDASH_DEV_BOOTSTRAP=1
 fi
-
-mkdir -p "${CONFIG_DIR}"
-cat > "${COMPOSE_FILE}" <<EOF
+mkdir -p "$CONFIG_DIR"
+cat > "$COMPOSE_FILE" <<EOF
 # Generated by run-dashboard-compose.sh. Re-running overwrites this file.
 services:
   dashboard:
     image: ${IMAGE}
     ports:
       - '\${DASHBOARD_BIND_ADDRESS:-127.0.0.1}:3000:3000'
-${DEVBOOTSTRAP_COMMAND}
     environment:
       DASHBOARD_PASSWORD: \${DASHBOARD_PASSWORD:?DASHBOARD_PASSWORD must be set}
       ORIGIN: '${DASHBOARD_ORIGIN}'
-      HOST_HOSTNAME: ${HOSTNAME:-}
-      WORKSPACE_ROOT: ${WORKSPACE_ROOT}
+      HOST_USER: '${HOST_USER}'
+      HOST_UID: '${HOST_UID}'
+      HOST_GID: '${HOST_GID}'
+      HOST_HOME: '${HOST_HOME}'
+      HOST_HOSTNAME: \${HOSTNAME:-}
+      WORKSPACE_ROOT: '${WORKSPACE_ROOT}'
       PRESETS_FILE: /data/presets.json
       VSCODE_SSH_HOST: \${VSCODE_SSH_HOST:-}
-${SSH_AUTH_ENV}
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      # Host and container workspace paths must match.
-      - ${WORKSPACE_ROOT}:${WORKSPACE_ROOT}:rw
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+        bind:
+          create_host_path: false
+      - type: bind
+        source: '${WORKSPACE_ROOT}'
+        target: '${WORKSPACE_ROOT}'
+        bind:
+          create_host_path: false
       - dashboard_data:/data
-      - ddash_zsh_data:/home/ddash/.zsh_data
-${SSH_AGENT_VOLUME}
-      # - \${HOME}/.ssh:/home/ddash/.ssh:ro
-      # - \${HOME}/my-dashboard-hooks:/docker-entrypoint.d:ro
+      - ddash_zsh_data:/dashboard-history
+EOF
+if [[ "${DDASH_SSH_DIRECTORY:-0}" == 1 ]]; then
+  [[ -d "$HOST_HOME/.ssh" ]] || fail "Missing host SSH directory: $HOST_HOME/.ssh"
+  cat >> "$COMPOSE_FILE" <<EOF
+      - type: bind
+        source: '${HOST_HOME}/.ssh'
+        target: '${HOST_HOME}/.ssh'
+        read_only: true
+        bind:
+          create_host_path: false
+EOF
+fi
+if [[ -n "${SSH_AUTH_SOCK:-}" ]]; then
+  [[ "$SSH_AUTH_SOCK" =~ ^/[a-zA-Z0-9_./\ -]+$ ]] || fail "Unsupported SSH_AUTH_SOCK path"
+  cat >> "$COMPOSE_FILE" <<EOF
+      - type: bind
+        source: '${SSH_AUTH_SOCK}'
+        target: '${SSH_AUTH_SOCK}'
+        read_only: true
+        bind:
+          create_host_path: false
+EOF
+  # Environment list was already emitted; use a service env_file only for the
+  # non-secret socket path, never the dashboard password.
+  printf 'SSH_AUTH_SOCK=%s\n' "$SSH_AUTH_SOCK" > "$CONFIG_DIR/ssh-agent.env"
+  printf '    env_file:\n      - ./ssh-agent.env\n' >> "$COMPOSE_FILE"
+fi
+[[ "$DDASH_DEV_BOOTSTRAP" != 1 ]] || printf '    command: ["dev-bootstrap"]\n' >> "$COMPOSE_FILE"
+cat >> "$COMPOSE_FILE" <<'EOF'
     restart: unless-stopped
-
 volumes:
   dashboard_data:
   ddash_zsh_data:
 EOF
-
-echo "Compose file written to: ${COMPOSE_FILE}"
-echo "Workspace:               ${WORKSPACE_ROOT}"
-if [[ "${ENABLE_DEVBOOTSTRAP,,}" == "y" ]]; then
-  echo "dev-bootstrap hook:      enabled (SSH_AUTH_SOCK must be set in your environment)"
-fi
-echo "Pulling latest image..."
-docker compose -f "${COMPOSE_FILE}" pull
-echo "Starting devcontainer-dashboard. Press Ctrl+C to stop."
+echo "Compose file written to: $COMPOSE_FILE"
 echo "Dashboard address: ${DASHBOARD_ORIGIN:-http://${DASHBOARD_BIND_ADDRESS:-127.0.0.1}:3000}"
-if [[ -n "$DASHBOARD_ORIGIN" ]]; then
-  echo "Configure your HTTPS/reverse proxy separately; Docker remains loopback-only by default."
-fi
-docker compose -f "${COMPOSE_FILE}" up
+docker compose -f "$COMPOSE_FILE" pull
+exec docker compose -f "$COMPOSE_FILE" up

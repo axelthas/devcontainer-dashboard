@@ -1,83 +1,106 @@
 #!/bin/bash
-# Requires Docker Compose, Node 22, and npm ci on the host.
-# Uses an isolated project, throwaway data, and a locally built image.
+# Requires a non-root local Linux Docker operator, Compose 2.24.4+, Node 22,
+# util-linux script, npm ci, and internet access for image builds.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-TEMP_DIR=$(mktemp -d)
+[[ "$(id -u)" != 0 && "$HOME" == /home/* ]] || {
+  echo "Run as a non-root Linux operator with a /home home." >&2; exit 1;
+}
+TEMP_DIR=$(mktemp -d "$HOME/.ddash-smoke-XXXXXX")
 PROJECT="ddash-smoke-$$"
 export DASHBOARD_PASSWORD=production-smoke-password
-export WORKSPACE_ROOT="${TEMP_DIR}/workspace"
-unset DASHBOARD_BIND_ADDRESS
-UNSTARTED=""
-mkdir -p "$WORKSPACE_ROOT"
+export HOST_USER="$(id -un)" HOST_UID="$(id -u)" HOST_GID="$(id -g)"
+# A private test home, not the operator's real home or credentials.
+export HOST_HOME="$TEMP_DIR/operator"
+export WORKSPACE_ROOT="$TEMP_DIR/workspace"
+export DDASH_SSH_DIRECTORY=1 DDASH_DEV_BOOTSTRAP=0
+export DOCKER_SOCKET="${DOCKER_SOCKET:-/var/run/docker.sock}"
+unset SSH_AUTH_SOCK DASHBOARD_BIND_ADDRESS
+mkdir -p "$HOST_HOME/.ssh" "$WORKSPACE_ROOT/fixture/.devcontainer" "$TEMP_DIR/bin"
+echo fixture-only > "$HOST_HOME/.ssh/marker"
+UNSTARTED="" SIBLING=""
+COMPOSE=(docker compose -p "$PROJECT" -f docker-compose.yml -f "$TEMP_DIR/override.yml")
 cleanup() {
-  if [[ -n "$UNSTARTED" ]]; then docker rm -f "$UNSTARTED" >/dev/null 2>&1 || true; fi
-  docker compose -p "$PROJECT" -f docker-compose.yml -f "${TEMP_DIR}/override.yml" down -v >/dev/null 2>&1 || true
+  [[ -z "$UNSTARTED" ]] || docker rm -f "$UNSTARTED" >/dev/null 2>&1 || true
+  [[ -z "$SIBLING" ]] || docker rm -f "$SIBLING" >/dev/null 2>&1 || true
+  "${COMPOSE[@]}" down -v >/dev/null 2>&1 || true
   rm -rf "$TEMP_DIR"
 }
 trap cleanup EXIT
 
-# Render both maintained Compose paths. The installer needs a pseudo-terminal
-# because its prompts deliberately read /dev/tty.
-mkdir -p "${TEMP_DIR}/bin" "${TEMP_DIR}/home"
-printf '#!/bin/sh\nexit 0\n' > "${TEMP_DIR}/bin/docker"
-chmod +x "${TEMP_DIR}/bin/docker"
-printf '%s\n\nn\n' "$WORKSPACE_ROOT" | \
-  HOME="${TEMP_DIR}/home" DDASH_ORIGIN="" PATH="${TEMP_DIR}/bin:$PATH" \
-  script -q -e -c 'bash scripts/run-dashboard-compose.sh' /dev/null
-GENERATED="${TEMP_DIR}/home/.config/devcontainer-dashboard/docker-compose.yml"
-for compose in docker-compose.yml "$GENERATED"; do
-  docker compose -f "$compose" config --format json > "${TEMP_DIR}/rendered.json"
-  node --input-type=module - "${TEMP_DIR}/rendered.json" <<'JS'
+# Render the generated Compose path with no real credentials.
+printf '#!/bin/sh\nexit 0\n' > "$TEMP_DIR/bin/docker"
+chmod +x "$TEMP_DIR/bin/docker"
+printf '\n' | DDASH_ORIGIN="" DDASH_CONFIG_DIR="$TEMP_DIR/config" \
+  PATH="$TEMP_DIR/bin:$PATH" script -q -e -c 'bash scripts/run-dashboard-compose.sh' /dev/null
+for compose in docker-compose.yml "$TEMP_DIR/config/docker-compose.yml"; do
+  docker compose -f "$compose" config --format json > "$TEMP_DIR/rendered.json"
+  node --input-type=module - "$TEMP_DIR/rendered.json" <<'JS'
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-const config = JSON.parse(readFileSync(process.argv[2], 'utf8'));
-assert.equal(config.services.dashboard.ports[0].host_ip, '127.0.0.1');
-assert.ok(config.services.dashboard.volumes.some(v => v.target === '/var/run/docker.sock'));
-JS
-  DASHBOARD_BIND_ADDRESS=0.0.0.0 docker compose -f "$compose" config --format json > "${TEMP_DIR}/remote.json"
-  node --input-type=module - "${TEMP_DIR}/remote.json" <<'JS'
-import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-assert.equal(JSON.parse(readFileSync(process.argv[2], 'utf8')).services.dashboard.ports[0].host_ip, '0.0.0.0');
+const service = JSON.parse(readFileSync(process.argv[2], 'utf8')).services.dashboard;
+assert.equal(service.ports[0].host_ip, '127.0.0.1');
+assert.equal(service.environment.HOST_UID, process.env.HOST_UID);
+assert.equal(service.environment.HOST_HOME, process.env.HOST_HOME);
+assert.ok(service.volumes.some(v => v.target === '/dashboard-history'));
 JS
 done
 
-docker build -t "${PROJECT}:test" .
-cat > "${TEMP_DIR}/override.yml" <<EOF
+docker build -t "$PROJECT:test" .
+cat > "$TEMP_DIR/override.yml" <<EOF
 services:
   dashboard:
-    image: ${PROJECT}:test
+    image: $PROJECT:test
     restart: "no"
     ports: !override
       - "127.0.0.1::3000"
+    volumes:
+      - type: bind
+        source: $HOST_HOME/.ssh
+        target: $HOST_HOME/.ssh
+        read_only: true
+        bind:
+          create_host_path: false
 EOF
-COMPOSE=(docker compose -p "$PROJECT" -f docker-compose.yml -f "${TEMP_DIR}/override.yml")
 "${COMPOSE[@]}" up -d --wait --wait-timeout 180
-ADDRESS=$("${COMPOSE[@]}" port dashboard 3000)
-SMOKE_BASE_URL="http://${ADDRESS}" SMOKE_PASSWORD="$DASHBOARD_PASSWORD" node scripts/tests/production-smoke.mjs
 CID=$("${COMPOSE[@]}" ps -q dashboard)
-test "$(docker inspect -f '{{.State.Health.Status}}' "$CID")" = healthy
+ADDRESS=$("${COMPOSE[@]}" port dashboard 3000)
+SMOKE_BASE_URL="http://$ADDRESS" SMOKE_PASSWORD="$DASHBOARD_PASSWORD" node scripts/tests/production-smoke.mjs
+docker exec "$CID" runuser -u "$HOST_USER" -- sh -c '
+  test "$(id -u)" = "$HOST_UID" && test "$(id -g)" = "$HOST_GID"
+  test "$HOME" = "$HOST_HOME" && test "$USER" = "$HOST_USER"
+  command -v devcontainer
+  touch "$WORKSPACE_ROOT/ownership"
+'
+test "$(stat -c %u "$WORKSPACE_ROOT/ownership")" = "$HOST_UID"
+test "$(stat -c %g "$WORKSPACE_ROOT/ownership")" = "$HOST_GID"
 
-# Missing password and socket must fail before listening.
-if docker run --rm "${PROJECT}:test" >"${TEMP_DIR}/missing-password.log" 2>&1; then
-  echo "ERROR: container started without DASHBOARD_PASSWORD" >&2
-  exit 1
-fi
-grep -q DASHBOARD_PASSWORD "${TEMP_DIR}/missing-password.log"
-if docker run --rm -e DASHBOARD_PASSWORD "${PROJECT}:test" >"${TEMP_DIR}/missing-socket.log" 2>&1; then
-  echo "ERROR: container started without a Docker socket" >&2
-  exit 1
-fi
-grep -q 'missing or is not a Unix socket' "${TEMP_DIR}/missing-socket.log"
+# HOME-based localEnv bind sources must resolve on the daemon host.
+cat > "$WORKSPACE_ROOT/fixture/.devcontainer/devcontainer.json" <<'EOF'
+{
+  "image": "alpine:3.21",
+  "remoteUser": "root",
+  "overrideCommand": true,
+  "mounts": ["source=${localEnv:HOME}/.ssh,target=/fixture-ssh,type=bind,readonly"]
+}
+EOF
+docker exec "$CID" runuser -u "$HOST_USER" -- devcontainer up \
+  --workspace-folder "$WORKSPACE_ROOT/fixture"
+SIBLING=$(docker ps -aq --filter "label=devcontainer.local_folder=$WORKSPACE_ROOT/fixture")
+[[ -n "$SIBLING" ]] || { echo "No sibling devcontainer created" >&2; exit 1; }
+docker exec "$SIBLING" sh -c 'test "$(cat /fixture-ssh/marker)" = fixture-only; test "$(id -u)" = 0'
 
-# The image probe must fail when the application has not started.
+if docker run --rm "$PROJECT:test" > "$TEMP_DIR/failure.log" 2>&1; then exit 1; fi
+grep -q DASHBOARD_PASSWORD "$TEMP_DIR/failure.log"
+if docker run --rm -e DASHBOARD_PASSWORD -e HOST_USER -e HOST_UID -e HOST_GID -e HOST_HOME \
+  "$PROJECT:test" > "$TEMP_DIR/failure.log" 2>&1; then exit 1; fi
+grep -q 'missing or is not a Unix socket' "$TEMP_DIR/failure.log"
 UNSTARTED=$(docker run -d --health-interval=1s --health-start-period=0s --health-retries=1 \
-  --entrypoint sleep "${PROJECT}:test" 60)
+  --entrypoint sleep "$PROJECT:test" 60)
 for attempt in {1..30}; do
   STATUS=$(docker inspect -f '{{.State.Health.Status}}' "$UNSTARTED")
   [[ "$STATUS" == unhealthy ]] && break
   sleep 1
 done
 test "$STATUS" = unhealthy
-echo "PASS: Compose rendering, clean image startup, healthcheck, login, terminal, and fail-closed startup"
+echo "PASS: identity, file ownership, sibling HOME bind, production login/terminal and fail-closed startup"

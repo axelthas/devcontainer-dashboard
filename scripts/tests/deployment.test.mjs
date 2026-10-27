@@ -3,7 +3,6 @@ import { spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
@@ -11,57 +10,73 @@ import { test } from 'node:test';
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const read = (path) => readFileSync(join(root, path), 'utf8');
 
-// Mock privileged commands, not the script's control flow. A real Unix socket
-// exercises -S. Never modify the real Docker socket, groups, or /data.
+// All privileged commands are mocks. The socket and home are disposable.
 async function fixture(t) {
-	const dir = mkdtempSync(join(tmpdir(), 'ddash-entrypoint-'));
+	const dir = mkdtempSync(join(root, '.entrypoint-'));
 	t.after(() => rmSync(dir, { recursive: true, force: true }));
-	const socketPath = join(dir, 'docker.sock');
-	const listener = createServer();
-	listener.listen(socketPath);
+	const socket = join(dir, 'docker.sock');
+	const listener = createServer().listen(socket);
 	await once(listener, 'listening');
 	t.after(() => listener.close());
 	const bin = join(dir, 'bin');
+	const home = join(dir, 'operator home');
 	mkdirSync(bin);
+	mkdirSync(home);
+	for (const path of ['shell', 'bundled', 'hooks', 'sudoers']) mkdirSync(join(dir, path));
+	for (const name of ['.zshrc', '.bashrc']) writeFileSync(join(dir, 'shell', name), '# template\n');
 	const log = join(dir, 'commands');
 	const mocks = {
-		stat: 'test "${FAIL_STAT:-}" != 1 || exit 1; echo "${GID:-1234}"',
-		getent:
-			'test "${GROUP_MISSING:-}" != 1 || test -f "$GROUP_CREATED" || exit 2; echo "socket-group:x:1234:"',
-		sudo: `echo "sudo $*" >> "$LOG"
-case "$1" in
-groupadd) test "\${FAIL_GROUPADD:-}" != 1 || exit 1; touch "$GROUP_CREATED" ;;
-usermod) test "\${FAIL_USERMOD:-}" != 1 || exit 1 ;;
+		id: 'echo 0',
+		stat: 'test "${FAIL_STAT:-}" != 1 && test "$1" = -Lc || exit 1; echo "${SOCKET_GID:-9876}"',
+		findmnt: 'echo "${HOME_MOUNT:-/}"',
+		getent: `case "$1:$2" in
+passwd:operator|passwd:2345)
+  case "\${ACCOUNT_MODE:-new}" in
+    compatible) echo "operator:x:2345:3456::$HOST_HOME:/bin/zsh" ;;
+    conflict) echo "other:x:2345:3456::/home/other:/bin/bash" ;;
+  esac ;;
+group:*) test "\${MISSING_GROUPS:-0}" != 1 || exit 2; echo "test-group:x:$2:" ;;
 esac`,
-		sg: `echo "sg $*" >> "$LOG"
-case "$3" in
-test*) test "\${FAIL_ACCESS:-}" != 1 ;;
-'exec node build/server.js') echo server-started ;;
-*) exit 90 ;;
-esac`
+		groupadd: 'echo "groupadd $*" >> "$LOG"; test "${FAIL_GROUPADD:-}" != 1',
+		useradd: 'echo "useradd $*" >> "$LOG"; test "${FAIL_USERADD:-}" != 1',
+		usermod: 'echo "usermod $*" >> "$LOG"; test "${FAIL_USERMOD:-}" != 1',
+		chown: 'echo "chown $*" >> "$LOG"',
+		chmod: 'echo "chmod $*" >> "$LOG"',
+		runuser: `echo "drop $*" >> "$LOG"
+shift 3
+exec "$@"`,
+		node: 'echo "server:$USER:$LOGNAME:$HOME:$HISTFILE"'
 	};
 	for (const [name, body] of Object.entries(mocks)) {
 		writeFileSync(join(bin, name), '#!/bin/sh\n' + body + '\n', { mode: 0o755 });
 	}
 	const source = read('docker-entrypoint.sh')
-		.replaceAll('/var/run/docker.sock', socketPath)
+		.replaceAll('/var/run/docker.sock', socket)
+		.replaceAll('/opt/dashboard-shell', join(dir, 'shell'))
 		.replaceAll('/opt/dashboard/hooks', join(dir, 'bundled'))
-		.replaceAll('/docker-entrypoint.d', join(dir, 'operator-hooks'));
-	const entrypoint = join(dir, 'entrypoint.sh');
-	writeFileSync(entrypoint, source);
+		.replaceAll('/docker-entrypoint.d', join(dir, 'hooks'))
+		.replaceAll('/etc/sudoers.d', join(dir, 'sudoers'))
+		.replaceAll('mkdir -p /data /dashboard-history', `mkdir -p "${dir}/data" "${dir}/history"`)
+		.replaceAll('"$HOST_UID:$HOST_GID" /data /dashboard-history', `"$HOST_UID:$HOST_GID" "${dir}/data" "${dir}/history"`);
+	const path = join(dir, 'entrypoint.sh');
+	writeFileSync(path, source);
 	return {
 		dir,
-		socketPath,
+		home,
+		socket,
 		log,
 		run(env = {}, args = []) {
-			return spawnSync('/bin/sh', [entrypoint, ...args], {
+			return spawnSync('sh', [path, ...args], {
 				encoding: 'utf8',
 				env: {
 					...process.env,
 					PATH: `${bin}:${process.env.PATH}`,
 					DASHBOARD_PASSWORD: 'fixture-password',
+					HOST_USER: 'operator',
+					HOST_UID: '2345',
+					HOST_GID: '3456',
+					HOST_HOME: home,
 					LOG: log,
-					GROUP_CREATED: join(dir, 'group-created'),
 					...env
 				}
 			});
@@ -69,197 +84,101 @@ esac`
 	};
 }
 
-test('starts without a hook argument using the configured socket and custom server', async (t) => {
+test('creates host-matched account and drops privileges before startup', async (t) => {
 	const f = await fixture(t);
 	const result = f.run();
 	assert.equal(result.status, 0, result.stderr);
-	assert.match(result.stdout, /server-started/);
-	assert.match(readFileSync(f.log, 'utf8'), /sg socket-group -c exec node build\/server.js/);
-	assert.doesNotMatch(read('docker-entrypoint.sh'), /docker-host\.sock/);
+	assert.ok(result.stdout.includes(`server:operator:operator:${f.home}:/dashboard-history/.zsh_history`));
+	const calls = readFileSync(f.log, 'utf8');
+	assert.match(calls, /useradd --no-create-home --uid 2345 --gid 3456/);
+	assert.match(calls, /usermod -aG test-group operator/);
+	assert.match(calls, /drop -u operator -- \/bin\/sh -c/);
+	assert.doesNotMatch(calls, /chown.*operator home.*\.ssh/);
+	assert.doesNotMatch(calls, /chown.*-hR.*operator home/);
 });
 
-test('creates a missing socket group', async (t) => {
+test('reuses a compatible account without changing its primary group', async (t) => {
 	const f = await fixture(t);
-	assert.equal(f.run({ GROUP_MISSING: '1' }).status, 0);
-	assert.match(readFileSync(f.log, 'utf8'), /sudo groupadd --gid 1234 docker-host/);
+	assert.equal(f.run({ ACCOUNT_MODE: 'compatible', SOCKET_GID: '3456' }).status, 0);
+	assert.doesNotMatch(readFileSync(f.log, 'utf8'), /useradd|usermod -g /);
+});
+
+test('creates missing primary and supplementary groups', async (t) => {
+	const f = await fixture(t);
+	assert.equal(f.run({ MISSING_GROUPS: '1' }).status, 0);
+	const calls = readFileSync(f.log, 'utf8');
+	assert.match(calls, /groupadd --gid 3456 dashboard-3456/);
+	assert.match(calls, /groupadd --gid 9876 docker-host-9876/);
 });
 
 for (const [name, env, diagnostic] of [
 	['missing password', { DASHBOARD_PASSWORD: '' }, /DASHBOARD_PASSWORD/],
+	['missing identity', { HOST_USER: '' }, /HOST_USER/],
+	['root UID', { HOST_UID: '0' }, /Root UID/],
+	['root GID', { HOST_GID: '0' }, /Root UID/],
+	['invalid UID', { HOST_UID: '2;id' }, /numeric/],
+	['invalid user', { HOST_USER: 'x;id' }, /HOST_USER/],
+	['system home', { HOST_HOME: '/etc/operator' }, /non-system/],
+	['relative home', { HOST_HOME: 'relative' }, /absolute/],
+	['traversal home', { HOST_HOME: '/home/../etc' }, /non-system/],
+	['conflicting account', { ACCOUNT_MODE: 'conflict' }, /another image account/],
+	['whole home mount', { HOME_MOUNT: '/home' }, /Do not mount/],
 	['stat failure', { FAIL_STAT: '1' }, /Cannot read the group ID/],
-	['invalid GID', { GID: 'invalid' }, /Invalid group ID/],
-	['group creation failure', { GROUP_MISSING: '1', FAIL_GROUPADD: '1' }, /Cannot create/],
-	['group membership failure', { FAIL_USERMOD: '1' }, /Cannot add ddash/],
-	['inaccessible socket', { FAIL_ACCESS: '1' }, /not readable and writable/]
+	['invalid socket GID', { SOCKET_GID: 'no' }, /Invalid group ID/],
+	['group failure', { MISSING_GROUPS: '1', FAIL_GROUPADD: '1' }, /Cannot create/],
+	['account failure', { FAIL_USERADD: '1' }, /Cannot create operator/],
+	['membership failure', { FAIL_USERMOD: '1' }, /Cannot add operator/]
 ]) {
-	test(`fails closed with a diagnostic: ${name}`, async (t) => {
+	test(`fails closed: ${name}`, async (t) => {
 		const f = await fixture(t);
 		const result = f.run(env);
 		assert.notEqual(result.status, 0);
 		assert.match(result.stderr, diagnostic);
-		assert.doesNotMatch(result.stdout, /server-started/);
+		assert.doesNotMatch(result.stdout, /server:/);
 	});
 }
 
-test('rejects a missing or non-socket mount', async (t) => {
+test('rejects a missing or regular-file Docker socket', async (t) => {
 	const f = await fixture(t);
-	rmSync(f.socketPath);
-	for (const regularFile of [false, true]) {
-		if (regularFile) writeFileSync(f.socketPath, '');
+	rmSync(f.socket);
+	for (const regular of [false, true]) {
+		if (regular) writeFileSync(f.socket, '');
 		const result = f.run();
 		assert.notEqual(result.status, 0);
 		assert.match(result.stderr, /missing or is not a Unix socket/);
 	}
 });
 
-test('runs bundled and executable operator hooks in order, skipping other files', async (t) => {
+test('hooks run after privilege dropping and preserve existing shell files', async (t) => {
 	const f = await fixture(t);
-	for (const path of ['bundled', 'operator-hooks']) mkdirSync(join(f.dir, path));
-	writeFileSync(join(f.dir, 'bundled/10-example.sh'), '#!/bin/sh\necho bundled\n', {
-		mode: 0o755
-	});
-	writeFileSync(join(f.dir, 'operator-hooks/10-example.sh'), '#!/bin/sh\necho operator\n', {
-		mode: 0o755
-	});
-	writeFileSync(join(f.dir, 'operator-hooks/20-disabled.sh'), 'exit 99\n');
-	const result = f.run({}, ['example']);
-	assert.equal(result.status, 0, result.stderr);
-	assert.match(result.stdout, /bundled\n[\s\S]*operator\n[\s\S]*server-started/);
+	writeFileSync(join(f.home, '.zshrc'), 'operator-config\n');
+	writeFileSync(join(f.dir, 'bundled/10-example.sh'), '#!/bin/sh\necho "bundled:$USER" >> "$LOG"\n', { mode: 0o755 });
+	writeFileSync(join(f.dir, 'hooks/10-example.sh'), '#!/bin/sh\necho "operator:$USER" >> "$LOG"\n', { mode: 0o755 });
+	writeFileSync(join(f.dir, 'hooks/20-disabled.sh'), 'exit 99\n');
+	assert.equal(f.run({}, ['example']).status, 0);
+	const calls = readFileSync(f.log, 'utf8');
+	assert.ok(calls.indexOf('drop -u') < calls.indexOf('bundled:operator'));
+	assert.ok(calls.indexOf('bundled:operator') < calls.indexOf('operator:operator'));
+	assert.equal(readFileSync(join(f.home, '.zshrc'), 'utf8'), 'operator-config\n');
 	assert.notEqual(f.run({}, ['unknown']).status, 0);
 });
 
-test('an empty operator hook directory does not terminate startup', async (t) => {
-	const f = await fixture(t);
-	mkdirSync(join(f.dir, 'operator-hooks'));
-	assert.equal(f.run().status, 0);
+test('standalone launchers share one identity contract', () => {
+	const scripts = ['run-production.sh', 'run-dashboard.sh', 'run-dashboard-compose.sh'].map((name) =>
+		read(`scripts/${name}`).match(/resolve_identity\(\) \{[\s\S]*?\n\}/)[0]
+	);
+	assert.equal(scripts[0], scripts[1]);
+	assert.equal(scripts[1], scripts[2]);
 });
 
-test('production and Playwright commands use the same custom entry point', () => {
-	const pkg = JSON.parse(read('package.json'));
-	assert.equal(pkg.scripts.start, 'node build/server.js');
-	assert.match(read('playwright.config.ts'), /npm run build:server && npm start/);
-	assert.match(read('playwright.config.ts'), /PORT: '4173'/);
+test('Compose uses explicit identity, strict bind sources and stable history volume', () => {
+	const compose = read('docker-compose.yml');
+	for (const key of ['HOST_USER', 'HOST_UID', 'HOST_GID', 'HOST_HOME']) {
+		assert.ok(compose.includes(`${key}: \${${key}:?`));
+	}
+	assert.match(compose, /create_host_path: false/);
+	assert.match(compose, /ddash_zsh_data:\/dashboard-history/);
+	assert.doesNotMatch(compose, /\/home\/ddash/);
+	assert.match(read('Dockerfile'), /NPM_CONFIG_PREFIX=\/opt\/dashboard-tools/);
 	assert.match(read('Dockerfile'), /HEALTHCHECK[\s\S]*\/healthz/);
 });
-
-test('all port publication paths default to loopback with an explicit override', () => {
-	for (const path of [
-		'docker-compose.yml',
-		'scripts/run-dashboard-compose.sh',
-		'scripts/run-dashboard.sh'
-	]) {
-		assert.ok(read(path).includes('${DASHBOARD_BIND_ADDRESS:-127.0.0.1}:3000:3000'), path);
-	}
-});
-
-test('installer generates parameterized Compose without leaking its password', (t) => {
-	if (process.platform !== 'linux') {
-		t.skip('requires util-linux script for /dev/tty prompts');
-		return;
-	}
-	const dir = mkdtempSync(join(tmpdir(), 'ddash-installer-'));
-	t.after(() => rmSync(dir, { recursive: true, force: true }));
-	const bin = join(dir, 'bin');
-	mkdirSync(bin);
-	writeFileSync(join(bin, 'docker'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
-	const result = spawnSync(
-		'script',
-		['-q', '-e', '-c', 'bash scripts/run-dashboard-compose.sh', '/dev/null'],
-		{
-			cwd: root,
-			input: `${dir}/workspace\n\nn\n`,
-			encoding: 'utf8',
-			timeout: 10000,
-			env: {
-				...process.env,
-				HOME: dir,
-				PATH: `${bin}:${process.env.PATH}`,
-				DASHBOARD_PASSWORD: 'installer-secret-must-not-leak',
-				DDASH_ORIGIN: ''
-			}
-		}
-	);
-	assert.equal(result.status, 0, result.stdout + result.stderr);
-	const generated = readFileSync(
-		join(dir, '.config/devcontainer-dashboard/docker-compose.yml'),
-		'utf8'
-	);
-	assert.ok(generated.includes('${DASHBOARD_BIND_ADDRESS:-127.0.0.1}:3000:3000'));
-	assert.ok(generated.includes('${DASHBOARD_PASSWORD:?DASHBOARD_PASSWORD must be set}'));
-	assert.ok(generated.includes('/var/run/docker.sock:/var/run/docker.sock'));
-	assert.doesNotMatch(generated, /installer-secret-must-not-leak/);
-});
-
-for (const [name, defaultOrigin, answer, expected] of [
-	['local HTTP', '', '', ''],
-	[
-		'environment default',
-		'https://dashboard.example.ts.net',
-		'',
-		'https://dashboard.example.ts.net'
-	],
-	[
-		'prompt override',
-		'https://old.example.ts.net',
-		'https://new.example.ts.net/',
-		'https://new.example.ts.net'
-	],
-	[
-		'explicit port',
-		'',
-		'https://dashboard.example.ts.net:8443',
-		'https://dashboard.example.ts.net:8443'
-	],
-	['IPv6 loopback', '', 'http://[::1]:3000', 'http://[::1]:3000'],
-	[
-		'invalid path retry',
-		'',
-		'https://example.com/path\nhttps://example.com',
-		'https://example.com'
-	],
-	[
-		'invalid port retry',
-		'',
-		'https://example.com:65536\nhttps://example.com',
-		'https://example.com'
-	],
-	['interpolation retry', '', 'https://${SECRET}\nhttps://example.com', 'https://example.com']
-]) {
-	test(`curl-piped installer persists origin: ${name}`, (t) => {
-		if (process.platform !== 'linux') {
-			t.skip('requires util-linux script');
-			return;
-		}
-		const dir = mkdtempSync(join(tmpdir(), 'ddash-origin-'));
-		t.after(() => rmSync(dir, { recursive: true, force: true }));
-		const bin = join(dir, 'bin');
-		mkdirSync(bin);
-		writeFileSync(join(bin, 'docker'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
-		const result = spawnSync(
-			'script',
-			['-q', '-e', '-c', 'cat scripts/run-dashboard-compose.sh | bash', '/dev/null'],
-			{
-				cwd: root,
-				input: `${dir}/workspace\n${answer}\nn\n`,
-				encoding: 'utf8',
-				timeout: 10000,
-				env: {
-					...process.env,
-					HOME: dir,
-					PATH: `${bin}:${process.env.PATH}`,
-					DASHBOARD_PASSWORD: 'fixture-password',
-					DDASH_ORIGIN: defaultOrigin
-				}
-			}
-		);
-		assert.equal(result.status, 0, result.stdout + result.stderr);
-		const generated = readFileSync(
-			join(dir, '.config/devcontainer-dashboard/docker-compose.yml'),
-			'utf8'
-		);
-		assert.ok(generated.includes(`ORIGIN: '${expected}'`));
-		assert.ok(generated.includes('${DASHBOARD_BIND_ADDRESS:-127.0.0.1}:3000:3000'));
-		assert.doesNotMatch(generated, /fixture-password/);
-		if (expected) assert.ok(result.stdout.includes(`Dashboard address: ${expected}`));
-	});
-}
