@@ -1,6 +1,8 @@
 services:
   dashboard:
     image: ghcr.io/axelthas/devcontainer-dashboard:latest
+    # Polaris support is not in the published image yet: run `docker compose up -d --build`.
+    build: .
     ports:
       - '${DASHBOARD_BIND_ADDRESS:-127.0.0.1}:3000:3000'
     # Optional TernDev hook. Requires SSH access for the private clone.
@@ -12,6 +14,37 @@ services:
       PRESETS_FILE: /data/presets.json
       VSCODE_SSH_HOST: ${VSCODE_SSH_HOST:-}
       # SSH_AUTH_SOCK: /tmp/ssh-agent.socket
+      # ── Polaris multi-instance support ────────────────────────────────────
+      # Container-side path where generated instance files are stored
+      POLARIS_INSTANCES_DIR: /polaris-instances
+      # HOST-side absolute path to the same directory.
+      # MUST match the host path of the `polaris-instances` bind-mount below so
+      # that generated docker-compose files reference correct host paths.
+      POLARIS_INSTANCES_HOST_PATH: ${POLARIS_INSTANCES_HOST_PATH:-${PWD}/polaris-instances}
+      # Source directories for Polaris repositories
+      # Any POLARIS_*_SOURCE env var is auto-detected and shown in "New Instance" dialog
+      POLARIS_ICE_SOURCE: /polaris-source/polaris-ice
+      POLARIS_QKT_SOURCE: /polaris-source/polaris-qkt
+      POLARIS_MAG_SOURCE: /polaris-source/polaris-mag
+      # Registry prefix of the local sandbox images, e.g. registry.example.com.
+      # Required to create polaris-mag instances (their hosts files are read from the image).
+      POLARIS_IMAGE_REGISTRY: ${POLARIS_IMAGE_REGISTRY:-}
+      # Per-variant addressing: fallback subnet and address rewrites for new instances.
+      # Format: polaris-variants.example.json. A missing file means no rewrites.
+      POLARIS_VARIANTS_FILE: ${POLARIS_VARIANTS_FILE:-/data/polaris-variants.json}
+      # Container path for orion-environmental.json inside polaris containers
+      ORION_ENVIRONMENTAL_JSON_PATH: ${ORION_ENVIRONMENTAL_JSON_PATH:-/usr/share/polaris/config/orion-environmental.json}
+      # ── Nginx reverse-proxy integration (optional) ────────────────────────
+      # When set, the "Update Nginx" button generates /etc/nginx/conf.d/
+      # entries mapping <container>.NGINX_DOMAIN → NoVNC port (6904) via HTTPS.
+      # Requires passwordless sudo for: tee /etc/nginx/conf.d/* and systemctl reload nginx
+      NGINX_DOMAIN: ${NGINX_DOMAIN:-}
+      NGINX_CERT_FULLCHAIN: ${NGINX_CERT_FULLCHAIN:-}
+      NGINX_CERT_KEY: ${NGINX_CERT_KEY:-}
+      NGINX_HTPASSWD: ${NGINX_HTPASSWD:-}
+      NGINX_CONF_PATH: ${NGINX_CONF_PATH:-/etc/nginx/conf.d/polaris-dashboard.conf}
+      NGINX_SSL_OPTIONS: ${NGINX_SSL_OPTIONS:-}
+      NGINX_SSL_DHPARAM: ${NGINX_SSL_DHPARAM:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       # Keep host and container workspace paths identical for devcontainer operations.
@@ -23,6 +56,13 @@ services:
       # - ${HOME}/.ssh:/home/ddash/.ssh:ro
       # Operator hooks run in alphabetical order:
       # - ${HOME}/my-dashboard-hooks:/docker-entrypoint.d:ro
+      # Generated instance files (docker-compose.yml, hosts files, orion config)
+      # The host path MUST match POLARIS_INSTANCES_HOST_PATH
+      - ${POLARIS_INSTANCES_HOST_PATH:-./polaris-instances}:/polaris-instances
+      # Polaris source repos (read-only) for generating new instances
+      - ${POLARIS_ICE_REPO:-/dev/null}:/polaris-source/polaris-ice:ro
+      - ${POLARIS_QKT_REPO:-/dev/null}:/polaris-source/polaris-qkt:ro
+      - ${POLARIS_MAG_REPO:-/dev/null}:/polaris-source/polaris-mag:ro
     restart: unless-stopped
 
 volumes:

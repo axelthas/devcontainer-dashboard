@@ -6,6 +6,15 @@ import {
 	resolveContainerWorkspaceFolder,
 	WORKSPACE_ROOT
 } from '$lib/server/workspaces';
+import {
+	getPolarisType,
+	groupIntoInstances,
+	getAvailableSources,
+	getAvailableTagsForSource,
+	getServicesFromCompose,
+	getDefaultServices
+} from '$lib/server/polaris-manager';
+import { getNginxConfig } from '$lib/server/nginx-manager';
 import type { ContainerData } from '$lib/types';
 import type { PageServerLoad } from './$types';
 
@@ -65,11 +74,16 @@ export const load: PageServerLoad = async () => {
 
 		const rawName = c.Names?.[0] ?? c.Id;
 		const image = c.Image ?? '';
-		const labels = c.Labels ?? {};
+		const labels = (c.Labels ?? {}) as Record<string, string>;
 		const composeProject = labels['com.docker.compose.project'] ?? undefined;
 
-		// Exclude containers with no exposed ports, unless they belong to a compose project
-		if (Object.keys(ports).length === 0 && !composeProject) continue;
+		// Exclude containers with no exposed ports, unless they belong to a compose project or are Polaris containers
+		if (
+			Object.keys(ports).length === 0 &&
+			!composeProject &&
+			!getPolarisType(rawName, composeProject, image)
+		)
+			continue;
 
 		const localWorkspacePath = labels['devcontainer.local_folder'] ?? undefined;
 		const projectName = localWorkspacePath
@@ -89,7 +103,12 @@ export const load: PageServerLoad = async () => {
 			containerWorkspaceFolder: localWorkspacePath
 				? resolveContainerWorkspaceFolder(c.Mounts, localWorkspacePath)
 				: undefined,
-			composeProject
+			composeProject,
+			composeWorkingDir: labels['com.docker.compose.project.working_dir'] ?? undefined,
+			composeConfigFiles: labels['com.docker.compose.project.config_files'] ?? undefined,
+			ipAddress:
+				Object.values(c.NetworkSettings?.Networks ?? {}).find((n) => n.IPAddress)?.IPAddress ||
+				undefined
 		});
 	}
 
@@ -99,11 +118,25 @@ export const load: PageServerLoad = async () => {
 
 	const workspaces = await loadMergedWorkspaces();
 
+	const polarisInstances = groupIntoInstances(containers);
+	const sourceDirs = getAvailableSources();
+	const availableSources = await Promise.all(
+		Object.keys(sourceDirs).map(async (type) => ({
+			type,
+			tags: await getAvailableTagsForSource(type),
+			allServices: getServicesFromCompose(type),
+			defaultServices: getDefaultServices(type)
+		}))
+	);
+
 	return {
 		containers,
 		hostname: hostName,
 		workspaces,
 		workspaceRoot: WORKSPACE_ROOT,
-		vscodeSshHost
+		vscodeSshHost,
+		polarisInstances,
+		availableSources,
+		nginxDomain: getNginxConfig()?.domain ?? null
 	};
 };

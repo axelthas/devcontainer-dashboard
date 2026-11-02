@@ -1,0 +1,11 @@
+{
+	"polaris-mag": {
+		"ipRewrites": {
+			"172.31.1.": "192.168.{octet}.",
+			"172.31.41.": "10.{octet}.41."
+		}
+	},
+	"polaris-qkt": {
+		"fallbackSubnet": "10.200.1.0/24"
+	}
+}

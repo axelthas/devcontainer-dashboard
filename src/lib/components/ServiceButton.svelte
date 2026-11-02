@@ -11,6 +11,8 @@
 		projectName?: string;
 		workspacePath?: string;
 		allPorts?: Record<string, string>;
+		/** When set, NoVNC (port 6904) opens https://<containerName>.<nginxDomain> */
+		nginxDomain?: string;
 	}
 
 	let {
@@ -21,11 +23,18 @@
 		containerName,
 		projectName,
 		workspacePath,
-		allPorts
+		allPorts,
+		nginxDomain
 	}: Props = $props();
 
 	function openService() {
 		if (!running) return;
+		// If nginx integration is configured and this is NoVNC, use the HTTPS subdomain
+		if (nginxDomain && containerPort === '6904' && containerName) {
+			const cleanName = containerName.replace(/^\//, '').replace(/^polaris-/, '');
+			window.open(`https://${cleanName}.${nginxDomain}`, '_blank');
+			return;
+		}
 		const serviceHostname = window.location.hostname;
 		const serviceUrl = `http://${serviceHostname}:${hostPort}`;
 		if (containerName || projectName) {

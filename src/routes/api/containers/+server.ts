@@ -2,6 +2,7 @@ import { basename } from 'node:path';
 import { json } from '@sveltejs/kit';
 import docker from '$lib/server/docker';
 import { resolveContainerWorkspaceFolder } from '$lib/server/workspaces';
+import { getPolarisType } from '$lib/server/polaris-manager';
 import type { ContainerData } from '$lib/types';
 import type { RequestHandler } from './$types';
 
@@ -62,11 +63,16 @@ export const GET: RequestHandler = async () => {
 
 		const rawName = c.Names?.[0] ?? c.Id;
 		const image = c.Image ?? '';
-		const labels = c.Labels ?? {};
+		const labels = (c.Labels ?? {}) as Record<string, string>;
 		const composeProject = labels['com.docker.compose.project'] ?? undefined;
 
-		// Exclude containers with no exposed host ports, unless they belong to a compose project
-		if (Object.keys(ports).length === 0 && !composeProject) continue;
+		// Exclude containers with no exposed host ports, unless they belong to a compose project or are Polaris containers
+		if (
+			Object.keys(ports).length === 0 &&
+			!composeProject &&
+			!getPolarisType(rawName, composeProject, image)
+		)
+			continue;
 
 		const localWorkspacePath = labels['devcontainer.local_folder'] ?? undefined;
 		const projectName = localWorkspacePath
@@ -86,7 +92,9 @@ export const GET: RequestHandler = async () => {
 			containerWorkspaceFolder: localWorkspacePath
 				? resolveContainerWorkspaceFolder(c.Mounts, localWorkspacePath)
 				: undefined,
-			composeProject
+			composeProject,
+			composeWorkingDir: labels['com.docker.compose.project.working_dir'] ?? undefined,
+			composeConfigFiles: labels['com.docker.compose.project.config_files'] ?? undefined
 		});
 	}
 

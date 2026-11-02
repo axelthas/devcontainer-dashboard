@@ -10,9 +10,10 @@
 		vscodeSshHost: string;
 		onRefresh: () => Promise<void>;
 		onOpenTerminal?: (id: string, command: string, name: string, cwd: string) => void;
+		nginxDomain?: string;
 	}
 
-	let { container, vscodeSshHost, onRefresh, onOpenTerminal }: Props = $props();
+	let { container, vscodeSshHost, onRefresh, onOpenTerminal, nginxDomain }: Props = $props();
 
 	const isRunning = $derived(container.state === 'running');
 
@@ -71,6 +72,7 @@
 				projectName={container.projectName}
 				workspacePath={container.localWorkspacePath}
 				allPorts={container.ports}
+				{nginxDomain}
 			/>
 		{/each}
 	</div>

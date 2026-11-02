@@ -10,6 +10,12 @@ export interface PortConfig {
 }
 
 export const PORT_MAP: Record<string, PortConfig> = {
+	'5904': {
+		label: 'VNC',
+		icon: Monitor,
+		colorClass:
+			'text-[#5e81ac] bg-[#81a1c1]/10 border-[#81a1c1]/20 hover:bg-[#81a1c1]/20 dark:text-[#81a1c1] dark:bg-[#81a1c1]/10 dark:border-[#81a1c1]/20 dark:hover:bg-[#81a1c1]/30'
+	},
 	'6904': {
 		label: 'NoVNC',
 		icon: Monitor,

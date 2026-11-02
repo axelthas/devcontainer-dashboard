@@ -12,6 +12,10 @@ export interface ContainerData {
 	/** Path the workspace is mounted at inside the container */
 	containerWorkspaceFolder?: string;
 	composeProject?: string;
+	composeWorkingDir?: string;
+	composeConfigFiles?: string;
+	/** Address on the container's first network; only set while it is running */
+	ipAddress?: string;
 }
 
 export interface RepositoryData {
@@ -102,4 +106,38 @@ export interface TerminalSession {
 	cwd?: string;
 	startedAt?: string;
 	status?: 'running' | 'exited';
+}
+
+export type PolarisMode = 'training' | 'playback' | 'testing' | 'operational';
+/** Any polaris-* variant, e.g. 'polaris-ice', 'polaris-qkt', 'polaris-mag' */
+export type PolarisType = string;
+
+export interface PolarisRegistryEntry {
+	id: string;
+	type: PolarisType;
+	subnetOctet: number;
+	instanceDir: string;
+	composeFile: string;
+	createdAt: string;
+	currentMode?: PolarisMode;
+	/** Subset of compose services to start (undefined = start all). */
+	services?: string[];
+	/** 'nginx' (default) opens NoVNC via nginx subdomain; 'local' opens directly via host port. */
+	novncMode?: 'nginx' | 'local';
+}
+
+export interface PolarisInstance {
+	id: string;
+	type: PolarisType;
+	subnet: string;
+	instanceDir?: string;
+	composeFile?: string;
+	workingDir?: string;
+	managedByDashboard: boolean;
+	containers: ContainerData[];
+	currentMode?: PolarisMode;
+	/** Services configured to start for this instance. */
+	services?: string[];
+	/** 'nginx' (default) opens NoVNC via nginx subdomain; 'local' opens directly via host port. */
+	novncMode?: 'nginx' | 'local';
 }

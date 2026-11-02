@@ -11,18 +11,36 @@
 		List,
 		Eye,
 		EyeOff,
-		LogOut
+		LogOut,
+		Plus,
+		Loader2,
+		X,
+		RefreshCw
 	} from 'lucide-svelte';
 	import { untrack } from 'svelte';
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
-	import type { ContainerData, LocalWorkspaceData, TerminalSession } from '$lib/types';
+	import type {
+		ContainerData,
+		LocalWorkspaceData,
+		PolarisInstance,
+		PolarisType,
+		TerminalSession
+	} from '$lib/types';
 	import DevcontainerCard from '$lib/components/DevcontainerCard.svelte';
 	import DevcontainerRow from '$lib/components/DevcontainerRow.svelte';
 	import SandboxRow from '$lib/components/SandboxRow.svelte';
 	import ComposeGroupRow from '$lib/components/ComposeGroupRow.svelte';
 	import LocalWorkspaces from '$lib/components/LocalWorkspaces.svelte';
+	import PolarisStack from '$lib/components/PolarisStack.svelte';
 	import BootstrapModal from '$lib/components/BootstrapModal.svelte';
 	import TerminalManager from '$lib/components/TerminalManager.svelte';
+
+	interface AvailableSource {
+		type: string;
+		tags: string[];
+		allServices: string[];
+		defaultServices: string[];
+	}
 
 	interface Props {
 		data: {
@@ -31,6 +49,9 @@
 			workspaces: LocalWorkspaceData[];
 			workspaceRoot: string;
 			vscodeSshHost: string;
+			polarisInstances: PolarisInstance[];
+			availableSources: AvailableSource[];
+			nginxDomain: string | null;
 		};
 	}
 
@@ -40,7 +61,26 @@
 	// polling handles subsequent updates
 	let containers = $state<ContainerData[]>(untrack(() => data.containers));
 	let workspaces = $state<LocalWorkspaceData[]>(untrack(() => data.workspaces));
+	let polarisInstances = $state<PolarisInstance[]>(untrack(() => data.polarisInstances));
+	let availableSources = $state<AvailableSource[]>(untrack(() => data.availableSources));
+	const nginxDomain = untrack(() => data.nginxDomain);
+	let updatingNginx = $state(false);
+	let nginxResult = $state<string | null>(null);
 	let dark = $state(true);
+
+	// New-instance dialog state
+	let showNewDialog = $state(false);
+	let newInstanceType = $state<PolarisType>('polaris-ice');
+	let newInstanceTag = $state<string>('');
+	let newInstanceServices = $state<string[]>([]);
+	let creatingInstance = $state(false);
+	let createError = $state<string | null>(null);
+
+	// Available tags/services for currently-selected type
+	const selectedSource = $derived(availableSources.find((s) => s.type === newInstanceType));
+	const tagsForSelectedType = $derived(selectedSource?.tags ?? []);
+	const allServicesForType = $derived(selectedSource?.allServices ?? []);
+	const defaultServicesForType = $derived(selectedSource?.defaultServices ?? []);
 
 	const THEME_KEY = 'devcontainer-dashboard-theme';
 
@@ -118,9 +158,19 @@
 	});
 
 	async function refreshContainers() {
-		const res = await fetch('/api/containers');
-		if (res.ok) {
-			containers = await res.json();
+		const [containersRes, stacksRes] = await Promise.all([
+			fetch('/api/containers'),
+			fetch('/api/stacks')
+		]);
+		if (containersRes.ok) containers = await containersRes.json();
+		if (stacksRes.ok) {
+			const { instances, availableSources: sources } = await stacksRes.json();
+			polarisInstances = instances;
+			availableSources = sources;
+			// Keep tag selection valid after poll
+			if (!tagsForSelectedType.includes(newInstanceTag)) {
+				newInstanceTag = tagsForSelectedType[0] ?? '';
+			}
 		}
 	}
 
@@ -154,8 +204,15 @@
 		});
 	}
 
+	// IDs of containers already shown in the Polaris section
+	const polarisContainerIds = $derived(
+		new Set(polarisInstances.flatMap((inst) => inst.containers.map((c) => c.id)))
+	);
+
 	const devcontainers = $derived(sortContainers(containers.filter((c) => c.isDevcontainer)));
-	const sandboxes = $derived(sortContainers(containers.filter((c) => !c.isDevcontainer)));
+	const sandboxes = $derived(
+		sortContainers(containers.filter((c) => !c.isDevcontainer && !polarisContainerIds.has(c.id)))
+	);
 	const standaloneSandboxes = $derived(sandboxes.filter((c) => !c.composeProject));
 	const composeGroups = $derived.by(() => {
 		const map = new SvelteMap<string, ContainerData[]>();
@@ -269,6 +326,47 @@
 		el.classList.add('highlight-flash');
 		setTimeout(() => el.classList.remove('highlight-flash'), 1500);
 	}
+
+	async function handleCreateInstance() {
+		creatingInstance = true;
+		createError = null;
+		try {
+			const res = await fetch('/api/stacks', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					type: newInstanceType,
+					tag: newInstanceTag || undefined,
+					services: newInstanceServices.length > 0 ? newInstanceServices : undefined
+				})
+			});
+			if (!res.ok) {
+				const body = await res.text();
+				throw new Error(body);
+			}
+			showNewDialog = false;
+			await refreshContainers();
+		} catch (err: unknown) {
+			createError = err instanceof Error ? err.message : String(err);
+		} finally {
+			creatingInstance = false;
+		}
+	}
+
+	async function handleUpdateNginx() {
+		updatingNginx = true;
+		nginxResult = null;
+		try {
+			const res = await fetch('/api/nginx', { method: 'POST' });
+			const body = await res.json();
+			if (!res.ok) throw new Error(body?.message ?? res.statusText);
+			nginxResult = `OK — ${body.entries?.length ?? 0} container(s) mapped to ${nginxDomain}`;
+		} catch (err: unknown) {
+			nginxResult = `Error: ${err instanceof Error ? err.message : String(err)}`;
+		} finally {
+			updatingNginx = false;
+		}
+	}
 </script>
 
 <div class={dark ? 'dark' : ''}>
@@ -356,6 +454,98 @@
 		</header>
 
 		<main class="mx-auto mt-8 max-w-7xl space-y-12 px-6">
+			<!-- ── Section: Polaris Instances ───────────────────────────────────── -->
+			{#if polarisInstances.length > 0 || availableSources.length > 0}
+				<section>
+					<div
+						class="mb-6 flex items-center justify-between border-b border-[#d8dee9] pb-2 dark:border-[#4c566a]"
+					>
+						<div class="flex items-center gap-2">
+							<Server size={20} class="text-[#88c0d0]" />
+							<h2 class="text-xl font-extrabold text-[#2e3440] dark:text-[#eceff4]">
+								Polaris Instances
+							</h2>
+							<span class="ml-1 text-sm font-medium text-[#4c566a] dark:text-[#d8dee9]/60">
+								({polarisInstances.length} instance{polarisInstances.length !== 1 ? 's' : ''})
+							</span>
+						</div>
+
+						{#if availableSources.length > 0}
+							<button
+								onclick={() => {
+									showNewDialog = true;
+									createError = null;
+									// Initialize type/tag/services to first available source
+									const first = availableSources[0];
+									if (first) {
+										newInstanceType = first.type as PolarisType;
+										newInstanceTag = first.tags[0] ?? '';
+										newInstanceServices = [...first.defaultServices];
+									}
+								}}
+								class="flex items-center gap-1.5 rounded-lg border border-[#88c0d0]/30 bg-[#88c0d0]/10 px-3 py-1.5 text-sm
+							       font-semibold text-[#88c0d0] transition-colors hover:bg-[#88c0d0]/20"
+								title="Create a new Polaris sandbox instance with an automatically allocated subnet"
+							>
+								<Plus size={16} />
+								New Instance
+							</button>
+						{/if}
+						{#if nginxDomain}
+							<button
+								onclick={handleUpdateNginx}
+								disabled={updatingNginx}
+								class="flex items-center gap-1.5 rounded-lg border border-[#a3be8c]/30 bg-[#a3be8c]/10 px-3 py-1.5 text-sm
+							       font-semibold text-[#a3be8c] transition-colors hover:bg-[#a3be8c]/20 disabled:cursor-not-allowed disabled:opacity-50"
+								title="Regenerate nginx reverse-proxy config for all running Polaris NoVNC ports"
+							>
+								{#if updatingNginx}
+									<Loader2 size={16} class="animate-spin" />
+								{:else}
+									<RefreshCw size={16} />
+								{/if}
+								Update Nginx
+							</button>
+						{/if}
+					</div>
+
+					{#if nginxResult}
+						<div
+							class="mb-4 rounded-lg border px-3 py-2 text-sm
+						{nginxResult.startsWith('Error')
+								? 'border-[#bf616a]/30 bg-[#bf616a]/10 text-[#bf616a]'
+								: 'border-[#a3be8c]/30 bg-[#a3be8c]/10 text-[#a3be8c]'}"
+						>
+							{nginxResult}
+						</div>
+					{/if}
+
+					{#if polarisInstances.length === 0}
+						<div
+							class="rounded-xl border border-[#d8dee9] bg-white p-8 text-center text-[#4c566a] italic dark:border-[#4c566a] dark:bg-[#3b4252] dark:text-[#d8dee9]/60"
+						>
+							No Polaris containers found. Start a stack with
+							<code class="rounded bg-[#eceff4] px-1 py-0.5 font-mono text-xs dark:bg-[#434c5e]"
+								>docker compose up -d</code
+							>
+							in the polaris project directory, or create a new instance here.
+						</div>
+					{:else}
+						<div class="space-y-6">
+							{#each polarisInstances as instance (instance.id)}
+								<PolarisStack
+									{instance}
+									{vscodeSshHost}
+									onRefresh={refreshContainers}
+									onOpenTerminal={handleOpenTerminal}
+									nginxDomain={nginxDomain ?? undefined}
+								/>
+							{/each}
+						</div>
+					{/if}
+				</section>
+			{/if}
+
 			<!-- Section 1: Active Devcontainers -->
 			<section>
 				<div
@@ -516,6 +706,223 @@
 			onClose={() => (bootstrapModalOpen = false)}
 			onRunBackground={handleRunBackground}
 		/>
+	{/if}
+
+	<!-- ── New Instance Dialog ──────────────────────────────────────────────────── -->
+	{#if showNewDialog}
+		<!-- Backdrop -->
+		<div
+			class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+			onclick={() => {
+				if (!creatingInstance) showNewDialog = false;
+			}}
+			onkeydown={(e) => {
+				if (e.key === 'Escape' && !creatingInstance) showNewDialog = false;
+			}}
+			role="dialog"
+			aria-modal="true"
+			aria-label="Create new Polaris instance"
+			tabindex="-1"
+		>
+			<!-- Modal -->
+			<div
+				class="w-full max-w-md space-y-5 rounded-2xl border border-[#d8dee9] bg-white p-6 shadow-2xl dark:border-[#4c566a] dark:bg-[#3b4252]"
+				onclick={(e) => e.stopPropagation()}
+				role="presentation"
+			>
+				<div class="flex items-center justify-between">
+					<div>
+						<h3 class="text-lg font-extrabold text-[#2e3440] dark:text-[#eceff4]">
+							New Polaris Instance
+						</h3>
+						<p class="mt-0.5 text-xs text-[#4c566a] dark:text-[#d8dee9]/60">
+							Allocates a new subnet and generates a modified docker-compose
+						</p>
+					</div>
+					<button
+						onclick={() => (showNewDialog = false)}
+						disabled={creatingInstance}
+						class="rounded-lg p-1.5 text-[#4c566a] transition-colors hover:bg-[#eceff4] disabled:opacity-40 dark:text-[#d8dee9]/70 dark:hover:bg-[#434c5e]"
+					>
+						<X size={18} />
+					</button>
+				</div>
+
+				<div class="space-y-3">
+					<p class="block text-sm font-semibold text-[#2e3440] dark:text-[#d8dee9]">
+						Instance type
+					</p>
+					<div class="flex gap-3" role="group" aria-label="Select instance type">
+						{#each availableSources as src (src.type)}
+							<button
+								onclick={() => {
+									newInstanceType = src.type as PolarisType;
+									newInstanceTag = src.tags[0] ?? '';
+									newInstanceServices = [...src.defaultServices];
+								}}
+								class="flex-1 rounded-xl border-2 px-4 py-2.5 text-sm font-semibold transition-colors
+							       {newInstanceType === src.type
+									? 'border-[#88c0d0] bg-[#88c0d0]/10 text-[#5e81ac] dark:text-[#88c0d0]'
+									: 'border-[#d8dee9] text-[#4c566a] hover:border-[#88c0d0]/50 dark:border-[#4c566a] dark:text-[#d8dee9]/70'}"
+								aria-pressed={newInstanceType === src.type}
+							>
+								{src.type}
+							</button>
+						{/each}
+					</div>
+				</div>
+
+				{#if tagsForSelectedType.length > 0}
+					<div class="space-y-2">
+						<label
+							for="tag-select"
+							class="block text-sm font-semibold text-[#2e3440] dark:text-[#d8dee9]"
+						>
+							Image tag / version
+						</label>
+						<select
+							id="tag-select"
+							bind:value={newInstanceTag}
+							disabled={creatingInstance}
+							class="w-full rounded-xl border border-[#d8dee9] bg-white px-3 py-2 text-sm
+					       text-[#2e3440] focus:border-[#88c0d0] focus:outline-none disabled:opacity-50
+					       dark:border-[#4c566a] dark:bg-[#2e3440] dark:text-[#d8dee9]"
+						>
+							{#each tagsForSelectedType as tag (tag)}
+								<option value={tag}>{tag}</option>
+							{/each}
+						</select>
+						<p class="text-xs text-[#4c566a] dark:text-[#d8dee9]/60">
+							Tags detected from locally-pulled Docker images. Pull a newer image first if the
+							version is not listed.
+						</p>
+					</div>
+				{:else}
+					<div
+						class="rounded-lg border border-[#ebcb8b]/30 bg-[#ebcb8b]/10 p-3 text-xs text-[#4c566a] dark:text-[#d8dee9]/70"
+					>
+						No local image tags found for <strong>{newInstanceType}</strong>. The compose file will
+						use <code class="font-mono">$&#123;TAG:-latest&#125;</code> — make sure the images are pulled.
+					</div>
+				{/if}
+
+				{#if allServicesForType.length > 0}
+					<div class="space-y-2">
+						<div class="flex items-center justify-between">
+							<p class="text-sm font-semibold text-[#2e3440] dark:text-[#d8dee9]">
+								Services to start
+							</p>
+							<div class="flex gap-2 text-xs">
+								<button
+									onclick={() => (newInstanceServices = [...allServicesForType])}
+									disabled={creatingInstance}
+									class="text-[#88c0d0] hover:underline disabled:opacity-50">All</button
+								>
+								<button
+									onclick={() => (newInstanceServices = [...defaultServicesForType])}
+									disabled={creatingInstance}
+									class="text-[#88c0d0] hover:underline disabled:opacity-50">Default</button
+								>
+								<button
+									onclick={() => (newInstanceServices = [])}
+									disabled={creatingInstance}
+									class="text-[#4c566a] hover:underline disabled:opacity-50 dark:text-[#d8dee9]/60"
+									>None</button
+								>
+							</div>
+						</div>
+						<div class="grid max-h-40 grid-cols-2 gap-1 overflow-y-auto pr-1">
+							{#each allServicesForType as svc (svc)}
+								{@const checked = newInstanceServices.includes(svc)}
+								{@const isDefault = defaultServicesForType.includes(svc)}
+								<label
+									class="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-sm transition-colors hover:bg-[#eceff4] dark:hover:bg-[#434c5e]"
+								>
+									<input
+										type="checkbox"
+										{checked}
+										disabled={creatingInstance}
+										onchange={() => {
+											if (checked) {
+												newInstanceServices = newInstanceServices.filter((s) => s !== svc);
+											} else {
+												newInstanceServices = [...newInstanceServices, svc];
+											}
+										}}
+										class="accent-[#88c0d0]"
+									/>
+									<span class="text-[#2e3440] dark:text-[#d8dee9]">{svc}</span>
+									{#if isDefault}
+										<span class="text-[0.6rem] font-semibold text-[#88c0d0] uppercase">default</span
+										>
+									{/if}
+								</label>
+							{/each}
+						</div>
+						<p class="text-xs text-[#4c566a] dark:text-[#d8dee9]/60">
+							Support services (mysql, tatoo) are always started via <code class="font-mono"
+								>depends_on</code
+							>.
+						</p>
+					</div>
+				{/if}
+
+				<div
+					class="space-y-1 rounded-lg bg-[#eceff4] p-3 text-xs text-[#4c566a] dark:bg-[#2e3440] dark:text-[#d8dee9]/70"
+				>
+					<p>The dashboard will:</p>
+					<ul class="ml-1 list-inside list-disc space-y-0.5">
+						<li>Allocate the next free <code class="font-mono">192.168.X.0/24</code> subnet</li>
+						<li>
+							Generate a new <code class="font-mono">docker-compose.yml</code> with updated IPs
+						</li>
+						<li>Rewrite hosts files for all modes (training / playback / testing / operational)</li>
+						<li>Fix <code class="font-mono">orion-environmental.json</code> with new subnet IPs</li>
+						<li>
+							Remove the conflicting <code class="font-mono">orion-mysql</code> alias from hosts
+						</li>
+						<li>
+							Start selected services with <code class="font-mono">docker compose up -d</code>
+						</li>
+					</ul>
+				</div>
+
+				{#if createError}
+					<div
+						class="rounded-lg border border-[#bf616a]/30 bg-[#bf616a]/10 p-3 text-sm text-[#bf616a]"
+					>
+						{createError}
+					</div>
+				{/if}
+
+				<div class="flex gap-3 pt-1">
+					<button
+						onclick={() => (showNewDialog = false)}
+						disabled={creatingInstance}
+						class="flex-1 rounded-xl border border-[#d8dee9] px-4 py-2.5 text-sm font-semibold
+					       text-[#4c566a] transition-colors hover:bg-[#eceff4] disabled:opacity-50
+					       dark:border-[#4c566a] dark:text-[#d8dee9]/70 dark:hover:bg-[#434c5e]"
+					>
+						Cancel
+					</button>
+					<button
+						onclick={handleCreateInstance}
+						disabled={creatingInstance}
+						class="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#88c0d0]
+					       px-4 py-2.5 text-sm font-semibold text-[#2e3440]
+					       transition-colors hover:bg-[#81a1c1] disabled:cursor-not-allowed disabled:opacity-60"
+					>
+						{#if creatingInstance}
+							<Loader2 size={15} class="animate-spin" />
+							Creating…
+						{:else}
+							<Plus size={15} />
+							Create & Start
+						{/if}
+					</button>
+				</div>
+			</div>
+		</div>
 	{/if}
 
 	<!-- Terminal Drawer -->
