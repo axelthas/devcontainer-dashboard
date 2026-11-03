@@ -1,10 +1,23 @@
 #!/bin/bash
-# Standalone launcher. See scripts/README.md.
+# Build and validate a separate production dashboard instance from this checkout.
+#
+# Usage: bash scripts/run-production.sh [--workspace PATH] [--socket PATH]
+#        [--port NUMBER] [--platform VALUE] [--help]
+# Requires Bash, Git, Docker Buildx and daemon access. No host npm is needed.
+# Reads HOST_* identity, DASHBOARD_PASSWORD and DDASH_* deployment options.
+# Builds and loads an image, mounts host resources, then checks health and HTTP.
+# Existing containers are not replaced. Test containers and named volumes remain
+# on failure and success for inspection. SSH resources are optional and read-only.
+# See scripts/README.md for defaults, unattended use and the host-path contract.
+
 set -euo pipefail
 
+# Print an actionable error to stderr and exit unsuccessfully. All callers stop the script.
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
 # Identical in standalone launchers: curl | bash needs no companion file.
+# Resolve the intended operator from explicit HOST_* values or passwd (SUDO_USER under sudo).
+# Reject partial/invalid identities and export the complete contract for Docker/Compose.
 resolve_identity() {
   local operator="${SUDO_USER:-$(id -un)}" record number
   if [[ -z "${HOST_USER:-}${HOST_UID:-}${HOST_GID:-}${HOST_HOME:-}" ]]; then
@@ -25,6 +38,7 @@ resolve_identity() {
   export HOST_USER HOST_UID HOST_GID HOST_HOME
 }
 
+# Print command syntax, deployment switches and resource-retention behavior without using Docker.
 usage() {
   cat <<'HELP'
 Usage: bash scripts/run-production.sh [--workspace PATH] [--socket PATH]
@@ -41,6 +55,7 @@ Existing containers and volumes remain. Nothing is published or replaced.
 HELP
 }
 
+# Load environment defaults into the option variables. CLI parsing can override them next.
 initialize_options() {
   WORKSPACE_ROOT="${WORKSPACE_ROOT:-}"
   DOCKER_SOCKET="${DOCKER_SOCKET:-/var/run/docker.sock}"
@@ -50,6 +65,7 @@ initialize_options() {
   ORIGIN="${ORIGIN:-${DDASH_ORIGIN:-}}"
 }
 
+# Parse option/value pairs into configuration; set SHOW_HELP to bypass all deployment work.
 parse_arguments() {
   SHOW_HELP=0
   while (( $# )); do
@@ -69,6 +85,7 @@ parse_arguments() {
   done
 }
 
+# Validate identity-independent paths, switches, port and timeout before creating resources.
 validate_options() {
   local value
   WORKSPACE_ROOT="${WORKSPACE_ROOT:-$HOST_HOME/ddash-production-workspace}"
@@ -84,6 +101,8 @@ validate_options() {
   [[ "$HEALTH_TIMEOUT" =~ ^[1-9][0-9]{0,4}$ ]] || fail "Invalid DASHBOARD_HEALTH_TIMEOUT"
 }
 
+# Resolve the checkout/revision and unique test image/container name, then check daemon prerequisites.
+# Reject an existing target name rather than replacing or stopping it.
 prepare_checkout() {
   local script_dir
   script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
@@ -101,6 +120,8 @@ prepare_checkout() {
   if docker container inspect "$NAME" >/dev/null 2>&1; then fail "Container already exists: $NAME"; fi
 }
 
+# Obtain the password and export runtime values; prepare build/run argv and optional SSH/hook mounts.
+# Only create the local workspace when DDASH_CREATE_WORKSPACE permits it.
 prepare_runtime() {
   if [[ -z "${DASHBOARD_PASSWORD:-}" ]]; then
     [[ "${DDASH_NONINTERACTIVE:-0}" != 1 && -t 0 ]] || fail "Set a non-empty DASHBOARD_PASSWORD for non-interactive use"
@@ -129,6 +150,7 @@ prepare_runtime() {
   [[ "${DDASH_DEV_BOOTSTRAP:-0}" != 1 ]] || HOOK=(dev-bootstrap)
 }
 
+# Print the reviewed source, operator and bootstrap mode without printing credentials.
 print_plan() {
   printf 'Source: %s at %s (local changes: %s)\n' "$BRANCH" "$REVISION" "$DIRTY"
   printf 'Operator: %s (%s:%s), home %s\n' "$HOST_USER" "$HOST_UID" "$HOST_GID" "$HOST_HOME"
@@ -136,6 +158,8 @@ print_plan() {
   echo 'Bind sources must exist on the Docker host, not only inside the launcher.'
 }
 
+# Start a separate loopback-only container with selected mounts and named storage.
+# Report daemon-host bind failures and print commands for retained-resource inspection.
 start_container() {
   printf 'Test container name: %s\nImage: %s\n' "$NAME" "$IMAGE"
   docker run --detach "${RUN_ARGS[@]}" --name "$NAME" \
@@ -149,6 +173,8 @@ start_container() {
   printf 'Logs: docker logs -f %s\nStop: docker stop %s\nResume: docker start %s\n' "$NAME" "$NAME" "$NAME"
 }
 
+# Run bounded readiness and unauthenticated-access checks inside the built container.
+# Return failure if either HTTP status differs from the expected production contract.
 verify_http() {
   docker exec "$NAME" node -e '
     const http = require("node:http");
@@ -164,7 +190,10 @@ verify_http() {
   '
 }
 
+# Poll container state and image health until the deadline, then verify HTTP behavior.
+# On failure print diagnostics and retain the container/volumes instead of cleaning evidence.
 wait_for_readiness() {
+  # SECONDS is Bash elapsed time; a wall-clock adjustment must not extend this wait.
   local deadline=$((SECONDS + HEALTH_TIMEOUT)) state health
   while (( SECONDS < deadline )); do
     state=$(docker inspect --format '{{.State.Status}}' "$NAME")
@@ -185,6 +214,7 @@ wait_for_readiness() {
   fail "Application did not become healthy; container and volumes retained for inspection"
 }
 
+# Run the script phases in order. Stop on a failed phase before later work can start.
 main() {
   case "${1:-}" in --help|-h) usage; return ;; esac
   initialize_options
