@@ -326,6 +326,10 @@ export function createServiceGateway(options: GatewayOptions) {
 			});
 			request.pipe(upstream);
 		} catch (error) {
+			if (response.headersSent) {
+				response.destroy();
+				return;
+			}
 			const result = failure(error);
 			response.writeHead(result.status, {
 				'Content-Type': 'text/plain',
