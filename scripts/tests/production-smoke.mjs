@@ -100,10 +100,12 @@ async function login(base, password) {
 	assert.equal((await fetch(`${base}/api/containers`, { redirect: 'manual' })).status, 401);
 	assert.equal((await fetch(`${base}/`, { redirect: 'manual' })).status, 303);
 	// Keep the invalid and valid login requests identical except for their password.
+	// Accept: text/html emulates a native form submission, so SvelteKit returns the
+	// real 400/303 statuses instead of an action-JSON 200 with an encoded failure.
 	const post = (value) =>
 		fetch(`${base}/login`, {
 			method: 'POST',
-			headers: { Origin: base },
+			headers: { Origin: base, Accept: 'text/html' },
 			body: new URLSearchParams({ password: value, next: '/' }),
 			redirect: 'manual'
 		});
