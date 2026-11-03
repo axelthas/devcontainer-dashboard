@@ -18,7 +18,7 @@ case "$HOST_UID:$HOST_GID" in 0*|*:0*) fail "Identity IDs must not have leading 
 [ "$HOST_USER" != root ] || fail "Root operator identity is not supported"
 case "${HOST_HOME:-}" in /*) ;; *) fail "HOST_HOME must be an absolute Docker-host home path" ;; esac
 case "$HOST_HOME/" in
-    /|//|*/../*|*/./*|*///*|/app/*|/data/*|/opt/*|/etc/*|/usr/*|/var/*|/root/*|/bin/*|/sbin/*|/dev/*|/proc/*|/sys/*|/run/*|/tmp/*)
+    /|//|*/../*|*/./*|*//*|/app/*|/data/*|/dashboard-history/*|/opt/*|/etc/*|/usr/*|/var/*|/root/*|/bin/*|/sbin/*|/dev/*|/proc/*|/sys/*|/run/*|/tmp/*)
         fail "HOST_HOME must be a dedicated non-system home path" ;;
 esac
 case "$HOST_HOME" in *[!a-zA-Z0-9_./\ -]*) fail "HOST_HOME contains unsupported characters" ;; esac
@@ -73,7 +73,7 @@ chown "$HOST_UID:$HOST_GID" "$HOST_HOME"
 printf '%s ALL=(root) NOPASSWD:ALL\n' "$HOST_USER" > /etc/sudoers.d/dashboard-operator
 chmod 0440 /etc/sudoers.d/dashboard-operator
 export HOME="$HOST_HOME" USER="$HOST_USER" LOGNAME="$HOST_USER" SHELL=/bin/zsh
-export PATH="/opt/dashboard-tools/bin:$PATH"
+export PATH="/opt/dashboard-tools/bin:$HOME/.local/bin:$PATH"
 export HISTFILE=/dashboard-history/.zsh_history
 
 # runuser initializes supplementary groups and preserves the primary group.
