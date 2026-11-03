@@ -72,7 +72,10 @@ exec "$@"`,
 		.replaceAll('/docker-entrypoint.d', join(dir, 'hooks'))
 		.replaceAll('/etc/sudoers.d', join(dir, 'sudoers'))
 		.replaceAll('mkdir -p /data /dashboard-history', `mkdir -p "${dir}/data" "${dir}/history"`)
-		.replaceAll('"$HOST_UID:$HOST_GID" /data /dashboard-history', `"$HOST_UID:$HOST_GID" "${dir}/data" "${dir}/history"`);
+		.replaceAll(
+			'"$HOST_UID:$HOST_GID" /data /dashboard-history',
+			`"$HOST_UID:$HOST_GID" "${dir}/data" "${dir}/history"`
+		);
 	const path = join(dir, 'entrypoint.sh');
 	writeFileSync(path, source);
 	return {
@@ -104,7 +107,9 @@ test('creates host-matched account and drops privileges before startup', async (
 	const f = await fixture(t);
 	const result = f.run();
 	assert.equal(result.status, 0, result.stderr);
-	assert.ok(result.stdout.includes(`server:operator:operator:${f.home}:/dashboard-history/.zsh_history`));
+	assert.ok(
+		result.stdout.includes(`server:operator:operator:${f.home}:/dashboard-history/.zsh_history`)
+	);
 	const calls = readFileSync(f.log, 'utf8');
 	assert.match(calls, /useradd --no-create-home --uid 2345 --gid 3456/);
 	assert.match(calls, /usermod -aG test-group operator/);
@@ -168,8 +173,16 @@ test('rejects a missing or regular-file Docker socket', async (t) => {
 test('hooks run after privilege dropping and preserve existing shell files', async (t) => {
 	const f = await fixture(t);
 	writeFileSync(join(f.home, '.zshrc'), 'operator-config\n');
-	writeFileSync(join(f.dir, 'bundled/10-example.sh'), '#!/bin/sh\necho "bundled:$USER" >> "$LOG"\n', { mode: 0o755 });
-	writeFileSync(join(f.dir, 'hooks/10-example.sh'), '#!/bin/sh\necho "operator:$USER" >> "$LOG"\n', { mode: 0o755 });
+	writeFileSync(
+		join(f.dir, 'bundled/10-example.sh'),
+		'#!/bin/sh\necho "bundled:$USER" >> "$LOG"\n',
+		{ mode: 0o755 }
+	);
+	writeFileSync(
+		join(f.dir, 'hooks/10-example.sh'),
+		'#!/bin/sh\necho "operator:$USER" >> "$LOG"\n',
+		{ mode: 0o755 }
+	);
 	writeFileSync(join(f.dir, 'hooks/20-disabled.sh'), 'exit 99\n');
 	assert.equal(f.run({}, ['example']).status, 0);
 	const calls = readFileSync(f.log, 'utf8');
@@ -180,8 +193,8 @@ test('hooks run after privilege dropping and preserve existing shell files', asy
 });
 
 test('standalone launchers share one identity contract', () => {
-	const scripts = ['run-production.sh', 'run-dashboard.sh', 'run-dashboard-compose.sh'].map((name) =>
-		read(`scripts/${name}`).match(/resolve_identity\(\) \{[\s\S]*?\n\}/)[0]
+	const scripts = ['run-production.sh', 'run-dashboard.sh', 'run-dashboard-compose.sh'].map(
+		(name) => read(`scripts/${name}`).match(/resolve_identity\(\) \{[\s\S]*?\n\}/)[0]
 	);
 	assert.equal(scripts[0], scripts[1]);
 	assert.equal(scripts[1], scripts[2]);

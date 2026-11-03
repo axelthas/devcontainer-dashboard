@@ -57,7 +57,7 @@ prompts. The Compose installer still prompts for the external origin.
 DDASH_DEV_BOOTSTRAP=0 or 1 bypasses its hook prompt. The production and direct
 launchers run without the bundled hook unless DDASH_DEV_BOOTSTRAP=1 is set.
 
-For checked-in Compose, export the four HOST_* values before `docker compose up`.
+For checked-in Compose, export the four HOST\_\* values before `docker compose up`.
 Create WORKSPACE_ROOT first. Bind mounts use `create_host_path: false`, so a
 missing source fails instead of silently creating a root-owned directory.
 Generated Compose persists the selected identity and paths, but not the password.
