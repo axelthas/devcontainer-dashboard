@@ -3,28 +3,46 @@ services:
     image: ghcr.io/axelthas/devcontainer-dashboard:latest
     ports:
       - '${DASHBOARD_BIND_ADDRESS:-127.0.0.1}:3000:3000'
-    # Optional TernDev hook. Requires SSH access for the private clone.
-    # command: ["dev-bootstrap"]
+    # Optional: command: ["dev-bootstrap"]
     environment:
       DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:?DASHBOARD_PASSWORD must be set}
+      HOST_USER: ${HOST_USER:?Set HOST_USER to the Docker-host operator}
+      HOST_UID: ${HOST_UID:?Set HOST_UID to the Docker-host operator UID}
+      HOST_GID: ${HOST_GID:?Set HOST_GID to the Docker-host operator primary GID}
+      HOST_HOME: ${HOST_HOME:?Set HOST_HOME to the absolute Docker-host home}
       HOST_HOSTNAME: ${HOSTNAME:-}
       WORKSPACE_ROOT: ${WORKSPACE_ROOT:-/workspaces}
       PRESETS_FILE: /data/presets.json
       VSCODE_SSH_HOST: ${VSCODE_SSH_HOST:-}
-      # SSH_AUTH_SOCK: /tmp/ssh-agent.socket
+      # SSH_AUTH_SOCK: ${SSH_AUTH_SOCK}
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      # Keep host and container workspace paths identical for devcontainer operations.
-      - ${WORKSPACE_ROOT:-/workspaces}:${WORKSPACE_ROOT:-/workspaces}:rw
+      - type: bind
+        source: ${DOCKER_SOCKET:-/var/run/docker.sock}
+        target: /var/run/docker.sock
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${WORKSPACE_ROOT:-/workspaces}
+        target: ${WORKSPACE_ROOT:-/workspaces}
+        bind:
+          create_host_path: false
       - dashboard_data:/data
-      - ddash_zsh_data:/home/ddash/.zsh_data
-      # SSH access (choose one or both):
-      # - ${SSH_AUTH_SOCK}:/tmp/ssh-agent.socket:ro
-      # - ${HOME}/.ssh:/home/ddash/.ssh:ro
-      # Operator hooks run in alphabetical order:
-      # - ${HOME}/my-dashboard-hooks:/docker-entrypoint.d:ro
+      - ddash_zsh_data:/dashboard-history
+      # Optional SSH directory; do not mount the entire host home.
+      # - type: bind
+      #   source: ${HOST_HOME}/.ssh
+      #   target: ${HOST_HOME}/.ssh
+      #   read_only: true
+      #   bind:
+      #     create_host_path: false
+      # Optional agent: same absolute path on host and dashboard.
+      # - type: bind
+      #   source: ${SSH_AUTH_SOCK}
+      #   target: ${SSH_AUTH_SOCK}
+      #   read_only: true
+      #   bind:
+      #     create_host_path: false
     restart: unless-stopped
-
 volumes:
   dashboard_data:
   ddash_zsh_data:

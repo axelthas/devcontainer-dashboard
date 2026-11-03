@@ -15,7 +15,7 @@
 		"lint": "prettier --check . && eslint .",
 		"format": "prettier --write .",
 		"test:unit": "vitest",
-		"test:deployment": "node --test scripts/tests/deployment.test.mjs",
+		"test:deployment": "node --test scripts/tests/deployment.test.mjs scripts/tests/run-production.test.mjs scripts/tests/bootstrap-hook.test.mjs scripts/tests/socket-symlink.test.mjs",
 		"test:production": "node scripts/tests/production-smoke.mjs",
 		"test": "npm run test:deployment && npm run test:unit -- --run && npm run test:e2e",
 		"test:e2e": "playwright install && playwright test"

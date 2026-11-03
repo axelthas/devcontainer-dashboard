@@ -1,88 +1,58 @@
 #!/bin/bash
-# Bundled dev-bootstrap setup hook for devcontainer-dashboard.
+# Install the optional dev-bootstrap provider before dashboard server startup.
 #
-# This script is shipped inside the production image at:
-#   /opt/dashboard/hooks/10-dev-bootstrap.sh
-#
-# It is NOT activated by default. To enable it, choose one of:
-#
-# Option A — entrypoint argument (recommended, no volume mount needed):
-#
-#   services:
-#     dashboard:
-#       command: ["sh", "docker-entrypoint.sh", "dev-bootstrap"]
-#       volumes:
-#         # Provide SSH access for the private GitLab clone (choose one or both):
-#         - ${SSH_AUTH_SOCK}:/tmp/ssh-agent.socket:ro    # SSH agent socket
-#         - ${HOME}/.ssh:/home/ddash/.ssh:ro             # SSH key directory
-#       environment:
-#         SSH_AUTH_SOCK: /tmp/ssh-agent.socket           # required when using agent socket
-#
-# Option B — volume-mount the hook into /docker-entrypoint.d/:
-#
-#   services:
-#     dashboard:
-#       volumes:
-#         - /opt/dashboard/hooks/10-dev-bootstrap.sh:/docker-entrypoint.d/10-dev-bootstrap.sh:ro
-#         # Provide SSH access for the private GitLab clone (choose one or both):
-#         - ${SSH_AUTH_SOCK}:/tmp/ssh-agent.socket:ro    # SSH agent socket
-#         - ${HOME}/.ssh:/home/ddash/.ssh:ro             # SSH key directory
-#       environment:
-#         SSH_AUTH_SOCK: /tmp/ssh-agent.socket           # required when using agent socket
-#
-# The script is idempotent: if ~/.devbootstrap already exists it re-runs the
-# installer to pick up any upstream changes but does not re-clone.
+# The entrypoint selects this hook only when bootstrap was explicitly enabled.
+# Run as the configured non-root operator with HOME and PATH already established.
+# Requires Git, SSH access and the provider installer dependencies in the image.
+# Clones into HOME/.devbootstrap or reruns that checkout's installer. The installer
+# can update the checkout and access the network even when it already exists.
+# Requires the HOME/.local/bin/devbootstrap shim after installation. Any missing
+# credentials, clone/install failure or missing shim stops startup with a diagnostic.
+# Default SSH uses batch mode and strict host-key checking; host SSH files are not
+# modified. See scripts/README.md for read-only SSH mounts and persistence limits.
 
-set -e
+set -euo pipefail
 
-DEVBOOTSTRAP_DIR="${HOME}/.devbootstrap"
-DEVBOOTSTRAP_REPO="git@gitlab.com:TernDev/common/dev-bootstrap.git"
+# Print an actionable error to stderr and exit unsuccessfully. All callers stop the script.
+fail() { printf '[dev-bootstrap] ERROR: %s\n' "$*" >&2; exit 1; }
 
-echo "[dev-bootstrap] Starting setup..."
+# Require available SSH credentials/configuration, apply strict defaults, and clone the provider.
+# Do not modify host SSH files or create trust automatically; report a failed clone explicitly.
+clone_provider() {
+  if [[ ! -S "${SSH_AUTH_SOCK:-}" && ! -f "$HOME/.ssh/id_rsa" &&
+        ! -f "$HOME/.ssh/id_ed25519" && ! -f "$HOME/.ssh/id_ecdsa" &&
+        ! -f "$HOME/.ssh/config" && -z "${GIT_SSH_COMMAND:-}" ]]; then
+    fail 'Installation was enabled but no SSH credentials/configuration are available. Forward an agent or mount HOST_HOME/.ssh read-only, including trusted GitLab known_hosts.'
+  fi
+  # Never modify a read-only mount or trust unauthenticated ssh-keyscan output.
+  export GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -o BatchMode=yes -o StrictHostKeyChecking=yes}"
+  echo '[dev-bootstrap] Cloning provider with strict host-key checking.'
+  git clone -- "$DEVBOOTSTRAP_REPO" "$DEVBOOTSTRAP_DIR" \
+    || fail 'Clone failed. Check GitLab repository access, agent/key availability and trusted known_hosts.'
+}
 
-# ── Already installed ────────────────────────────────────────────────────────
-if [ -d "$DEVBOOTSTRAP_DIR" ]; then
-    echo "[dev-bootstrap] $DEVBOOTSTRAP_DIR already exists, skipping clone."
-    echo "[dev-bootstrap] Re-running install to apply any upstream changes..."
-    "$DEVBOOTSTRAP_DIR/install.sh"
-    exit 0
-fi
+# Validate and run the provider installer, then require its executable shim on PATH.
+# The installer may pull an existing checkout; failure prevents dashboard startup.
+install_provider() {
+  [[ -f "$DEVBOOTSTRAP_DIR/install.sh" && -x "$DEVBOOTSTRAP_DIR/install.sh" ]] \
+    || fail "$DEVBOOTSTRAP_DIR/install.sh is missing or not executable; repair this installation before retrying"
+  echo '[dev-bootstrap] Installing provider.'
+  # The installer also pulls an existing checkout.
+  export GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -o BatchMode=yes -o StrictHostKeyChecking=yes}"
+  "$DEVBOOTSTRAP_DIR/install.sh" || fail 'Provider installer failed; dashboard startup stopped'
+  [[ -x "$HOME/.local/bin/devbootstrap" ]] && command -v devbootstrap >/dev/null \
+    || fail 'Installer returned success but devbootstrap is not on PATH; check the provider installation'
+  echo '[dev-bootstrap] Provider installed and devbootstrap is available.'
+}
 
-# ── Check SSH availability ───────────────────────────────────────────────────
-SSH_AVAILABLE=false
+# Run the script phases in order. Stop on a failed phase before later work can start.
+main() {
+  [[ -n "${HOME:-}" && "$HOME" == /* ]] || fail 'HOME must be an absolute runtime home'
+  DEVBOOTSTRAP_DIR="$HOME/.devbootstrap"
+  DEVBOOTSTRAP_REPO='git@gitlab.com:TernDev/common/dev-bootstrap.git'
+  export PATH="$HOME/.local/bin:${PATH}"
+  if [[ ! -e "$DEVBOOTSTRAP_DIR" ]]; then clone_provider; fi
+  install_provider
+}
 
-if [ -n "$SSH_AUTH_SOCK" ] && [ -S "$SSH_AUTH_SOCK" ]; then
-    echo "[dev-bootstrap] SSH agent socket found at $SSH_AUTH_SOCK"
-    SSH_AVAILABLE=true
-elif [ -f "${HOME}/.ssh/id_rsa" ] \
-    || [ -f "${HOME}/.ssh/id_ed25519" ] \
-    || [ -f "${HOME}/.ssh/id_ecdsa" ]; then
-    echo "[dev-bootstrap] SSH keys found in ${HOME}/.ssh"
-    SSH_AVAILABLE=true
-fi
-
-if [ "$SSH_AVAILABLE" = "false" ]; then
-    echo "[dev-bootstrap] WARNING: No SSH agent socket or SSH keys found."
-    echo "[dev-bootstrap] Skipping dev-bootstrap setup. To enable, mount one of:"
-    echo "[dev-bootstrap]   SSH agent:  -v \${SSH_AUTH_SOCK}:/tmp/ssh-agent.socket:ro -e SSH_AUTH_SOCK=/tmp/ssh-agent.socket"
-    echo "[dev-bootstrap]   SSH keys:   -v \${HOME}/.ssh:/home/ddash/.ssh:ro"
-    exit 0
-fi
-
-# ── Clone and install ────────────────────────────────────────────────────────
-
-# Pre-accept the GitLab host key to avoid interactive prompts
-mkdir -p "${HOME}/.ssh"
-chmod 700 "${HOME}/.ssh"
-ssh-keyscan -H gitlab.com >> "${HOME}/.ssh/known_hosts" 2>/dev/null || true
-
-echo "[dev-bootstrap] Cloning $DEVBOOTSTRAP_REPO into $DEVBOOTSTRAP_DIR..."
-if git clone "$DEVBOOTSTRAP_REPO" "$DEVBOOTSTRAP_DIR"; then
-    echo "[dev-bootstrap] Clone successful. Running installer..."
-    "$DEVBOOTSTRAP_DIR/install.sh"
-    echo "[dev-bootstrap] Setup complete."
-else
-    echo "[dev-bootstrap] ERROR: Failed to clone $DEVBOOTSTRAP_REPO"
-    echo "[dev-bootstrap] Ensure your SSH key has access to the GitLab repository."
-    exit 1
-fi
+main "$@"

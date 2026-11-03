@@ -1,5 +1,15 @@
-// Run after npm run build && npm run build:server, or point SMOKE_BASE_URL
-// at a disposable built container. Never use a shared production instance.
+// Validate the compiled dashboard HTTP/WebSocket server, not Vite preview.
+//
+// Usage: node scripts/tests/production-smoke.mjs after both production builds,
+// or set SMOKE_BASE_URL and SMOKE_PASSWORD for a disposable external instance.
+// Requires Node 22 and the project ws dependency. Without an external URL, starts
+// and later stops a local built server with temporary data. Checks required-password
+// failure, readiness, login, upgrade authorization and actual PTY command output.
+// Optional identity/bootstrap expectations inspect authenticated terminal behavior.
+// SMOKE_FIXTURE_WORKSPACE starts a real sibling build through the dashboard API;
+// it requires an external server and SMOKE_FIXTURE_CLEANUP_OWNER=external. The
+// caller owns sibling cleanup. Never point these mutating checks at production.
+
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -10,19 +20,105 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import WebSocket from 'ws';
 
+// Delay between bounded readiness probes without blocking the event loop.
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const password = process.env.SMOKE_PASSWORD ?? 'production-smoke-password';
-const temp = await mkdtemp(join(tmpdir(), 'ddash-production-'));
-let child;
-let base = process.env.SMOKE_BASE_URL;
-let output = '';
 
-function upgrade(cookie, expectedStatus, origin = base) {
+// Build the terminal WebSocket URL from the HTTP origin and explicit query parameters.
+function terminalUrl(base, parameters = {}) {
+	const url = new URL('/api/terminal', base);
+	url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+	for (const [key, value] of Object.entries(parameters)) url.searchParams.set(key, value);
+	return url;
+}
+
+// Start a built server without a password and require a nonzero exit with its configuration diagnostic.
+// Bound execution with a kill timeout and always clear that timer.
+async function checkMissingPassword() {
+	const child = spawn(process.execPath, ['build/server.js'], {
+		env: { ...process.env, DASHBOARD_PASSWORD: '' },
+		stdio: ['ignore', 'pipe', 'pipe']
+	});
+	let diagnostic = '';
+	child.stderr.on('data', (data) => (diagnostic += data));
+	const timeout = setTimeout(() => child.kill('SIGKILL'), 5000);
+	try {
+		const [code] = await once(child, 'exit');
+		assert.notEqual(code, 0);
+		assert.match(diagnostic, /DASHBOARD_PASSWORD/);
+	} finally {
+		clearTimeout(timeout);
+	}
+}
+
+// Verify missing-password behavior, reserve a local port, and start a built server using temporary data.
+// Store its process and output in state so main can diagnose failures and clean up.
+async function startServer(state, password) {
+	await checkMissingPassword();
+	const reservation = createServer().listen(0, '127.0.0.1');
+	await once(reservation, 'listening');
+	const port = reservation.address().port;
+	await new Promise((resolve) => reservation.close(resolve));
+	state.base = `http://127.0.0.1:${port}`;
+	state.child = spawn(process.execPath, ['build/server.js'], {
+		env: {
+			...process.env,
+			DASHBOARD_PASSWORD: password,
+			PORT: String(port),
+			WORKSPACE_ROOT: state.temp,
+			BUILD_LOG_DIR: join(state.temp, 'logs'),
+			ORIGIN: state.base,
+			SHELL: '/bin/sh'
+		},
+		stdio: ['ignore', 'pipe', 'pipe']
+	});
+	state.child.stdout.on('data', (data) => (state.output += data));
+	state.child.stderr.on('data', (data) => (state.output += data));
+}
+
+// Poll the public readiness response with bounded requests; fail if the local server exits or times out.
+async function waitForReadiness(state) {
+	for (let attempt = 0; attempt < 100; attempt++) {
+		if (state.child && state.child.exitCode !== null)
+			throw new Error(`Server exited: ${state.output}`);
+		try {
+			const response = await fetch(`${state.base}/healthz`, { signal: AbortSignal.timeout(1000) });
+			if (response.status === 200) {
+				assert.deepEqual(await response.json(), { status: 'ready' });
+				return;
+			}
+		} catch {
+			/* Retry while the compiled handler initializes. */
+		}
+		await sleep(100);
+	}
+	throw new Error(`Server did not become ready: ${state.output}`);
+}
+
+// Check public/protected HTTP behavior, reject a wrong password and return the successful session cookie.
+async function login(base, password) {
+	assert.equal((await fetch(`${base}/healthz`, { method: 'HEAD' })).status, 200);
+	assert.equal((await fetch(`${base}/api/containers`, { redirect: 'manual' })).status, 401);
+	assert.equal((await fetch(`${base}/`, { redirect: 'manual' })).status, 303);
+	// Keep the invalid and valid login requests identical except for their password.
+	const post = (value) =>
+		fetch(`${base}/login`, {
+			method: 'POST',
+			headers: { Origin: base },
+			body: new URLSearchParams({ password: value, next: '/' }),
+			redirect: 'manual'
+		});
+	assert.equal((await post('wrong-password')).status, 400);
+	const response = await post(password);
+	assert.equal(response.status, 303);
+	const cookie = response.headers.getSetCookie()[0]?.split(';')[0];
+	assert.ok(cookie?.startsWith('devcontainer-dashboard-session='));
+	return cookie;
+}
+
+// Check the expected WebSocket handshake result for a cookie/origin combination without creating a PTY.
+function checkUpgrade(base, cookie, expectedStatus, origin = base) {
 	return new Promise((resolve, reject) => {
-		const url = new URL('/api/terminal', base);
-		url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-		// Omit sessionId: test the real upgrade without creating a persistent PTY.
-		const socket = new WebSocket(url, {
+		const socket = new WebSocket(terminalUrl(base), {
 			headers: { Origin: origin, ...(cookie ? { Cookie: cookie } : {}) },
 			handshakeTimeout: 5000
 		});
@@ -38,7 +134,6 @@ function upgrade(cookie, expectedStatus, origin = base) {
 		});
 		socket.on('unexpected-response', (_request, response) => {
 			response.resume();
-			socket.terminate();
 			try {
 				assert.equal(response.statusCode, expectedStatus);
 				resolve();
@@ -49,38 +144,40 @@ function upgrade(cookie, expectedStatus, origin = base) {
 	});
 }
 
-async function terminal(cookie) {
-	const url = new URL('/api/terminal', base);
-	url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-	url.searchParams.set('sessionId', `smoke-${randomUUID()}`);
-	url.searchParams.set('cwd', '/tmp');
-	// Output the marker in two writes to avoid matching a command echo.
-	url.searchParams.set('command', "printf 'production-'; printf 'terminal-ok\\n'");
-	await new Promise((resolve, reject) => {
-		const socket = new WebSocket(url, { headers: { Origin: base, Cookie: cookie } });
+// Attach to an authenticated persistent session, collect data and require a successful exit.
+// Use a deadline and close/error handling so failed terminal/build checks do not wait indefinitely.
+function waitForTerminal(base, cookie, parameters, timeoutMs = 10000) {
+	return new Promise((resolve, reject) => {
+		const socket = new WebSocket(terminalUrl(base, parameters), {
+			headers: { Origin: base, Cookie: cookie },
+			handshakeTimeout: 5000
+		});
 		let text = '';
-		let exited = false;
+		let exitCode;
 		const timeout = setTimeout(() => {
 			socket.terminate();
-			reject(new Error('Terminal output/exit timeout'));
-		}, 10000);
+			reject(new Error('Terminal/build timeout'));
+		}, timeoutMs);
 		socket.on('error', (error) => {
 			clearTimeout(timeout);
 			reject(error);
 		});
 		socket.on('message', (raw) => {
-			const message = JSON.parse(raw.toString());
-			if (message.type === 'data') text += message.data;
-			if (message.type === 'exit') {
-				exited = message.exitCode === 0;
+			try {
+				const message = JSON.parse(raw.toString());
+				if (message.type === 'data') text += message.data;
+				if (message.type === 'exit') exitCode = message.exitCode;
+			} catch (error) {
+				clearTimeout(timeout);
+				socket.terminate();
+				reject(error);
 			}
 		});
 		socket.on('close', () => {
 			clearTimeout(timeout);
 			try {
-				assert.ok(exited, 'terminal must exit successfully');
-				assert.match(text, /production-terminal-ok/);
-				resolve();
+				assert.equal(exitCode, 0, `Terminal/build failed: ${text}`);
+				resolve(text);
 			} catch (error) {
 				reject(error);
 			}
@@ -88,91 +185,131 @@ async function terminal(cookie) {
 	});
 }
 
-try {
-	if (!base) {
-		// Check that the built server cannot listen without the required password.
-		const unconfigured = spawn(process.execPath, ['build/server.js'], {
-			env: { ...process.env, DASHBOARD_PASSWORD: '' },
-			stdio: ['ignore', 'pipe', 'pipe']
-		});
-		let diagnostic = '';
-		unconfigured.stderr.on('data', (data) => (diagnostic += data));
-		const timeout = setTimeout(() => unconfigured.kill('SIGKILL'), 5000);
-		const [code] = await once(unconfigured, 'exit');
-		clearTimeout(timeout);
-		assert.notEqual(code, 0);
-		assert.match(diagnostic, /DASHBOARD_PASSWORD/);
-
-		const reservation = createServer();
-		reservation.listen(0, '127.0.0.1');
-		await once(reservation, 'listening');
-		const port = reservation.address().port;
-		await new Promise((resolve) => reservation.close(resolve));
-		base = `http://127.0.0.1:${port}`;
-		child = spawn(process.execPath, ['build/server.js'], {
-			env: {
-				...process.env,
-				DASHBOARD_PASSWORD: password,
-				PORT: String(port),
-				WORKSPACE_ROOT: temp,
-				BUILD_LOG_DIR: join(temp, 'logs'),
-				ORIGIN: base,
-				SHELL: '/bin/sh'
-			},
-			stdio: ['ignore', 'pipe', 'pipe']
-		});
-		child.stdout.on('data', (data) => (output += data));
-		child.stderr.on('data', (data) => (output += data));
-	}
-	base = new URL(base).origin;
-	let ready = false;
-	for (let attempt = 0; attempt < 100; attempt++) {
-		if (child && child.exitCode !== null) throw new Error(`Server exited: ${output}`);
-		try {
-			const response = await fetch(`${base}/healthz`, { signal: AbortSignal.timeout(1000) });
-			if (response.status === 200) {
-				assert.deepEqual(await response.json(), { status: 'ready' });
-				ready = true;
-				break;
-			}
-		} catch {
-			// Retry while the compiled handler initializes.
-		}
-		await sleep(100);
-	}
-	assert.ok(ready, `Server did not become ready: ${output}`);
-	assert.equal((await fetch(`${base}/healthz`, { method: 'HEAD' })).status, 200);
-	assert.equal((await fetch(`${base}/api/containers`, { redirect: 'manual' })).status, 401);
-	assert.equal((await fetch(`${base}/`, { redirect: 'manual' })).status, 303);
-	const invalid = await fetch(`${base}/login`, {
-		method: 'POST',
-		headers: { Origin: base },
-		body: new URLSearchParams({ password: 'wrong-password' }),
-		redirect: 'manual'
+// Run a short real PTY command and, when configured, assert effective identity and bootstrap PATH.
+async function checkTerminal(base, cookie) {
+	const text = await waitForTerminal(base, cookie, {
+		sessionId: `smoke-${randomUUID()}`,
+		cwd: '/tmp',
+		command: "printf 'production-'; printf 'terminal-ok\\n'"
 	});
-	assert.equal(invalid.status, 400);
-	const login = await fetch(`${base}/login`, {
-		method: 'POST',
-		headers: { Origin: base },
-		body: new URLSearchParams({ password, next: '/' }),
-		redirect: 'manual'
+	assert.match(text, /production-terminal-ok/);
+	if (!process.env.SMOKE_EXPECT_UID) return;
+	const identity = await waitForTerminal(base, cookie, {
+		sessionId: `identity-${randomUUID()}`,
+		cwd: '/tmp',
+		command:
+			'node -e \'console.log(JSON.stringify({uid:process.getuid(),gid:process.getgid(),user:process.env.USER,logname:process.env.LOGNAME,home:process.env.HOME,bootstrap:process.env.PATH.includes(process.env.HOME+"/.local/bin")}))\''
 	});
-	assert.equal(login.status, 303);
-	const cookie = login.headers.getSetCookie()[0]?.split(';')[0];
-	assert.ok(cookie?.startsWith('devcontainer-dashboard-session='));
-	await upgrade(undefined, 401);
-	await upgrade('devcontainer-dashboard-session=invalid', 401);
-	await upgrade(cookie, 401, 'https://untrusted.invalid');
-	await upgrade(cookie, 101);
-	await terminal(cookie);
-	console.log('PASS: built-server readiness, HTTP login, WebSocket authorization, and PTY output');
-} finally {
-	if (child && child.exitCode === null) {
-		const exit = once(child, 'exit');
-		child.kill('SIGTERM');
-		const timeout = setTimeout(() => child.kill('SIGKILL'), 5000);
-		await exit;
-		clearTimeout(timeout);
-	}
-	await rm(temp, { recursive: true, force: true });
+	const record = JSON.parse(identity.match(/\{"uid":[^\r\n]+\}/)?.[0] ?? 'null');
+	assert.deepEqual(record, {
+		uid: Number(process.env.SMOKE_EXPECT_UID),
+		gid: Number(process.env.SMOKE_EXPECT_GID),
+		user: process.env.HOST_USER,
+		logname: process.env.HOST_USER,
+		home: process.env.HOST_HOME,
+		bootstrap: true
+	});
 }
+
+// Start the selected fixture through the authenticated build API and wait for its persistent session.
+// Require external cleanup ownership because the sibling can outlive this test process.
+async function checkFixtureBuild(base, cookie) {
+	const repoPath = process.env.SMOKE_FIXTURE_WORKSPACE;
+	if (!repoPath) return;
+	assert.equal(
+		process.env.SMOKE_FIXTURE_CLEANUP_OWNER,
+		'external',
+		'Fixture builds require an external cleanup owner; use container-smoke.sh'
+	);
+	// Exercise the same authenticated route and persistent build PTY as the UI.
+	const response = await fetch(`${base}/api/devcontainer/build`, {
+		method: 'POST',
+		headers: { Origin: base, Cookie: cookie, 'Content-Type': 'application/json' },
+		body: JSON.stringify({
+			repoPath,
+			repoName: 'smoke-fixture',
+			configPath: '.devcontainer/devcontainer.json'
+		})
+	});
+	assert.equal(response.status, 200, 'fixture build API must accept the request');
+	const { id } = await response.json();
+	assert.ok(id);
+	// Attach by returned ID only: the API already created the build PTY. Do not start another command.
+	await waitForTerminal(base, cookie, { sessionId: id }, 180000);
+}
+
+// When requested, verify fallback provider discovery and execute a shim lookup through a real terminal.
+async function checkBootstrapDiscovery(base, cookie) {
+	if (process.env.SMOKE_EXPECT_BOOTSTRAP !== '1') return;
+	const response = await fetch(`${base}/api/bootstrap/providers`, { headers: { Cookie: cookie } });
+	assert.equal(response.status, 200);
+	const providers = await response.json();
+	assert.ok(
+		providers.some(
+			(provider) =>
+				provider.id === 'devbootstrap' &&
+				provider.repoPath === `${process.env.HOST_HOME}/.devbootstrap`
+		)
+	);
+	await waitForTerminal(base, cookie, {
+		sessionId: `bootstrap-${randomUUID()}`,
+		cwd: '/tmp',
+		command: 'command -v devbootstrap >/dev/null'
+	});
+}
+
+// Stop only the locally spawned server (with a bounded SIGTERM grace period) and remove temporary data.
+// External servers and sibling-container cleanup remain the caller responsibility.
+async function cleanup(state) {
+	if (state.child && state.child.exitCode === null) {
+		const exit = once(state.child, 'exit');
+		state.child.kill('SIGTERM');
+		const timeout = setTimeout(() => state.child.kill('SIGKILL'), 5000);
+		try {
+			await exit;
+		} finally {
+			clearTimeout(timeout);
+		}
+	}
+	await rm(state.temp, { recursive: true, force: true });
+}
+
+// Validate destructive-fixture prerequisites, select/start the test server and run the checks in order.
+// Always invoke cleanup; never infer production build or Docker success from syntax checks.
+async function main() {
+	if (process.env.SMOKE_FIXTURE_WORKSPACE) {
+		assert.ok(process.env.SMOKE_BASE_URL, 'Fixture builds require a disposable external server');
+		assert.equal(
+			process.env.SMOKE_FIXTURE_CLEANUP_OWNER,
+			'external',
+			'Use container-smoke.sh or explicitly own sibling-container cleanup'
+		);
+	}
+	const state = {
+		temp: await mkdtemp(join(tmpdir(), 'ddash-production-')),
+		base: process.env.SMOKE_BASE_URL,
+		output: '',
+		child: undefined
+	};
+	const password = process.env.SMOKE_PASSWORD ?? 'production-smoke-password';
+	try {
+		if (!state.base) await startServer(state, password);
+		state.base = new URL(state.base).origin;
+		await waitForReadiness(state);
+		const cookie = await login(state.base, password);
+		await checkUpgrade(state.base, undefined, 401);
+		await checkUpgrade(state.base, 'devcontainer-dashboard-session=invalid', 401);
+		await checkUpgrade(state.base, cookie, 401, 'https://untrusted.invalid');
+		await checkUpgrade(state.base, cookie, 101);
+		await checkTerminal(state.base, cookie);
+		await checkBootstrapDiscovery(state.base, cookie);
+		await checkFixtureBuild(state.base, cookie);
+		console.log('PASS: built-server readiness, HTTP login, WebSocket authorization and PTY output');
+		if (process.env.SMOKE_FIXTURE_WORKSPACE)
+			console.log('PASS: dashboard build API and sibling devcontainer startup');
+	} finally {
+		await cleanup(state);
+	}
+}
+
+await main();

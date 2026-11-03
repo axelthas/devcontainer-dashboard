@@ -1,37 +1,113 @@
 #!/bin/bash
+# Pull and run the published dashboard image with the host operator identity.
+#
+# Usage: bash scripts/run-dashboard.sh; supports standalone curl | bash execution.
+# Requires Bash, Docker and access to the selected Docker-host Unix socket.
+# Reads HOST_* identity, WORKSPACE_ROOT, DASHBOARD_PASSWORD and DDASH_* switches.
+# Prompts use /dev/tty unless DDASH_NONINTERACTIVE=1. Bind paths must exist on the
+# Docker host. Optional SSH resources are read-only and keep their original paths.
+# Runs in the foreground; --rm removes the container after exit, not its stable
+# data/history volumes. The selected image has full operator access to Docker.
+# See scripts/README.md for bootstrap, origin and publication options.
 
-IMAGE=ghcr.io/axelthas/devcontainer-dashboard:latest
-CONTAINER_SSH_SOCKET=/tmp/ssh-agent.socket
-DOCKER_SOCKET=/var/run/docker.sock
+set -euo pipefail
 
-DEFAULT_WORKSPACE="$HOME/ddash-workspace"
-read -r -p "Workspace directory [${DEFAULT_WORKSPACE}]: " WORKSPACE_ROOT </dev/tty
-WORKSPACE_ROOT="${WORKSPACE_ROOT:-$DEFAULT_WORKSPACE}"
-WORKSPACE_ROOT="${WORKSPACE_ROOT/#\~/$HOME}"
+# Print an actionable error to stderr and exit unsuccessfully. All callers stop the script.
+fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
-if [[ -z "${DASHBOARD_PASSWORD:-}" ]]; then
-    read -r -s -p "Dashboard password: " DASHBOARD_PASSWORD </dev/tty
+# Identical in standalone launchers: curl | bash needs no companion file.
+# Resolve the intended operator from explicit HOST_* values or passwd (SUDO_USER under sudo).
+# Reject partial/invalid identities and export the complete contract for Docker/Compose.
+resolve_identity() {
+  local operator="${SUDO_USER:-$(id -un)}" record number
+  if [[ -z "${HOST_USER:-}${HOST_UID:-}${HOST_GID:-}${HOST_HOME:-}" ]]; then
+    record=$(getent passwd "$operator") || fail "Cannot resolve operator; set all four HOST_* identity values"
+    IFS=: read -r HOST_USER _ HOST_UID HOST_GID _ HOST_HOME _ <<< "$record"
+  fi
+  [[ -n "${HOST_USER:-}" && -n "${HOST_UID:-}" && -n "${HOST_GID:-}" && -n "${HOST_HOME:-}" ]] || fail "Set all four HOST_* identity values"
+  [[ "$HOST_USER" =~ ^[a-zA-Z_][a-zA-Z0-9_-]*$ && "$HOST_USER" != root ]] || fail "Invalid HOST_USER"
+  for number in "$HOST_UID" "$HOST_GID"; do
+    [[ "$number" =~ ^[1-9][0-9]*$ && ${#number} -le 10 ]] || fail "HOST_UID and HOST_GID must be positive non-root IDs"
+    (( number <= 2147483647 )) || fail "Identity IDs are out of range"
+  done
+  [[ "$HOST_HOME" =~ ^/[a-zA-Z0-9_./\ -]+$ ]] || fail "Invalid absolute HOST_HOME"
+  case "$HOST_HOME/" in
+    /|//|*/../*|*/./*|*//*|/app/*|/data/*|/dashboard-history/*|/opt/*|/etc/*|/usr/*|/var/*|/root/*|/bin/*|/sbin/*|/dev/*|/proc/*|/sys/*|/run/*|/tmp/*)
+      fail "HOST_HOME must be a canonical dedicated non-system home path" ;;
+  esac
+  export HOST_USER HOST_UID HOST_GID HOST_HOME
+}
+
+# Read image/socket/origin settings and obtain workspace/password from environment or /dev/tty.
+# Reject missing unattended inputs and export only the values consumed by Docker.
+read_configuration() {
+  IMAGE="${DASHBOARD_IMAGE:-ghcr.io/axelthas/devcontainer-dashboard:latest}"
+  DOCKER_SOCKET="${DOCKER_SOCKET:-/var/run/docker.sock}"
+  ORIGIN="${ORIGIN:-${DDASH_ORIGIN:-}}"
+  if [[ -z "${WORKSPACE_ROOT:-}" ]]; then
+    [[ "${DDASH_NONINTERACTIVE:-0}" != 1 ]] || fail 'Set WORKSPACE_ROOT for non-interactive use'
+    read -r -p "Workspace directory [$HOST_HOME/ddash-workspace]: " WORKSPACE_ROOT </dev/tty
+    WORKSPACE_ROOT="${WORKSPACE_ROOT:-$HOST_HOME/ddash-workspace}"
+  fi
+  if [[ -z "${DASHBOARD_PASSWORD:-}" ]]; then
+    [[ "${DDASH_NONINTERACTIVE:-0}" != 1 ]] || fail 'Set DASHBOARD_PASSWORD for non-interactive use'
+    read -r -s -p 'Dashboard password: ' DASHBOARD_PASSWORD </dev/tty
     printf '\n' >/dev/tty
-fi
-if [[ -z "$DASHBOARD_PASSWORD" ]]; then
-    echo "Dashboard password must not be empty." >&2
-    exit 1
-fi
-export DASHBOARD_PASSWORD
+  fi
+  [[ -n "$DASHBOARD_PASSWORD" ]] || fail 'DASHBOARD_PASSWORD must not be empty'
+  export DASHBOARD_PASSWORD WORKSPACE_ROOT ORIGIN
+}
 
-mkdir -p "$WORKSPACE_ROOT"
+# Validate bind-path syntax and Boolean deployment switches before any pull or run.
+validate_configuration() {
+  local value
+  for value in "$WORKSPACE_ROOT" "$DOCKER_SOCKET" "${SSH_AUTH_SOCK:-/unused}"; do
+    [[ "$value" == /* && "$value" != *,* && "$value" != *$'\n'* && "$value" != *$'\r'* ]] \
+      || fail 'Bind sources must be absolute Docker-host paths without commas or newlines'
+  done
+  for value in "${DDASH_DEV_BOOTSTRAP:-0}" "${DDASH_SSH_DIRECTORY:-0}" "${DDASH_NONINTERACTIVE:-0}" "${DDASH_CREATE_WORKSPACE:-1}"; do
+    [[ "$value" == 0 || "$value" == 1 ]] || fail 'DDASH_* switches must be 0 or 1'
+  done
+}
 
-echo "Pulling latest image..."
-docker pull "$IMAGE"
+# Prepare Docker argv, stable data/history volumes and explicitly selected SSH/bootstrap options.
+# Preserve argument boundaries and the same absolute resource paths on both sides.
+prepare_arguments() {
+  [[ "${DDASH_CREATE_WORKSPACE:-1}" == 0 ]] || mkdir -p -- "$WORKSPACE_ROOT"
+  ARGS=(--env DASHBOARD_PASSWORD --env HOST_USER --env HOST_UID --env HOST_GID --env HOST_HOME
+    --env WORKSPACE_ROOT --env ORIGIN --env "HOST_HOSTNAME=${HOSTNAME:-}"
+    --mount "type=bind,source=$WORKSPACE_ROOT,target=$WORKSPACE_ROOT"
+    --mount "type=bind,source=$DOCKER_SOCKET,target=/var/run/docker.sock"
+    --volume dashboard_data:/data --volume ddash_zsh_data:/dashboard-history)
+  if [[ -n "${SSH_AUTH_SOCK:-}" ]]; then
+    export SSH_AUTH_SOCK
+    ARGS+=(--env SSH_AUTH_SOCK --mount "type=bind,source=$SSH_AUTH_SOCK,target=$SSH_AUTH_SOCK,readonly")
+  fi
+  if [[ "${DDASH_SSH_DIRECTORY:-0}" == 1 ]]; then
+    ARGS+=(--mount "type=bind,source=$HOST_HOME/.ssh,target=$HOST_HOME/.ssh,readonly")
+  fi
+  HOOK=()
+  [[ "${DDASH_DEV_BOOTSTRAP:-0}" != 1 ]] || HOOK=(dev-bootstrap)
+}
 
-docker run  --rm \
-            -e DASHBOARD_PASSWORD \
-            -e HOST_HOSTNAME=$HOSTNAME \
-            -e WORKSPACE_ROOT="$WORKSPACE_ROOT" \
-            -e SSH_AUTH_SOCK=$CONTAINER_SSH_SOCKET \
-            -v "$WORKSPACE_ROOT:$WORKSPACE_ROOT" \
-            -v $SSH_AUTH_SOCK:$CONTAINER_SSH_SOCKET \
-            -v $DOCKER_SOCKET:$DOCKER_SOCKET \
-            -p "${DASHBOARD_BIND_ADDRESS:-127.0.0.1}:3000:3000" \
-            --name devcontainer-dashboard \
-            "$IMAGE" dev-bootstrap
+# Run the script phases in order. Stop on a failed phase before later work can start.
+main() {
+  case "${1:-}" in
+    --help|-h) echo 'Usage: bash scripts/run-dashboard.sh. See scripts/README.md. DDASH_NONINTERACTIVE=1 disables prompts.'; return ;;
+    '') ;;
+    *) fail "Unknown option: $1" ;;
+  esac
+  resolve_identity
+  read_configuration
+  validate_configuration
+  prepare_arguments
+  printf 'Operator: %s (%s:%s), home %s\n' "$HOST_USER" "$HOST_UID" "$HOST_GID" "$HOST_HOME"
+  printf 'dev-bootstrap: %s (1=enabled, 0=disabled)\n' "${DDASH_DEV_BOOTSTRAP:-0}"
+  echo 'All bind sources must exist on the Docker host. SSH resources are read-only.'
+  docker pull "$IMAGE"
+  exec docker run --rm "${ARGS[@]}" \
+    -p "${DASHBOARD_BIND_ADDRESS:-127.0.0.1}:3000:3000" \
+    --name devcontainer-dashboard "$IMAGE" "${HOOK[@]}"
+}
+
+main "$@"
