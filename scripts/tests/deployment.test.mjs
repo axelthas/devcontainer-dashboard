@@ -1,3 +1,14 @@
+// Test entrypoint and deployment contracts without privileged host changes.
+//
+// Usage: node --test scripts/tests/deployment.test.mjs (Node 22 and POSIX shell).
+// Create a real disposable Unix socket, but mock account/group/storage commands and
+// privilege dropping. Rewrite only the fixture copy's absolute paths before running
+// it. Cover configured identity, account collisions, hooks, shell templates and
+// fail-closed diagnostics; compare standalone launcher identity implementations.
+// No real host users, socket permissions or dashboard data are changed. Assertions
+// about mocked runuser/chown calls are not proof of real privilege or ownership.
+// node:test registers and runs the cases, then removes their temporary fixtures.
+
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { once } from 'node:events';
@@ -8,9 +19,12 @@ import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
+// Read a repository file for contract assertions; never write to the original source.
 const read = (path) => readFileSync(join(root, path), 'utf8');
 
 // All privileged commands are mocks. The socket and home are disposable.
+// Create a disposable socket/home and mock privileged commands, then rewrite a fixture entrypoint copy.
+// Return isolated execution helpers and register cleanup without changing the real host.
 async function fixture(t) {
 	const dir = mkdtempSync(join(root, '.entrypoint-'));
 	t.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -50,6 +64,7 @@ exec "$@"`,
 	for (const [name, body] of Object.entries(mocks)) {
 		writeFileSync(join(bin, name), '#!/bin/sh\n' + body + '\n', { mode: 0o755 });
 	}
+	// Repoint fixed production paths only in this disposable copy so mocks cannot touch host storage.
 	const source = read('docker-entrypoint.sh')
 		.replaceAll('/var/run/docker.sock', socket)
 		.replaceAll('/opt/dashboard-shell', join(dir, 'shell'))
@@ -65,6 +80,7 @@ exec "$@"`,
 		home,
 		socket,
 		log,
+		// Execute the fixture copy with per-test overrides; return captured output/status (and recorded calls).
 		run(env = {}, args = []) {
 			return spawnSync('sh', [path, ...args], {
 				encoding: 'utf8',

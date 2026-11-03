@@ -1,9 +1,24 @@
 #!/bin/bash
-# Disposable local Linux Docker integration. Never point this at production.
+# Exercise a disposable production image and sibling build on a local Docker host.
+#
+# Usage: bash scripts/tests/container-smoke.sh from an installed project checkout.
+# Requires a non-root Linux operator with a /home home, Docker/Buildx-compatible
+# image builds, Compose 2.24.4+, Node 22, project dependencies and network access.
+# Creates fake SSH data, unique containers/volumes and an operator-hook bootstrap
+# stub. Renders both Compose paths, starts the generated configuration, checks
+# login/terminal identity and provider discovery, then builds a sibling through
+# the authenticated dashboard API. Also checks ownership and fail-closed startup.
+# The EXIT trap removes only this fixture's containers, named volumes and files;
+# built images remain cached. Never run against a shared production deployment.
+# This does not test real GitLab credentials or a real bootstrap installation.
+
 set -euo pipefail
 
+# Print an actionable error to stderr and exit unsuccessfully. All callers stop the script.
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
+# Validate the local operator, create unique fake data/hooks and initialize fixture configuration.
+# Register cleanup only for resources owned by this integration run.
 prepare_fixture() {
   cd "$(dirname "${BASH_SOURCE[0]}")/../.."
   [[ "$(id -u)" != 0 && "$HOME" == /home/* ]] || fail 'Use a non-root local Linux Docker operator with a /home home'
@@ -34,6 +49,8 @@ HOOK
   trap cleanup EXIT
 }
 
+# Remove fixture siblings by their exact unique workspace label, stop the isolated Compose project,
+# and remove temporary data. Best-effort cleanup also handles partial build/startup failures.
 cleanup() {
   local sibling
   [[ -z "$UNSTARTED" ]] || docker rm -f "$UNSTARTED" >/dev/null 2>&1 || true
@@ -45,6 +62,8 @@ cleanup() {
   rm -rf -- "$TEMP_DIR"
 }
 
+# Generate installer output with a mocked Docker command, then render both Compose configurations
+# with real Compose. Verify publication/identity/storage before selecting generated output for startup.
 check_compose_rendering() {
   local compose
   printf '#!/bin/sh\nexit 0\n' > "$TEMP_DIR/bin/docker"
@@ -72,6 +91,8 @@ JS
   COMPOSE=(docker compose -p "$PROJECT" -f "$TEMP_DIR/config/docker-compose.yml" -f "$TEMP_DIR/override.yml")
 }
 
+# Build the production image, add isolated ports/read-only fixture hooks and start the generated stack.
+# Record its container ID and assigned loopback address for later checks.
 start_dashboard() {
   docker build -t "$PROJECT:test" .
   cat > "$TEMP_DIR/override.yml" <<YAML
@@ -100,6 +121,8 @@ YAML
   ADDRESS=$("${COMPOSE[@]}" port dashboard 3000)
 }
 
+# Write a HOME-based sibling fixture and run authenticated server/terminal/build integration checks.
+# Verify selected remoteUser, read-only SSH resources and host file ownership without real keys.
 check_dashboard_build() {
   local sibling
   cat > "$WORKSPACE_ROOT/fixture/.devcontainer/devcontainer.json" <<'JSON'
@@ -127,6 +150,7 @@ JSON
   test "$(stat -c %g "$HOST_HOME/.ssh/marker")" = "$HOST_GID"
 }
 
+# Verify missing password/socket prevent startup, then verify health stays unhealthy without a server.
 check_fail_closed() {
   local attempt status
   if docker run --rm "$PROJECT:test" > "$TEMP_DIR/failure.log" 2>&1; then fail 'Missing password was accepted'; fi
@@ -143,6 +167,7 @@ check_fail_closed() {
   test "$status" = unhealthy
 }
 
+# Run the script phases in order. Stop on a failed phase before later work can start.
 main() {
   prepare_fixture
   check_compose_rendering

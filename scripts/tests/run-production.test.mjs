@@ -1,4 +1,13 @@
-// Register tests with node:test; executable smoke runners use main().
+// Test standalone launchers without a Docker daemon or real deployment.
+//
+// Usage: node --test scripts/tests/run-production.test.mjs (Node 22).
+// Mock Git, passwd lookup and Docker calls in temporary directories; preserve argv
+// and exported identity in a call log. Tests cover identity validation, sudo capture,
+// bootstrap selection, same-path mounts, origin input and retained failure resources.
+// Interactive curl-piped cases require util-linux script for a disposable PTY.
+// No real image is built or pulled. Do not infer Docker/privilege behavior from these
+// mocks. node:test owns discovery and execution; fixture cleanup is registered per test.
+
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -9,6 +18,8 @@ import { test } from 'node:test';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 
+// Create mock Git/passwd/Docker commands and an isolated environment for launcher tests.
+// Record exact argv and exported identity; register deletion of temporary resources with the test.
 function fixture(t) {
   const dir = mkdtempSync(join(tmpdir(), 'ddash-runner-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -49,6 +60,7 @@ if(args[0]==='inspect') console.log(args[2].includes('Health') ? (process.env.HE
   };
   return {
     dir, env,
+    // Execute the fixture copy with per-test overrides; return captured output/status (and recorded calls).
     run(script = 'run-production.sh', args = [], overrides = {}, interactive = false, input = '\n') {
       const path = join(root, 'scripts', script);
       const result = spawnSync(interactive ? 'script' : 'bash', interactive

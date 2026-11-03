@@ -1,3 +1,12 @@
+// Check Docker socket GID lookup through a symlink without touching Docker.
+//
+// Usage: node --test scripts/tests/socket-symlink.test.mjs (POSIX Node 22 and stat).
+// Create a disposable Unix socket and symlink. Assert that the entrypoint selects
+// dereferencing stat, then check the real stat result against the test process GID.
+// No daemon is required and no host socket is changed. Cleanup closes the listener
+// and removes only temporary fixture files. This narrow test does not exercise the
+// entrypoint's account setup, access checks or production server startup.
+
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { once } from 'node:events';

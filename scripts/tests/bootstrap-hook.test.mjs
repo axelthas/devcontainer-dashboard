@@ -1,3 +1,13 @@
+// Test explicit dev-bootstrap installation and runtime PATH contracts in isolation.
+//
+// Usage: node --test scripts/tests/bootstrap-hook.test.mjs (Node 22 and Bash).
+// Use temporary HOME directories and a mocked Git/installer to exercise missing
+// credentials, installation failures, shim verification and strict SSH defaults.
+// Read the entrypoint to assert its PATH contract. Do not use real keys, contact
+// GitLab or install provider dependencies. Per-test cleanup removes fixture files.
+// These tests do not prove actual SSH authentication or provider discovery at runtime;
+// the disposable container fixture supplies separate integration coverage.
+
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -7,6 +17,8 @@ import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
+// Create a temporary runtime HOME and mocked Git/installer with selectable failure modes.
+// Return a hook runner and register cleanup; no network or real credentials are used.
 function fixture(t) {
   const home = mkdtempSync(join(tmpdir(), 'ddash-bootstrap-'));
   t.after(() => rmSync(home, { recursive: true, force: true }));
@@ -28,6 +40,7 @@ chmod +x "$HOME/.devbootstrap/install.sh"
 `, { mode: 0o755 });
   return {
     home,
+    // Execute the fixture copy with per-test overrides; return captured output/status (and recorded calls).
     run(env = {}) {
       return spawnSync('bash', [join(root, 'scripts/10-dev-bootstrap.sh')], {
         encoding: 'utf8', timeout: 5000,
