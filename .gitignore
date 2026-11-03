@@ -28,3 +28,4 @@ test-results
 
 # Operator-supplied hook scripts (local only, never committed)
 .devcontainer/hooks.d/
+.opencode
