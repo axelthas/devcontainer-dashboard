@@ -5,28 +5,82 @@
 	import { SvelteURLSearchParams } from 'svelte/reactivity';
 	import { ExternalLink, LayoutDashboard, FolderOpen, Server } from 'lucide-svelte';
 	import { PORT_MAP } from '$lib/portConfig';
+	import { serviceViewerHref } from '$lib/serviceTargets';
+	import type { PageData } from './$types';
 
-	const url = $derived(page.url.searchParams.get('url') ?? '');
-	const label = $derived(page.url.searchParams.get('label') ?? 'Service');
-	const project = $derived(page.url.searchParams.get('project') ?? '');
-	const container = $derived(page.url.searchParams.get('container') ?? '');
-	const workspacePath = $derived(page.url.searchParams.get('path') ?? '');
+	/** Viewer contract returned by the server load; see src/routes/service/+page.server.ts. */
+	interface ViewerContract {
+		kind: 'proxy' | 'legacy' | 'unsupported' | 'unavailable' | 'proxy-disabled';
+		target?: string;
+		directUrl?: string;
+		containerId?: string;
+		containerPort?: string;
+		reason?: string;
+	}
 
-	const allPorts = $derived.by(() => {
-		const raw = page.url.searchParams.get('ports');
-		if (!raw) return null;
-		try {
-			return JSON.parse(raw) as Record<string, string>;
-		} catch {
-			return null;
-		}
-	});
+	interface Props {
+		data: PageData;
+	}
+
+	let { data }: Props = $props();
+
+	const viewer: ViewerContract = $derived(data.viewer);
+	const label = $derived(data.label);
+	const project = $derived(data.project);
+	const container = $derived(data.container);
+	const workspacePath = $derived(data.workspacePath);
+	const allPorts = $derived(data.allPorts);
+
+	// Validated service identity driving gateway switching and active-state matching.
+	// The viewer carries it once the server populates the contract; fall back to the
+	// load's query-derived identity so switching works in either shape.
+	const identityContainerId = $derived(viewer.containerId ?? data.containerId);
+	const identityContainerPort = $derived(viewer.containerPort ?? data.containerPort);
 
 	const portEntries = $derived(allPorts ? Object.entries(allPorts) : []);
 
-	function switchService(containerPort: string, hostPort: string) {
+	const UNAVAILABLE_REASONS: Record<string, string> = {
+		'unknown-container': 'This container is no longer available.',
+		'not-running': 'The container is not running. Start it from the dashboard.',
+		'no-published-binding': 'The service has no published port.',
+		'port-not-allowed': 'This port is not enabled as a web service.',
+		'proxy-disabled': 'The service gateway is disabled on this dashboard (SERVICE_PROXY_ENABLED).',
+		'missing-identity': 'No service selected.'
+	};
+
+	const unavailableMessage = $derived(
+		(viewer.kind === 'unavailable' && viewer.reason && UNAVAILABLE_REASONS[viewer.reason]) ||
+			'This service is not available.'
+	);
+
+	function switchService(containerPort: string) {
 		const config = PORT_MAP[containerPort];
 		const newLabel = config?.label ?? `Port ${containerPort}`;
+
+		// Gateway mode: switch by validated container identity.
+		if (identityContainerId) {
+			goto(
+				resolve(
+					serviceViewerHref({
+						containerId: identityContainerId,
+						containerPort,
+						label: newLabel,
+						...(data.project ? { projectName: data.project } : {}),
+						...(data.container ? { containerName: data.container } : {}),
+						...(data.workspacePath ? { workspacePath: data.workspacePath } : {}),
+						...(data.allPorts && Object.keys(data.allPorts).length > 1
+							? { allPorts: data.allPorts }
+							: {})
+					})
+				),
+				{ replaceState: true }
+			);
+			return;
+		}
+
+		// Legacy mode: keep reconstructing the raw host-port URL and updating query params.
+		const hostPort = allPorts?.[containerPort];
+		if (!hostPort) return;
 		const newUrl = `http://${page.url.hostname}:${hostPort}`;
 		const params = new SvelteURLSearchParams(page.url.searchParams);
 		params.set('url', newUrl);
@@ -87,10 +141,13 @@
 						{@const config = PORT_MAP[containerPort]}
 						{@const portLabel = config?.label ?? `Port ${containerPort}`}
 						{@const IconComponent = config?.icon ?? Server}
-						{@const isActive = url === `http://${page.url.hostname}:${hostPort}`}
+						{@const isActive =
+							viewer.kind === 'legacy'
+								? viewer.target === `http://${page.url.hostname}:${hostPort}`
+								: identityContainerPort === containerPort}
 						<button
 							class="btn {isActive ? 'btn-active' : ''}"
-							onclick={() => switchService(containerPort, hostPort)}
+							onclick={() => switchService(containerPort)}
 						>
 							<IconComponent size={14} />
 							{portLabel}
@@ -103,17 +160,64 @@
 				<LayoutDashboard size={14} />
 				Dashboard
 			</a>
-			<button class="btn btn-primary" onclick={() => window.open(url, '_blank')}>
-				<ExternalLink size={14} />
-				Open directly
-			</button>
+			{#if viewer.directUrl}
+				<a
+					href={viewer.directUrl}
+					target="_blank"
+					rel="external noreferrer"
+					class="btn btn-primary"
+				>
+					<ExternalLink size={14} />
+					Open directly
+				</a>
+			{/if}
 		</div>
 	</header>
 
-	{#if url}
-		<iframe src={url} title={label}></iframe>
+	{#if (viewer.kind === 'proxy' || viewer.kind === 'legacy') && viewer.target}
+		<iframe src={viewer.target} title={label}></iframe>
+	{:else if viewer.kind === 'unsupported'}
+		<div class="panel">
+			<p class="message">{label} cannot be embedded under the dashboard origin.</p>
+			<p class="hint">
+				This application requires its own HTTPS origin. Open it directly in a new tab instead.
+			</p>
+			{#if viewer.directUrl}
+				<a
+					href={viewer.directUrl}
+					target="_blank"
+					rel="external noreferrer"
+					class="btn btn-primary"
+				>
+					<ExternalLink size={14} />
+					Open directly
+				</a>
+			{/if}
+		</div>
+	{:else if viewer.kind === 'proxy-disabled'}
+		<div class="panel">
+			<p class="message">
+				The service gateway is disabled on this dashboard (SERVICE_PROXY_ENABLED).
+			</p>
+		</div>
 	{:else}
-		<div class="error">No service URL provided.</div>
+		<div class="panel">
+			<p class="message">{unavailableMessage}</p>
+			<p class="hint">
+				If it was just restarted, close this tab and launch the service from the dashboard again.
+			</p>
+			{#if viewer.directUrl}
+				<a
+					href={viewer.directUrl}
+					target="_blank"
+					rel="external noreferrer"
+					class="btn btn-primary"
+				>
+					<ExternalLink size={14} />
+					Open directly
+				</a>
+			{/if}
+		</div>
 	{/if}
 </div>
 
@@ -131,7 +235,6 @@
 		--btn-primary-border: #5e81ac;
 		--btn-primary-color: #5e81ac;
 		--btn-primary-hover-bg: #5e81ac1a;
-		--error-color: #bf616a;
 	}
 
 	/* Dark mode overrides */
@@ -147,7 +250,6 @@
 		--btn-primary-border: #5e81ac;
 		--btn-primary-color: #88c0d0;
 		--btn-primary-hover-bg: #5e81ac22;
-		--error-color: #bf616a;
 	}
 
 	.frame {
@@ -302,12 +404,24 @@
 		display: block;
 	}
 
-	.error {
+	.panel {
 		flex: 1;
 		display: flex;
+		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		color: var(--error-color);
-		font-size: 0.875rem;
+		gap: 0.75rem;
+		padding: 2rem;
+		text-align: center;
+	}
+
+	.panel .message {
+		font-size: 0.95rem;
+		color: var(--text-primary);
+	}
+
+	.panel .hint {
+		font-size: 0.8rem;
+		color: var(--text-muted);
 	}
 </style>

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Server } from 'lucide-svelte';
 	import { PORT_MAP, fallbackColorClass, disabledClass } from '$lib/portConfig';
+	import { serviceViewerHref } from '$lib/serviceTargets';
 
 	interface Props {
 		containerPort: string;
@@ -11,6 +12,8 @@
 		projectName?: string;
 		workspacePath?: string;
 		allPorts?: Record<string, string>;
+		containerId?: string;
+		serviceProxyEnabled?: boolean;
 	}
 
 	let {
@@ -21,11 +24,30 @@
 		containerName,
 		projectName,
 		workspacePath,
-		allPorts
+		allPorts,
+		containerId,
+		serviceProxyEnabled
 	}: Props = $props();
 
 	function openService() {
 		if (!running) return;
+		// Gateway mode: launch by validated container identity so the viewer can verify the target.
+		if (serviceProxyEnabled && containerId) {
+			window.open(
+				serviceViewerHref({
+					containerId,
+					containerPort,
+					label,
+					...(projectName ? { projectName } : {}),
+					...(containerName ? { containerName } : {}),
+					...(workspacePath ? { workspacePath } : {}),
+					...(allPorts && Object.keys(allPorts).length > 1 ? { allPorts } : {})
+				}),
+				'_blank'
+			);
+			return;
+		}
+		// Legacy mode: raw URL, with metadata params for named containers.
 		const serviceHostname = window.location.hostname;
 		const serviceUrl = `http://${serviceHostname}:${hostPort}`;
 		if (containerName || projectName) {

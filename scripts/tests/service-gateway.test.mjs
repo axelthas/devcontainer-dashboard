@@ -220,7 +220,8 @@ test('rejects external redirects without forwarding them', async (t) => {
 test('rejects stopped, missing, unbound, and mismatched containers', async (t) => {
 	for (const [info, expected] of [
 		[inspection(1, { State: { Running: false } }), 409],
-		[inspection(1, { Id: 'f'.repeat(64) }), 409],
+		// A mismatched inspection id means the container was replaced: not the requested service.
+		[inspection(1, { Id: 'f'.repeat(64) }), 404],
 		[inspection(1, { NetworkSettings: { Ports: {} } }), 404],
 		[null, 404]
 	]) {

@@ -19,7 +19,7 @@ const HOP_HEADERS = [
 	'transfer-encoding',
 	'upgrade'
 ];
-const DEFAULT_PORTS: Record<string, 'http' | 'https'> = {
+export const DEFAULT_PORTS: Record<string, 'http' | 'https' | 'off'> = {
 	'80': 'http',
 	'443': 'https',
 	'4096': 'http',
@@ -28,6 +28,43 @@ const DEFAULT_PORTS: Record<string, 'http' | 'https'> = {
 	'8080': 'http',
 	'9001': 'http'
 };
+
+/** Effective protocol for a container port, or undefined when the port is not enabled. */
+export function resolveServiceScheme(
+	ports: Record<string, 'http' | 'https' | 'off'> | undefined,
+	containerPort: string
+): 'http' | 'https' | undefined {
+	const scheme = (ports ?? DEFAULT_PORTS)[containerPort];
+	return scheme === 'http' || scheme === 'https' ? scheme : undefined;
+}
+
+export type ServiceBindingState =
+	| 'ok'
+	| 'unknown-container'
+	| 'not-running'
+	| 'no-published-binding';
+
+export interface ServiceBindingInfo {
+	state: ServiceBindingState;
+	/** Numeric host port of the first published binding; NaN when Docker reported garbage. */
+	publishedHostPort?: number;
+}
+
+/**
+ * Shared running-state and published-binding checks for the gateway and the viewer
+ * contract, so both agree on what makes a service target valid.
+ */
+export function inspectServiceBinding(
+	info: ContainerInspection,
+	containerId: string,
+	containerPort: string
+): ServiceBindingInfo {
+	if (!info.Id.startsWith(containerId)) return { state: 'unknown-container' };
+	if (!info.State.Running) return { state: 'not-running' };
+	const bindings = info.NetworkSettings.Ports?.[`${containerPort}/tcp`];
+	if (!bindings?.length) return { state: 'no-published-binding' };
+	return { state: 'ok', publishedHostPort: Number(bindings[0].HostPort) };
+}
 
 export interface ContainerInspection {
 	Id: string;
@@ -45,7 +82,7 @@ export interface GatewayOptions {
 	origin: string;
 	/** Operator-controlled route to published ports, never read from a request. */
 	upstreamHost?: string;
-	ports?: Record<string, 'http' | 'https'>;
+	ports?: Record<string, 'http' | 'https' | 'off'>;
 	connectTimeoutMs?: number;
 }
 
@@ -194,9 +231,8 @@ function authorize(request: IncomingMessage, options: GatewayOptions, upgrade: b
 async function resolveTarget(raw: string, options: GatewayOptions): Promise<Target> {
 	const parsed = parseServicePath(raw);
 	if (!parsed) throw new GatewayError(404, 'Unknown service route.');
-	const scheme = (options.ports ?? DEFAULT_PORTS)[parsed.port];
-	if (scheme !== 'http' && scheme !== 'https')
-		throw new GatewayError(422, 'This port is not an enabled web service.');
+	const scheme = resolveServiceScheme(options.ports, parsed.port);
+	if (!scheme) throw new GatewayError(422, 'This port is not an enabled web service.');
 	let info: ContainerInspection;
 	try {
 		let deadline: ReturnType<typeof setTimeout> | undefined;
@@ -216,20 +252,24 @@ async function resolveTarget(raw: string, options: GatewayOptions): Promise<Targ
 	} catch {
 		throw new GatewayError(404, 'Container is no longer available.');
 	}
-	if (!info.Id.startsWith(parsed.id) || !info.State.Running)
-		throw new GatewayError(409, 'Container is not running.');
-	const bindings = info.NetworkSettings.Ports?.[`${parsed.port}/tcp`];
-	if (!bindings?.length) throw new GatewayError(404, 'Service has no published TCP binding.');
+	const binding = inspectServiceBinding(info, parsed.id, parsed.port);
+	if (binding.state === 'unknown-container')
+		throw new GatewayError(404, 'Container is no longer available.');
+	if (binding.state === 'not-running') throw new GatewayError(409, 'Container is not running.');
+	if (binding.state !== 'ok') throw new GatewayError(404, 'Service has no published TCP binding.');
 	let hostname: string;
 	let port: number;
 	if (options.upstreamHost) {
 		if (!/^[a-zA-Z0-9.:-]+$/.test(options.upstreamHost))
 			throw new GatewayError(503, 'Invalid configured service host.');
 		hostname = options.upstreamHost;
-		if (new Set(bindings.map((binding) => binding.HostPort)).size !== 1) {
+		const hostPorts = new Set(
+			(info.NetworkSettings.Ports?.[`${parsed.port}/tcp`] ?? []).map((entry) => entry.HostPort)
+		);
+		if (hostPorts.size !== 1) {
 			throw new GatewayError(503, 'Service has ambiguous published ports.');
 		}
-		port = Number(bindings[0].HostPort);
+		port = binding.publishedHostPort ?? Number.NaN;
 		if (!Number.isInteger(port) || port < 1 || port > 65535)
 			throw new GatewayError(503, 'Invalid published service port.');
 	} else {

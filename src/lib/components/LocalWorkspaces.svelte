@@ -33,6 +33,7 @@
 		workspaces: LocalWorkspaceData[];
 		containers: ContainerData[];
 		vscodeSshHost: string;
+		serviceProxyEnabled?: boolean;
 		onOpenTerminal: (id: string, command: string, name: string, cwd: string) => void;
 		onRefreshWorkspaces: () => void;
 		onBootstrap?: () => void;
@@ -45,6 +46,7 @@
 		workspaces: workspacesProp,
 		containers,
 		vscodeSshHost,
+		serviceProxyEnabled,
 		onOpenTerminal,
 		onRefreshWorkspaces,
 		onBootstrap,
@@ -759,6 +761,8 @@
 													projectName={matchedContainer.projectName}
 													workspacePath={matchedContainer.localWorkspacePath}
 													allPorts={matchedContainer.ports}
+													containerId={matchedContainer.id}
+													{serviceProxyEnabled}
 												/>
 											{/each}
 										</div>
