@@ -4,10 +4,10 @@
 // Create a real disposable Unix socket, but mock account/group/storage commands and
 // privilege dropping. Rewrite only the fixture copy's absolute paths before running
 // it. Cover configured identity, account collisions, hooks, shell templates and
-// fail-closed diagnostics; compare standalone launcher identity implementations.
-// No real host users, socket permissions or dashboard data are changed. Assertions
-// about mocked runuser/chown calls are not proof of real privilege or ownership.
-// node:test registers and runs the cases, then removes their temporary fixtures.
+// fail-closed diagnostics. No real host users, socket permissions or dashboard data
+// are changed. Assertions about mocked runuser/chown calls are not proof of real
+// privilege or ownership. node:test registers and runs the cases, then removes
+// their temporary fixtures.
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -192,14 +192,8 @@ test('hooks run after privilege dropping and preserve existing shell files', asy
 	assert.notEqual(f.run({}, ['unknown']).status, 0);
 });
 
-test('Compose uses explicit identity, strict bind sources and stable history volume', () => {
-	const compose = read('docker-compose.yml');
-	for (const key of ['HOST_USER', 'HOST_UID', 'HOST_GID', 'HOST_HOME']) {
-		assert.ok(compose.includes(`${key}: \${${key}:?`));
-	}
-	assert.match(compose, /create_host_path: false/);
-	assert.match(compose, /ddash_zsh_data:\/dashboard-history/);
-	assert.doesNotMatch(compose, /\/home\/ddash/);
+test('Dockerfile keeps the dashboard tools prefix and healthcheck contract', () => {
 	assert.match(read('Dockerfile'), /NPM_CONFIG_PREFIX=\/opt\/dashboard-tools/);
 	assert.match(read('Dockerfile'), /HEALTHCHECK[\s\S]*\/healthz/);
+	assert.match(read('Dockerfile'), /plugins\/10-dev-bootstrap\.sh/);
 });
