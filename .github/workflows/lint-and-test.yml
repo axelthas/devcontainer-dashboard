@@ -32,3 +32,9 @@ jobs:
 
       - name: Unit tests
         run: npm run test:unit -- --run
+
+      - name: Build production outputs
+        run: npm run build && npm run build:server
+
+      - name: Service gateway tests
+        run: npm run test:gateway
