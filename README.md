@@ -53,26 +53,32 @@ npm run test
 
 ### Containerized run
 
-The repository includes a Docker image and a compose file for local deployment. The compose setup mounts the Docker socket, the workspace tree, and a data volume for presets and bootstrap provider metadata.
+The repository publishes a Docker image that mounts the Docker socket, the workspace tree, and data and history volumes managed by the dashboard.
 
-The fastest way to get the dashboard running is the bundled setup script:
-
-```bash
-curl -sL https://raw.githubusercontent.com/axelthas/devcontainer-dashboard/main/scripts/run-dashboard-compose.sh | bash
-```
-
-The script prompts for a workspace directory (defaults to `~/ddash-workspace`), a dashboard password using hidden input, and whether to enable the TernDev dev-bootstrap hook. It then writes a parameterized `docker-compose.yml` to `~/.config/devcontainer-dashboard/`, pulls the latest image, and starts the stack in the foreground. The literal password is not written to that file. Press Ctrl+C to stop.
-
-To use the checked-in Compose file:
+The fastest way to get the dashboard running is the bundled launcher:
 
 ```bash
-export DASHBOARD_PASSWORD='choose-a-strong-password'
-export WORKSPACE_ROOT="$HOME/ddash-workspace"
-mkdir -p "$WORKSPACE_ROOT"
-docker compose up -d --wait
+curl -sL https://raw.githubusercontent.com/axelthas/devcontainer-dashboard/main/scripts/run-dashboard.sh | bash
 ```
 
-Both Compose paths and the direct Docker installer publish `127.0.0.1:3000` by default. For explicit remote access, set `DASHBOARD_BIND_ADDRESS` to a host interface address, or `0.0.0.0` for all IPv4 interfaces, before running Compose or the installer. This exposes full operator access. Use the HTTPS and reverse-proxy controls described below.
+The launcher pulls the published image and runs it in the foreground. It prompts for a workspace directory (defaults to `~/ddash-workspace`) and a dashboard password using hidden input. Press Ctrl+C to stop the container; the `dashboard_data` and `ddash_zsh_data` volumes persist across restarts.
+
+All inputs are CLI flags. Common examples:
+
+```bash
+# Non-interactive (CI or scripts): password via file, explicit workspace.
+bash scripts/run-dashboard.sh --non-interactive --password-file /path/to/password \
+  --workspace "$HOME/ddash-workspace"
+
+# Enable the optional dev-bootstrap hook and the read-only SSH directory bind.
+bash scripts/run-dashboard.sh --bootstrap --ssh-dir
+
+# Publish on another address or port and set the external origin.
+bash scripts/run-dashboard.sh --bind-address 0.0.0.0 --port 3000 \
+  --origin https://dashboard.example.com
+```
+
+The launcher publishes host loopback `127.0.0.1:3000` by default. For explicit remote access, pass `--bind-address` with a host interface address, or `0.0.0.0` for all IPv4 interfaces. This exposes full operator access. Use the HTTPS and reverse-proxy controls described below. See `bash scripts/run-dashboard.sh --help` for the complete flag grammar. The launcher reads no deployment environment variables; an exported `SSH_AUTH_SOCK` and `SUDO_USER` under sudo are the documented exceptions.
 
 ## Architecture
 
@@ -84,24 +90,24 @@ The main server responsibilities are split across the app, Docker helpers, works
 
 ## Environment Variables
 
-| Variable                 | Default                        | Purpose                                                               |
-| ------------------------ | ------------------------------ | --------------------------------------------------------------------- |
-| DASHBOARD_PASSWORD       | required                       | Shared password required to access the dashboard                      |
-| WORKSPACE_ROOT           | /workspaces                    | Root directory scanned for local workspace discovery and repo actions |
-| HOST_HOSTNAME            | os.hostname()                  | Hostname displayed in the dashboard header                            |
-| VSCODE_SSH_HOST          | empty                          | SSH host used when building VS Code remote URIs                       |
-| PRESETS_FILE             | /data/presets.json             | JSON file containing bootstrap presets                                |
-| BOOTSTRAP_PROVIDERS_FILE | /data/bootstrap-providers.json | JSON file containing bootstrap provider definitions                   |
-| BUILD_LOG_DIR            | /data/build-logs               | Directory for logs of failed devcontainer builds and bootstrap runs   |
-| PORT                     | 3000                           | Port used by the custom Node server                                   |
-| DASHBOARD_BIND_ADDRESS   | 127.0.0.1                      | Host publication address for Compose and installer scripts            |
-| ORIGIN                   | empty                          | Public URL of the dashboard behind a reverse proxy                    |
-| PROTOCOL_HEADER          | empty                          | Trusted proxy header that carries the original protocol               |
-| ADDRESS_HEADER           | empty                          | Trusted proxy header that carries the client IP address               |
-| XFF_DEPTH                | 1                              | Number of trusted proxies when ADDRESS_HEADER is x-forwarded-for      |
-| SERVICE_PROXY_ENABLED    | empty                          | Set to `1` to enable the opt-in authenticated service gateway         |
-| SERVICE_PROXY_HOST       | empty                          | Operator-owned host route for gateway upstream connections            |
-| SERVICE_PROXY_PORTS      | empty                          | `port:http\|https\|off` policy overrides for the gateway              |
+| Variable                 | Default                        | Purpose                                                                 |
+| ------------------------ | ------------------------------ | ----------------------------------------------------------------------- |
+| DASHBOARD_PASSWORD       | required                       | Shared password required to access the dashboard                        |
+| WORKSPACE_ROOT           | /workspaces                    | Root directory scanned for local workspace discovery and repo actions   |
+| HOST_HOSTNAME            | os.hostname()                  | Hostname displayed in the dashboard header                              |
+| VSCODE_SSH_HOST          | empty                          | SSH host used when building VS Code remote URIs                         |
+| PRESETS_FILE             | /data/presets.json             | JSON file containing bootstrap presets                                  |
+| BOOTSTRAP_PROVIDERS_FILE | /data/bootstrap-providers.json | JSON file containing bootstrap provider definitions                     |
+| BUILD_LOG_DIR            | /data/build-logs               | Directory for logs of failed devcontainer builds and bootstrap runs     |
+| PORT                     | 3000                           | Port used by the custom Node server                                     |
+| DASHBOARD_BIND_ADDRESS   | 127.0.0.1                      | Host publication address; pass it to the launcher with `--bind-address` |
+| ORIGIN                   | empty                          | Public URL of the dashboard behind a reverse proxy                      |
+| PROTOCOL_HEADER          | empty                          | Trusted proxy header that carries the original protocol                 |
+| ADDRESS_HEADER           | empty                          | Trusted proxy header that carries the client IP address                 |
+| XFF_DEPTH                | 1                              | Number of trusted proxies when ADDRESS_HEADER is x-forwarded-for        |
+| SERVICE_PROXY_ENABLED    | empty                          | Set to `1` to enable the opt-in authenticated service gateway           |
+| SERVICE_PROXY_HOST       | empty                          | Operator-owned host route for gateway upstream connections              |
+| SERVICE_PROXY_PORTS      | empty                          | `port:http\|https\|off` policy overrides for the gateway                |
 
 `DASHBOARD_PASSWORD` must be non-empty. Development and production startup fail closed when it is absent. A successful login creates an opaque in-memory session and an `HttpOnly`, `SameSite=Strict` cookie that lasts until the browser session ends. Logout, process restart, or password rotation invalidates the session.
 
@@ -142,7 +148,7 @@ A log can contain secrets that a build or bootstrap script prints. Logs are only
 The service viewer can embed container web services through the dashboard's own HTTPS
 entry point instead of constructing `http://hostname:port` URLs, which browsers block
 as mixed content when the dashboard is served over HTTPS (issue #21). The gateway is
-disabled unless `SERVICE_PROXY_ENABLED=1`.
+disabled unless `SERVICE_PROXY_ENABLED=1`; the launcher forwards it with `--gateway` (plus optional `--gateway-host` and `--gateway-ports`).
 
 When enabled, service buttons open an identity-based viewer (`/service?cid=…&port=…`).
 The viewer's server load validates the container and port against live Docker state and
@@ -183,41 +189,42 @@ Behavior and constraints:
 
 The production image is built in two stages. The build stage installs native dependencies needed by node-pty, runs the SvelteKit build, and compiles the custom server entry point. The runtime stage installs git, openssh-client, and the devcontainer CLI before starting the entrypoint script.
 
-The default Docker Compose setup binds host loopback port 3000, mounts the Docker socket, and maps a host workspace directory into the container so the dashboard can discover repos on disk.
+The containerized deployment binds host loopback port 3000, mounts the Docker socket, and maps a host workspace directory into the container so the dashboard can discover repos on disk.
 
 ### Build and run the current branch with one script
 
 From your checkout, run:
 
 ```bash
-bash scripts/run-production.sh
+bash scripts/run-dashboard.sh --build
 ```
 
-The script builds the current working tree with Docker Buildx and loads the final production image locally. It includes local changes allowed by the Docker build context. It does not fetch source, switch branches, change package versions, publish images, or use Vite. It prints the source branch, commit, and whether the checkout has local changes. No host Node or npm installation is required.
+Build mode builds the current working tree with Docker Buildx and loads the final production image locally. It includes local changes allowed by the Docker build context. It does not fetch source, switch branches, change package versions, publish images, or use Vite. It prints the source branch, commit, and whether the checkout has local changes. No host Node or npm installation is required.
 
-It prompts for a password unless `DASHBOARD_PASSWORD` is set. It starts a new, uniquely named test container on `127.0.0.1:3001`, waits for the image healthcheck, and checks readiness and unauthenticated API rejection inside the container. It then prints the browser URL, logs command, stop/resume commands, and retained test volume names. Log in and check the terminal manually. These startup checks do not replace the login and terminal smoke tests.
+It prompts for a password unless `--password` or `--password-file` is supplied. It starts a new, uniquely named test container on host loopback port 3001, waits for the image healthcheck, and checks readiness and unauthenticated API rejection inside the container. It then prints the browser URL, logs command, stop/resume commands, and retained test volume names. Log in and check the terminal manually. These startup checks do not replace the login and terminal smoke tests.
 
 Options:
 
 ```bash
-bash scripts/run-production.sh \
+bash scripts/run-dashboard.sh --build \
   --workspace /absolute/path/shared/with/docker/host \
   --socket /var/run/docker.sock \
   --port 3002 \
-  --platform linux/amd64
+  --platform linux/amd64 \
+  --non-interactive --password-file /path/to/password
 ```
 
-Omit `--platform` to use your builder's default. An ARM host needs emulation to build and run `linux/amd64`. The workspace defaults to `WORKSPACE_ROOT` or `~/ddash-production-workspace`. The socket defaults to `DOCKER_SOCKET` or `/var/run/docker.sock`. Paths with spaces are supported; paths with commas are not. Inside a devcontainer, use workspace and socket paths available on the Docker host, not paths private to the devcontainer. See `bash scripts/run-production.sh --help` for environment overrides.
+Omit `--platform` to use your builder's default. An ARM host needs emulation to build and run `linux/amd64`. The workspace defaults to `~/ddash-production-workspace`. The socket defaults to `/var/run/docker.sock`. Paths with spaces are supported; paths with commas are not. Inside a devcontainer, use workspace and socket paths available on the Docker host, not paths private to the devcontainer. See `bash scripts/run-dashboard.sh --help` for the complete flag grammar, including `--origin`, `--bootstrap`, `--ssh-dir`, `--name`, `--health-timeout` and the service-gateway passthroughs.
 
 Each invocation builds again and creates a new container and separate named data volumes. Existing containers are never stopped or removed automatically. To run two tests simultaneously, choose different ports. Containers and volumes remain after success or failure for inspection; the script prints the commands to manage its container. Remove only test resources you no longer need. The test still has full access to the mounted Docker daemon and its containers.
 
-Run the script's mocked regression tests without Docker:
+Run the launcher's mocked regression tests without Docker:
 
 ```bash
-node --test scripts/tests/run-production.test.mjs
+node --test scripts/tests/run-dashboard.test.mjs
 ```
 
-The script follows the Dockerfile build path used by the release workflow, with `--load` instead of a registry push. The manual procedure below explains release-version and platform differences and shows the individual commands.
+Build mode follows the Dockerfile build path used by the release workflow, with `--load` instead of a registry push. The manual procedure below explains release-version and platform differences and shows the individual commands.
 
 ### Secure access through Tailscale
 
@@ -242,13 +249,14 @@ Keep the dashboard's Docker port bound to `127.0.0.1`. Use Tailscale Serve on th
 3. Set the dashboard's external origin to that exact URL, without a trailing slash. Replace the example hostname below with the hostname Serve printed:
 
    ```bash
-   export ORIGIN='https://YOUR-HOST.YOUR-TAILNET.ts.net'
-   bash scripts/run-production.sh --port 3002
+   bash scripts/run-dashboard.sh --build --port 3002 \
+     --origin 'https://YOUR-HOST.YOUR-TAILNET.ts.net' \
+     --non-interactive --password-file /path/to/password
    ```
 
-   The runner passes the exported `ORIGIN` into the container with `--env ORIGIN`. It still publishes only on host loopback. Using port 3002 leaves an existing test on port 3001 untouched. Wait for the new container to become healthy.
+   Build mode forwards `--origin` into the container as `ORIGIN`. It still publishes only on host loopback. Using port 3002 leaves an existing test on port 3001 untouched. Wait for the new container to become healthy.
 
-   `ORIGIN` configures the external HTTPS origin used for login and secure cookies. It is a runtime setting, not a build argument. Setting it in your shell does not update an already-created container, and `docker restart` does not change container environment variables. Start a new container with the runner. For a manual `docker run`, include `--env ORIGIN` after exporting it. Use the HTTPS URL for login; a direct HTTP login on loopback is no longer the configured origin.
+   `ORIGIN` configures the external HTTPS origin used for login and secure cookies. It is a runtime setting, not a build argument. Setting it in your shell does not update an already-created container, and `docker restart` does not change container environment variables. Start a new container with the launcher. For a manual `docker run`, include `--env ORIGIN=value`. Use the HTTPS URL for login; a direct HTTP login on loopback is no longer the configured origin.
 
 4. On the host, update Serve to point to the new container:
 
@@ -277,7 +285,7 @@ See the [Tailscale Serve reference](https://tailscale.com/docs/reference/tailsca
 
 ### Build and test the production image manually
 
-Use this procedure to test local source changes in the production image, without publishing an image or starting the development server. Run these commands in Bash from the repository root on the Docker host. You need Docker with Buildx, access to a local Docker daemon, and internet access for the image build. You do not need Node or npm on the host: the Dockerfile installs dependencies and builds both application outputs.
+Prefer `bash scripts/run-dashboard.sh --build` with flags for the common path; use this procedure to reproduce the individual steps or test local source changes without the launcher. Run these commands in Bash from the repository root on the Docker host. You need Docker with Buildx, access to a local Docker daemon, and internet access for the image build. You do not need Node or npm on the host: the Dockerfile installs dependencies and builds both application outputs.
 
 1. Check out the source revision you want to test. For the issue #13 fixes:
 
@@ -315,7 +323,7 @@ Use this procedure to test local source changes in the production image, without
    mkdir -p "$WORKSPACE_ROOT"
    ```
 
-   Use a non-empty password. For rootless Docker, set `DOCKER_SOCKET` to the host daemon's socket path. The container path remains `/var/run/docker.sock`. `WORKSPACE_ROOT` must be an absolute path that exists on the Docker host; mounting it at the same path inside the container preserves devcontainer path handling. If you run these commands inside a devcontainer, use a workspace path shared with the Docker host. A directory that exists only inside your current devcontainer is not a valid host bind source.
+   Use a non-empty password; the launcher equivalent is `--non-interactive --password-file PATH`. For rootless Docker, pass `--socket PATH` to the launcher (or keep the `DOCKER_SOCKET` export for the raw commands). The container path remains `/var/run/docker.sock`. `WORKSPACE_ROOT` must be an absolute path that exists on the Docker host; mounting it at the same path inside the container preserves devcontainer path handling. If you run these commands inside a devcontainer, use a workspace path shared with the Docker host. A directory that exists only inside your current devcontainer is not a valid host bind source.
 
 4. Start the image with a separate container name, test data volumes, and loopback port 3001:
 
@@ -378,7 +386,7 @@ bash scripts/tests/container-smoke.sh
 
 The deployment tests use mock privileged commands and a real temporary Unix socket. They do not change host groups or the Docker socket. The production smoke test checks the compiled server, required-password failure, readiness, login, rejected upgrades, authenticated upgrades, and PTY output.
 
-The container smoke test requires Docker, Compose 2.24.4 or newer (`!override` support), Node 22, the `script` command from util-linux, and installed project dependencies (`npm ci`). It builds an image, renders both Compose paths, checks binding overrides, starts an isolated Compose project with a random loopback port, tests the application, and removes its own test containers and volumes on exit. It also checks fail-closed container startup and an unhealthy probe without an application. Run it only with a trusted local Docker daemon.
+The container smoke test requires Docker, Node 22, the `script` command from util-linux, and installed project dependencies (`npm ci`). It builds an image, starts an isolated fixture dashboard with plain `docker run` on a random loopback port, tests the application, and removes its own test containers and volumes on exit. It also checks fail-closed container startup and an unhealthy probe without an application. Run it only with a trusted local Docker daemon.
 
 To test an already running disposable container, use `SMOKE_BASE_URL=http://127.0.0.1:PORT SMOKE_PASSWORD=... npm run test:production`. This creates a login session and a short-lived terminal command. Do not point it at a shared production instance. The external-server mode cannot verify that server's missing-password startup behavior.
 

@@ -45,7 +45,7 @@ npm run test             # deployment + unit + e2e combined
 | `PRESETS_FILE`             | `/data/presets.json`             | Path to bootstrap presets JSON file                   |
 | `BOOTSTRAP_PROVIDERS_FILE` | `/data/bootstrap-providers.json` | Path to bootstrap provider definitions                |
 | `PORT`                     | `3000`                           | Port used by the custom server entry point            |
-| `DASHBOARD_BIND_ADDRESS`   | `127.0.0.1`                      | Host publication address in Compose and installers    |
+| `DASHBOARD_BIND_ADDRESS`   | `127.0.0.1`                      | Launcher publication address; pass `--bind-address`   |
 | `SERVICE_PROXY_ENABLED`    | (empty)                          | Set to `1` to enable the opt-in service gateway       |
 | `SERVICE_PROXY_HOST`       | (empty)                          | Operator-owned host route for gateway upstreams       |
 | `SERVICE_PROXY_PORTS`      | (empty)                          | `port:http\|https\|off` policy overrides              |
@@ -172,7 +172,7 @@ Important:
 - `test:deployment` uses Node's test runner with mocked privileged commands and a real temporary Unix socket. It requires no npm dependencies.
 - `test:production` exercises the compiled custom server, HTTP login, WebSocket authorization, and PTY output. `SMOKE_BASE_URL` targets a disposable external container.
 - `test:gateway` runs disposable HTTP/upgrade regressions against the compiled gateway module in `build/lib/server/serviceGateway.js`; `GATEWAY_MODULE_URL` can point at an isolated transpiled build when project dependencies are unavailable.
-- `container-smoke.sh` requires Docker, Compose 2.24.4+, Node 22, util-linux `script`, and installed project dependencies. It cleans up only its isolated Compose project and test resources.
+- `container-smoke.sh` requires Docker, Node 22, util-linux `script`, and installed project dependencies. It cleans up only its isolated containers, volumes and test resources.
 
 ## Svelte MCP Tools
 
