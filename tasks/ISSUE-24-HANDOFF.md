@@ -299,3 +299,71 @@ Optional gateway live validation follows PR #22's operator steps (Tailscale +
 
 - 2026-11-04: plan agreed with the operator (see decision record); handoff saved
   in-repo as `tasks/simplify-deployment-handoff.md`. No code changes yet.
+- 2026-11-04: executed on the host. GitHub issue
+  [axelthas/devcontainer-dashboard#24](https://github.com/axelthas/devcontainer-dashboard/issues/24)
+  created; branch `refactor/24-simplify-deployment` cut from
+  `origin/fix/https-service-embedding`; handoff renamed to
+  `tasks/ISSUE-24-HANDOFF.md` and committed first (the file was untracked, so a
+  plain `mv` + `git add` replaced the planned `git mv`); stacked PR
+  [axelthas/devcontainer-dashboard#25](https://github.com/axelthas/devcontainer-dashboard/pull/25)
+  opened with `--base fix/https-service-embedding`.
+- 2026-11-04: commit 1 — `plugins/10-dev-bootstrap.sh`, Dockerfile copies to
+  `/opt/dashboard/plugins/`, entrypoint glob updated, deployment fixture rewrite
+  and bootstrap-hook test path updated.
+- 2026-11-04: commit 2 — `scripts/run-dashboard.sh` rewritten as the single
+  args-driven launcher (registry default + `--build`), `run-production.sh`
+  deleted, `run-production.test.mjs` renamed to `run-dashboard.test.mjs` and
+  rewritten (60 tests), identity-comparison test retired, `test:deployment`
+  updated. Workspace defaults per mode; registry mode keeps the interactive
+  workspace prompt, `--non-interactive` applies the default instead.
+- 2026-11-04: commit 3 — Compose variant removed (`docker-compose.yml`,
+  `run-dashboard-compose.sh`, Compose contract test); `container-smoke.sh`
+  starts its fixture with plain `docker run` mirroring the launcher argv
+  (dynamic loopback publication via `-p 127.0.0.1::3000`, `docker port` lookup,
+  `docker rm -f` + `docker volume rm` cleanup, no Compose requirement).
+  Compose-project grouping display code untouched.
+- 2026-11-04: commit 4 — README (quick start + flags, no Compose paths, Tailscale
+  step 3 uses `--origin`, env-table row says launcher flag), scripts/README
+  (single launcher, flag grammar, plugins dir), HOST-IDENTITY (identity flags),
+  ARCHITECTURE (repo tree), AGENTS.md (env row, smoke requirements).
+- 2026-11-04: environment notes for future sessions. (1) Tool views of files and
+  command output in this agent harness redact some literals as bracketed
+  placeholders (`127.0.0.1` → `[IP_ADDRESS]`, `2147483647` → `[PHONE]`,
+  `git@gitlab.com:` → `[EMAIL]:`). Write/edit tool input transmits real bytes,
+  but shell-command input with IP-like or long digit literals is rewritten in
+  transit — construct such literals in files via write/edit, never in shell
+  commands, and verify with digit-splitting (`sed 's/\([0-9]\)/\1 /g'`). (2)
+  `util-linux-script` had to be installed on this host for the PTY tests
+  (`script` is no longer in the base util-linux package). (3) Vitest browser
+  tests required `npx playwright install chromium` on this host. (4) Docker
+  29 on this host treats `--health-start-period=0s` as unset and keeps the
+  image's 60s window (Go zero-value); container-smoke's UNSTARTED probe now
+  passes `--health-start-period=1ms`. (5) Loopback 3001 is occupied by a
+  pre-existing test container from an earlier session
+  (`ddash-local-20f9279b8424-*`); real-world validation used port 3002.
+- 2026-11-04: validation matrix results. `npm run lint` OK. `npm run
+test:deployment` 90/90. `npm run check` 0 errors (2 pre-existing warnings in
+  `src/lib/components/TerminalPanel.svelte`, untouched by this branch).
+  `npm run build` + `npm run build:server` + `npm run test:production` OK.
+  `npm run test:unit -- --run` 89/89 after installing the Playwright chromium
+  headless shell. `npm run test:gateway` 18/18. `bash
+scripts/tests/container-smoke.sh` PASS (image build, docker-run fixture,
+  login/terminal, sibling devcontainer build API, ownership, fail-closed).
+- 2026-11-04: real-world validation on the host. Build mode: `bash
+scripts/run-dashboard.sh --build --port 3002 --non-interactive
+--password-file … --workspace /home/axel/ddash-production-workspace` — built
+  revision c9929bd with revision/local-changes labels, container stayed
+  healthy, in-container HTTP contract verified, host-side
+  `/healthz` → `{"status":"ready"}`, `/api/containers` → 401, `/` → 303.
+  Registry mode: `curl -sL https://raw.githubusercontent.com/axelthas/
+devcontainer-dashboard/refactor/24-simplify-deployment/scripts/
+run-dashboard.sh | bash -s -- --non-interactive --password-file …
+--workspace /home/axel/ddash-workspace` — passwd identity resolved
+  (axel 1000:1000), ghcr image pulled, container healthy; login/upgrade/PTY
+  smoke passed against it via `SMOKE_BASE_URL=http://localhost:3000 npm run
+test:production`. All created containers, per-run volumes, the bare
+  `dashboard_data`/`ddash_zsh_data` volumes, password file and workspace
+  directories were removed afterwards. One build-mode test image remains on
+  the host because an operator-side image scanner container
+  (`cortex_scanner_*_DockerScanner_*`) held a reference during cleanup; it can
+  be removed with `docker rmi` once the scanner releases it.
