@@ -250,11 +250,13 @@ for (const [answer, expected] of [
 			answer + '\n'
 		);
 		assert.equal(r.status, 0, r.stdout + r.stderr);
-		assert.ok(
-			readFileSync(join(f.dir, 'config/docker-compose.yml'), 'utf8').includes(
-				`ORIGIN: '${expected}'`
-			)
-		);
+		const compose = readFileSync(join(f.dir, 'config/docker-compose.yml'), 'utf8');
+		if (expected === '') {
+			// A blank origin means local HTTP; adapter-node rejects an empty ORIGIN at startup.
+			assert.doesNotMatch(compose, /^\s*ORIGIN:/m);
+		} else {
+			assert.ok(compose.includes(`ORIGIN: '${expected}'`));
+		}
 	});
 }
 

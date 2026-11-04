@@ -2,6 +2,13 @@
 
 ## Status
 
+> **Update (2026-11-04, OpenCode continuation session):** the continuation plan below has
+> been executed on this branch. Phase 0 hygiene, real type/build checks, CI registration,
+> the UI wiring, the validated service matrix, and docs are done and recorded in commits
+> after `32a6d26`. The remaining open items are the real Tailscale deployment validation
+> (manual, needs the operator), PR #20's merge/retarget cycle, and optional follow-ups
+> listed at the end of this file.
+
 This is an **incomplete, opt-in backend foundation**, not a verified fix for the blank Supervisor/OpenCode viewer. Keep the child PR in draft and issue #21 open.
 
 - Branch: `fix/https-service-embedding`.
@@ -95,3 +102,31 @@ bash scripts/tests/container-smoke.sh
 ```
 
 Record the exact tested revision. Keep issue #21 open until the HTTPS viewer and interactive service traffic work through the actual Tailscale URL.
+
+## Continuation log (OpenCode, 2026-11-04)
+
+Executed on this branch; commits `4fdb91e`..HEAD:
+
+1. **Parent merge**: `fix/18-production-host-bind-mounts` (66ab765) merged into the child. Parent AGENTS/CI/OpenCode-skill changes preserved.
+2. **Real checks**: `npm ci` (approved node-pty install scripts locally), `check` 0 errors, lint clean, prettier applied, both builds emit `build/lib/server/serviceGateway.js` (tsconfig.server.json follows imports; no copy rule needed).
+3. **Test registration**: `npm run test:gateway` in package.json + CI step (build first), documented in AGENTS.md. All 18 standalone tests pass against the compiled build.
+4. **Pre-existing failure fixed**: `production-smoke.mjs` login used `fetch` without an Accept header; SvelteKit negotiates `*/*` as action-JSON and returns HTTP 200 with the failure encoded in the body. Now sends `Accept: text/html`. This failure existed on the parent branch; CI only runs lint+unit.
+5. **Validated service matrix** (live Chromium against the running devcontainers):
+   - Supervisor 9001: document-relative links, no frame restrictions → path-proxy works (verified through the gateway).
+   - noVNC 6904: self-contained + relative imports → path-proxy works; its WebSocket derives from location, so the launch URL carries `?path=service-proxy/<id>/6904/websockify`. Verified: `RFB 003.008` handshake through TLS → dashboard → gateway → websockify.
+   - OpenCode 4096 (v2.2.5): root-absolute `/_assets/*`, no base-path flag, ignores X-Forwarded-Prefix → path-proxy does NOT work (assets 404 at the dashboard origin). CSP has no `frame-ancestors`, so a dedicated HTTPS origin embeds fine; pairing screen is the normal unpaired state.
+6. **Docker routing**: all involved containers share the default `bridge` network, so the default inspected-IP route works. `SERVICE_PROXY_HOST` remains the fallback for stricter setups.
+7. **UI wiring** (hybrid option chosen with Axel): client-safe `src/lib/serviceTargets.ts` (shared hrefs/paths/embed profiles), `SERVICE_PROXY_PORTS` env parser, shared scheme/binding exports, `/service` validating server load with proxy/legacy/unsupported/unavailable/proxy-disabled states, identity-based launch from all four ServiceButton callers, `serviceProxyEnabled` via SSR load. Gateway tests updated for unified mismatch semantics (404). 25 new unit tests; full suite green.
+8. **Browser validation through the compiled server** (TLS harness ≈ Tailscale Serve, `ORIGIN=https://localhost:<tls-port>`): login → service button → viewer: Supervisor renders through the gateway, noVNC shows "Connected to root@<id>" (live VNC), OpenCode shows the explicit unsupported panel with Open-directly, **zero console errors / zero mixed content**.
+9. **Deployment**: installer now emits `ORIGIN` only when set (empty `ORIGIN` crashes adapter-node at startup — pre-existing bug found and fixed; deployment test updated) and passes `SERVICE_PROXY_*` through root Compose and the installer. Empty passthroughs keep the gateway disabled.
+10. **Docs**: README service-gateway section + env/routes tables; AGENTS.md env table, route/key-file tables, runtime note.
+
+### Environmental note
+
+`container-smoke.sh` cannot run from inside this devcontainer session: the Docker daemon is the host's and cannot see the container's `/home/axel` fixture dirs (bind sources "do not exist"). Run it on the Docker host directly.
+
+### Remaining for the operator
+
+- Real Tailscale validation: set `SERVICE_PROXY_ENABLED=1` + `ORIGIN=https://…ts.net` on the deployed container, restart it, sign in, and check Supervisor/noVNC embed plus the OpenCode unsupported state through the tailnet URL. Record the tested revision in issue #21.
+- Run `container-smoke.sh` on the host.
+- After #20 merges: retarget PR #22 to `main`, drop the handoff doc if desired, and decide on the optional dedicated HTTPS service-origin listener for embedding OpenCode (design notes in the session log; one static Tailscale rule + selector cookie).

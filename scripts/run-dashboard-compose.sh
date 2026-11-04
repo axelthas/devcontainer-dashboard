@@ -133,7 +133,6 @@ services:
       - '\${DASHBOARD_BIND_ADDRESS:-127.0.0.1}:3000:3000'
     environment:
       DASHBOARD_PASSWORD: \${DASHBOARD_PASSWORD:?DASHBOARD_PASSWORD must be set}
-      ORIGIN: '${DASHBOARD_ORIGIN}'
       HOST_USER: '${HOST_USER}'
       HOST_UID: '${HOST_UID}'
       HOST_GID: '${HOST_GID}'
@@ -142,7 +141,12 @@ services:
       WORKSPACE_ROOT: '${WORKSPACE_ROOT}'
       PRESETS_FILE: /data/presets.json
       VSCODE_SSH_HOST: \${VSCODE_SSH_HOST:-}
+      SERVICE_PROXY_ENABLED: \${SERVICE_PROXY_ENABLED:-}
+      SERVICE_PROXY_HOST: \${SERVICE_PROXY_HOST:-}
+      SERVICE_PROXY_PORTS: \${SERVICE_PROXY_PORTS:-}
 YAML
+  # Emit ORIGIN only when configured: adapter-node rejects an empty ORIGIN at startup.
+  [[ -z "${DASHBOARD_ORIGIN:-}" ]] || printf "      ORIGIN: '%s'\n" "$DASHBOARD_ORIGIN"
   # Emit the optional socket in the same environment block, before the volumes list.
   [[ -z "${SSH_AUTH_SOCK:-}" ]] || printf "      SSH_AUTH_SOCK: '%s'\n" "$SSH_AUTH_SOCK"
   printf '    volumes:\n'

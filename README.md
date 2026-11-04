@@ -99,6 +99,9 @@ The main server responsibilities are split across the app, Docker helpers, works
 | PROTOCOL_HEADER          | empty                          | Trusted proxy header that carries the original protocol               |
 | ADDRESS_HEADER           | empty                          | Trusted proxy header that carries the client IP address               |
 | XFF_DEPTH                | 1                              | Number of trusted proxies when ADDRESS_HEADER is x-forwarded-for      |
+| SERVICE_PROXY_ENABLED    | empty                          | Set to `1` to enable the opt-in authenticated service gateway         |
+| SERVICE_PROXY_HOST       | empty                          | Operator-owned host route for gateway upstream connections            |
+| SERVICE_PROXY_PORTS      | empty                          | `port:http\|https\|off` policy overrides for the gateway              |
 
 `DASHBOARD_PASSWORD` must be non-empty. Development and production startup fail closed when it is absent. A successful login creates an opaque in-memory session and an `HttpOnly`, `SameSite=Strict` cookie that lasts until the browser session ends. Logout, process restart, or password rotation invalidates the session.
 
@@ -132,6 +135,49 @@ A log can contain secrets that a build or bootstrap script prints. Logs are only
 | /api/devcontainer/build       | Starts, cancels, or dismisses a devcontainer build                   |
 | /api/run-logs/[id]            | Returns the kept log of a failed run; add ?download for plain text   |
 | /api/terminal                 | WebSocket terminal sessions                                          |
+| /service-proxy/[id]/[port]/   | Opt-in authenticated streaming gateway to a container web service    |
+
+## Service gateway (opt-in)
+
+The service viewer can embed container web services through the dashboard's own HTTPS
+entry point instead of constructing `http://hostname:port` URLs, which browsers block
+as mixed content when the dashboard is served over HTTPS (issue #21). The gateway is
+disabled unless `SERVICE_PROXY_ENABLED=1`.
+
+When enabled, service buttons open an identity-based viewer (`/service?cid=…&port=…`).
+The viewer's server load validates the container and port against live Docker state and
+decides the iframe target:
+
+- **Path proxy**: services verified to support a URL prefix (Supervisor, noVNC) embed
+  through `/service-proxy/<container-id>/<container-port>/`.
+- **Direct**: applications that require their own origin root (OpenCode at this time)
+  get an explicit "cannot be embedded" panel with an Open-directly action instead of a
+  blank frame. Top-level navigation to `http://<host>:<published-port>` works from an
+  HTTPS page, but the port is typically not reachable through Tailscale Serve.
+- **Unavailable**: stopped, removed, or unpublished services show an actionable reason.
+
+| Variable              | Default | Purpose                                                                        |
+| --------------------- | ------- | ------------------------------------------------------------------------------ |
+| SERVICE_PROXY_ENABLED | empty   | Set to `1` to enable the authenticated service gateway                         |
+| SERVICE_PROXY_HOST    | empty   | Optional operator-owned route to published ports instead of container IPs      |
+| SERVICE_PROXY_PORTS   | empty   | Comma-separated `port:http\|https\|off` overrides, e.g. `9001:http,8443:https` |
+
+Behavior and constraints:
+
+- The gateway runs before SvelteKit in the custom server (and in Vite dev), authenticates
+  with the dashboard session before any Docker access, and requires the exact browser
+  `ORIGIN` on mutations and WebSocket upgrades.
+- Requests are revalidated against Docker inspection every time; only running containers
+  with an allowed, published TCP port are proxied. Database and unknown ports are refused.
+- Dashboard credentials (session cookie, `Authorization`, Origin/Referer) are never
+  forwarded upstream; service cookies are path-scoped and redirects are confined to the
+  service prefix. Frame protections and upstream CORS grants are preserved.
+- Without `SERVICE_PROXY_HOST`, the gateway connects to the container's inspected IP and
+  requires the dashboard container to share a Docker network with the target. With it,
+  the gateway uses the inspected published port on that host route instead.
+- Trust model: same-origin proxied service JavaScript gains dashboard-origin operator
+  privileges. Treat proxied services as trusted operator applications only; untrusted
+  services need separate origins.
 
 ## Deployment
 

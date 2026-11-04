@@ -13,6 +13,11 @@ services:
       HOST_HOSTNAME: ${HOSTNAME:-}
       WORKSPACE_ROOT: ${WORKSPACE_ROOT:-/workspaces}
       PRESETS_FILE: /data/presets.json
+      # Opt-in trusted-service gateway passthroughs. Empty values keep it disabled.
+      # Never pass ORIGIN here: an empty ORIGIN is rejected by adapter-node at startup.
+      SERVICE_PROXY_ENABLED: ${SERVICE_PROXY_ENABLED:-}
+      SERVICE_PROXY_HOST: ${SERVICE_PROXY_HOST:-}
+      SERVICE_PROXY_PORTS: ${SERVICE_PROXY_PORTS:-}
       VSCODE_SSH_HOST: ${VSCODE_SSH_HOST:-}
       # SSH_AUTH_SOCK: ${SSH_AUTH_SOCK}
     volumes:

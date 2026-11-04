@@ -14,7 +14,8 @@ import {
 /** Create a gateway only when the operator explicitly enables the trusted-service preview. */
 export function createRuntimeServiceGateway(defaultOrigin: string) {
 	if (!isServiceProxyEnabled()) return null;
-	const configuredOrigin = process.env.ORIGIN ?? defaultOrigin;
+	// Treat an empty ORIGIN (compose passthrough) as unset instead of an invalid URL.
+	const configuredOrigin = process.env.ORIGIN || defaultOrigin;
 	const origin = new URL(configuredOrigin);
 	if (
 		!['http:', 'https:'].includes(origin.protocol) ||
