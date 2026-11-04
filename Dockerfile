@@ -50,9 +50,9 @@ WORKDIR /app
 COPY --from=builder /app/build /app/build
 COPY --from=builder /app/node_modules /app/node_modules
 COPY --from=builder /app/package.json /app/package.json
-COPY scripts/10-dev-bootstrap.sh /opt/dashboard/hooks/10-dev-bootstrap.sh
+COPY plugins/10-dev-bootstrap.sh /opt/dashboard/plugins/10-dev-bootstrap.sh
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
-RUN chmod +x /app/docker-entrypoint.sh /opt/dashboard/hooks/10-dev-bootstrap.sh \
+RUN chmod +x /app/docker-entrypoint.sh /opt/dashboard/plugins/10-dev-bootstrap.sh \
     && mkdir -p /data /dashboard-history
 USER root
 EXPOSE 3000

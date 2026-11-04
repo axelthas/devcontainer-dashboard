@@ -92,7 +92,7 @@ exec runuser -u "$HOST_USER" -- /bin/sh -c '
     if [ -n "${1:-}" ]; then
         case "$1" in *[!a-zA-Z0-9_-]*) echo "Invalid bundled hook name" >&2; exit 1 ;; esac
         found=false
-        for hook in /opt/dashboard/hooks/*-"$1".sh; do
+        for hook in /opt/dashboard/plugins/*-"$1".sh; do
             [ -f "$hook" ] || continue
             "$hook"
             found=true

@@ -68,7 +68,7 @@ exec "$@"`,
 	const source = read('docker-entrypoint.sh')
 		.replaceAll('/var/run/docker.sock', socket)
 		.replaceAll('/opt/dashboard-shell', join(dir, 'shell'))
-		.replaceAll('/opt/dashboard/hooks', join(dir, 'bundled'))
+		.replaceAll('/opt/dashboard/plugins', join(dir, 'bundled'))
 		.replaceAll('/docker-entrypoint.d', join(dir, 'hooks'))
 		.replaceAll('/etc/sudoers.d', join(dir, 'sudoers'))
 		.replaceAll('mkdir -p /data /dashboard-history', `mkdir -p "${dir}/data" "${dir}/history"`)
