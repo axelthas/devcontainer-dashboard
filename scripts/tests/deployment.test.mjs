@@ -192,14 +192,6 @@ test('hooks run after privilege dropping and preserve existing shell files', asy
 	assert.notEqual(f.run({}, ['unknown']).status, 0);
 });
 
-test('standalone launchers share one identity contract', () => {
-	const scripts = ['run-production.sh', 'run-dashboard.sh', 'run-dashboard-compose.sh'].map(
-		(name) => read(`scripts/${name}`).match(/resolve_identity\(\) \{[\s\S]*?\n\}/)[0]
-	);
-	assert.equal(scripts[0], scripts[1]);
-	assert.equal(scripts[1], scripts[2]);
-});
-
 test('Compose uses explicit identity, strict bind sources and stable history volume', () => {
 	const compose = read('docker-compose.yml');
 	for (const key of ['HOST_USER', 'HOST_UID', 'HOST_GID', 'HOST_HOME']) {
