@@ -17,7 +17,9 @@ export function createRuntimeServiceGateway(defaultOrigin: string) {
 		origin.username ||
 		origin.password
 	) {
-		throw new Error('The service gateway requires an exact HTTP(S) ORIGIN without a path or trailing slash.');
+		throw new Error(
+			'The service gateway requires an exact HTTP(S) ORIGIN without a path or trailing slash.'
+		);
 	}
 	return createServiceGateway({
 		inspect: (id) => docker.getContainer(id).inspect(),

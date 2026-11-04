@@ -12,7 +12,9 @@ function terminalDevPlugin(): Plugin {
 		name: 'terminal-ws-dev',
 		configureServer(server) {
 			if (!process.env.VITEST) assertAuthConfigured();
-			const gateway = process.env.VITEST ? null : createRuntimeServiceGateway('http://localhost:5173');
+			const gateway = process.env.VITEST
+				? null
+				: createRuntimeServiceGateway('http://localhost:5173');
 			if (gateway) {
 				server.middlewares.use((request, response, next) => {
 					if (gateway.matches(request.url)) void gateway.handle(request, response);

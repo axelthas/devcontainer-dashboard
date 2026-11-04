@@ -15,6 +15,7 @@ npm run lint             # prettier --check + eslint
 npm run format           # prettier --write
 npm run test:deployment  # Entrypoint and deployment regressions (no Docker needed)
 npm run test:production  # Built custom-server smoke test (build both outputs first)
+npm run test:gateway     # Standalone service-gateway regressions (build both outputs first)
 bash scripts/tests/container-smoke.sh # Build and test an isolated container deployment
 npm run test:unit        # vitest (interactive watch mode)
 npm run test:unit -- --run  # vitest single run
@@ -161,6 +162,7 @@ Important:
 - When changing Svelte components, run the Svelte MCP autofixer before finalizing and keep runes syntax consistent.
 - `test:deployment` uses Node's test runner with mocked privileged commands and a real temporary Unix socket. It requires no npm dependencies.
 - `test:production` exercises the compiled custom server, HTTP login, WebSocket authorization, and PTY output. `SMOKE_BASE_URL` targets a disposable external container.
+- `test:gateway` runs disposable HTTP/upgrade regressions against the compiled gateway module in `build/lib/server/serviceGateway.js`; `GATEWAY_MODULE_URL` can point at an isolated transpiled build when project dependencies are unavailable.
 - `container-smoke.sh` requires Docker, Compose 2.24.4+, Node 22, util-linux `script`, and installed project dependencies. It cleans up only its isolated Compose project and test resources.
 
 ## Svelte MCP Tools

@@ -47,7 +47,10 @@ async function fixture(t, handler, options = {}) {
 	const upstreamPort = await listen(upstream);
 	let inspections = 0;
 	const gateway = createServiceGateway({
-		inspect: async () => { inspections++; return inspection(upstreamPort); },
+		inspect: async () => {
+			inspections++;
+			return inspection(upstreamPort);
+		},
 		authenticated: (cookie) => cookie?.includes(AUTH) ?? false,
 		origin: ORIGIN,
 		upstreamHost: '127.0.0.1',
@@ -56,15 +59,27 @@ async function fixture(t, handler, options = {}) {
 	});
 	const server = createServer((req, res) => {
 		if (gateway.matches(req.url)) void gateway.handle(req, res);
-		else { res.writeHead(404); res.end(); }
+		else {
+			res.writeHead(404);
+			res.end();
+		}
 	});
 	server.on('upgrade', (req, socket, head) => {
 		if (gateway.matches(req.url)) void gateway.upgrade(req, socket, head);
 		else socket.destroy();
 	});
 	const port = await listen(server);
-	t.after(async () => { await close(server); await close(upstream); });
-	return { server, upstream, port, url: `http://127.0.0.1:${port}`, inspections: () => inspections };
+	t.after(async () => {
+		await close(server);
+		await close(upstream);
+	});
+	return {
+		server,
+		upstream,
+		port,
+		url: `http://127.0.0.1:${port}`,
+		inspections: () => inspections
+	};
 }
 
 /** Send raw upgrade bytes and collect the initial response, with a bounded timeout. */
@@ -76,44 +91,67 @@ function upgrade(port, path, { cookie = AUTH, origin = ORIGIN } = {}) {
 		socket.on('error', reject);
 		socket.on('data', (data) => {
 			result += data;
-			if (result.includes('fixture-ready') || (!result.startsWith('HTTP/1.1 101') && result.includes('\r\n\r\n'))) {
+			if (
+				result.includes('fixture-ready') ||
+				(!result.startsWith('HTTP/1.1 101') && result.includes('\r\n\r\n'))
+			) {
 				socket.destroy();
 				resolve(result);
 			}
 		});
-		socket.on('connect', () => socket.write(
-			`GET ${path} HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\nCookie: ${cookie}\r\nOrigin: ${origin}\r\n\r\n`
-		));
+		socket.on('connect', () =>
+			socket.write(
+				`GET ${path} HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\nCookie: ${cookie}\r\nOrigin: ${origin}\r\n\r\n`
+			)
+		);
 	});
 }
 
- test('parses identity, paths, and query strings without changing encoded query data', () => {
+test('parses identity, paths, and query strings without changing encoded query data', () => {
 	assert.deepEqual(parseServicePath(`${PREFIX}events?q=a%2Fb`), {
-		id: ID, port: '9001', path: '/events?q=a%2Fb', prefix: PREFIX
+		id: ID,
+		port: '9001',
+		path: '/events?q=a%2Fb',
+		prefix: PREFIX
 	});
 	assert.equal(parseServicePath('/api/terminal'), null);
 });
 
- test('rejects traversal, invalid ports, URL targets, encoded separators, and controls', () => {
+test('rejects traversal, invalid ports, URL targets, encoded separators, and controls', () => {
 	for (const path of [
-		`${PREFIX}../api`, `${PREFIX}%2e%2e/api`, `${PREFIX}%252e/api`,
-		`${PREFIX}a%2fb`, `${PREFIX}a%5cb`, `${PREFIX}%00`,
-		`${PREFIX}/evil`, `${PREFIX}%zz`, `/service-proxy/${ID}/65536/`,
+		`${PREFIX}../api`,
+		`${PREFIX}%2e%2e/api`,
+		`${PREFIX}%252e/api`,
+		`${PREFIX}a%2fb`,
+		`${PREFIX}a%5cb`,
+		`${PREFIX}%00`,
+		`${PREFIX}/evil`,
+		`${PREFIX}%zz`,
+		`/service-proxy/${ID}/65536/`,
 		'/service-proxy/http://evil/9001/'
-	]) assert.throws(() => parseServicePath(path), undefined, path);
+	])
+		assert.throws(() => parseServicePath(path), undefined, path);
 });
 
- test('removes hop-by-hop and forwarded header spoofing', () => {
-	assert.deepEqual(cleanHeaders({ connection: 'x-secret', 'x-secret': 'hidden', 'x-forwarded-for': 'spoof', accept: 'text/plain' }), { accept: 'text/plain' });
+test('removes hop-by-hop and forwarded header spoofing', () => {
+	assert.deepEqual(
+		cleanHeaders({
+			connection: 'x-secret',
+			'x-secret': 'hidden',
+			'x-forwarded-for': 'spoof',
+			accept: 'text/plain'
+		}),
+		{ accept: 'text/plain' }
+	);
 });
 
- test('authenticates before inspecting Docker or contacting an upstream', async (t) => {
+test('authenticates before inspecting Docker or contacting an upstream', async (t) => {
 	const f = await fixture(t, (_req, res) => res.end('unexpected'));
 	assert.equal((await fetch(f.url + PREFIX)).status, 401);
 	assert.equal(f.inspections(), 0);
 });
 
- test('requires exact origin on mutations and never forwards dashboard credentials', async (t) => {
+test('requires exact origin on mutations and never forwards dashboard credentials', async (t) => {
 	let received;
 	const f = await fixture(t, async (req, res) => {
 		const chunks = [];
@@ -121,10 +159,20 @@ function upgrade(port, path, { cookie = AUTH, origin = ORIGIN } = {}) {
 		received = { headers: req.headers, body: Buffer.concat(chunks).toString(), path: req.url };
 		res.end('ok');
 	});
-	assert.equal((await fetch(f.url + PREFIX, { method: 'POST', headers: { cookie: AUTH }, body: 'bad' })).status, 403);
+	assert.equal(
+		(await fetch(f.url + PREFIX, { method: 'POST', headers: { cookie: AUTH }, body: 'bad' }))
+			.status,
+		403
+	);
 	const response = await fetch(f.url + PREFIX + 'action?q=1', {
 		method: 'POST',
-		headers: { cookie: `${AUTH}; service=allowed`, origin: ORIGIN, authorization: 'Bearer private', referer: ORIGIN, 'x-forwarded-host': 'spoof' },
+		headers: {
+			cookie: `${AUTH}; service=allowed`,
+			origin: ORIGIN,
+			authorization: 'Bearer private',
+			referer: ORIGIN,
+			'x-forwarded-host': 'spoof'
+		},
 		body: 'action-body'
 	});
 	assert.equal(response.status, 200);
@@ -138,11 +186,15 @@ function upgrade(port, path, { cookie = AUTH, origin = ORIGIN } = {}) {
 	assert.equal(received.headers['x-forwarded-prefix'], PREFIX.slice(0, -1));
 });
 
- test('rewrites redirects and confines cookies without removing frame protections', async (t) => {
+test('rewrites redirects and confines cookies without removing frame protections', async (t) => {
 	const f = await fixture(t, (_req, res) => {
 		res.writeHead(302, {
 			location: '/login?q=1',
-			'set-cookie': ['service=x; Domain=example.com; Path=/; HttpOnly', 'devcontainer-dashboard-session=evil; Path=/', '__Host-root=evil; Path=/; Secure'],
+			'set-cookie': [
+				'service=x; Domain=example.com; Path=/; HttpOnly',
+				'devcontainer-dashboard-session=evil; Path=/',
+				'__Host-root=evil; Path=/; Secure'
+			],
 			'x-frame-options': 'DENY',
 			'content-security-policy': "frame-ancestors 'none'"
 		});
@@ -155,14 +207,17 @@ function upgrade(port, path, { cookie = AUTH, origin = ORIGIN } = {}) {
 	assert.equal(response.headers.get('content-security-policy'), "frame-ancestors 'none'");
 });
 
- test('rejects external redirects without forwarding them', async (t) => {
-	const f = await fixture(t, (_req, res) => { res.writeHead(302, { location: 'https://evil.example/' }); res.end(); });
+test('rejects external redirects without forwarding them', async (t) => {
+	const f = await fixture(t, (_req, res) => {
+		res.writeHead(302, { location: 'https://evil.example/' });
+		res.end();
+	});
 	const response = await fetch(f.url + PREFIX, { headers: { cookie: AUTH }, redirect: 'manual' });
 	assert.equal(response.status, 502);
 	assert.equal(response.headers.get('location'), null);
 });
 
- test('rejects stopped, missing, unbound, and mismatched containers', async (t) => {
+test('rejects stopped, missing, unbound, and mismatched containers', async (t) => {
 	for (const [info, expected] of [
 		[inspection(1, { State: { Running: false } }), 409],
 		[inspection(1, { Id: 'f'.repeat(64) }), 409],
@@ -170,30 +225,39 @@ function upgrade(port, path, { cookie = AUTH, origin = ORIGIN } = {}) {
 		[null, 404]
 	]) {
 		const f = await fixture(t, (_req, res) => res.end(), {
-			inspect: async () => { if (!info) throw new Error('private Docker detail'); return info; }
+			inspect: async () => {
+				if (!info) throw new Error('private Docker detail');
+				return info;
+			}
 		});
 		assert.equal((await fetch(f.url + PREFIX, { headers: { cookie: AUTH } })).status, expected);
 	}
 });
 
- test('does not treat database ports as web services', async (t) => {
+test('does not treat database ports as web services', async (t) => {
 	const f = await fixture(t, (_req, res) => res.end());
-	assert.equal((await fetch(f.url + PREFIX.replace('/9001/', '/5432/'), { headers: { cookie: AUTH } })).status, 422);
+	assert.equal(
+		(await fetch(f.url + PREFIX.replace('/9001/', '/5432/'), { headers: { cookie: AUTH } })).status,
+		422
+	);
 	assert.equal(f.inspections(), 0);
 });
 
- test('fails ambiguous network selection instead of choosing a random address', async (t) => {
+test('fails ambiguous network selection instead of choosing a random address', async (t) => {
 	const f = await fixture(t, (_req, res) => res.end(), {
 		upstreamHost: undefined,
-		inspect: async () => inspection(1, { NetworkSettings: {
-			Ports: { '9001/tcp': [{ HostIp: '0.0.0.0', HostPort: '9001' }] },
-			Networks: { a: { IPAddress: '172.18.0.2' }, b: { IPAddress: '172.19.0.2' } }
-		} })
+		inspect: async () =>
+			inspection(1, {
+				NetworkSettings: {
+					Ports: { '9001/tcp': [{ HostIp: '0.0.0.0', HostPort: '9001' }] },
+					Networks: { a: { IPAddress: '172.18.0.2' }, b: { IPAddress: '172.19.0.2' } }
+				}
+			})
 	});
 	assert.equal((await fetch(f.url + PREFIX, { headers: { cookie: AUTH } })).status, 503);
 });
 
- test('streams SSE before the upstream finishes and preserves status', async (t) => {
+test('streams SSE before the upstream finishes and preserves status', async (t) => {
 	const f = await fixture(t, (_req, res) => {
 		res.writeHead(201, { 'Content-Type': 'text/event-stream' });
 		res.write('data: first\n\n');
@@ -201,45 +265,53 @@ function upgrade(port, path, { cookie = AUTH, origin = ORIGIN } = {}) {
 	});
 	const controller = new AbortController();
 	t.after(() => controller.abort());
-	const response = await fetch(f.url + PREFIX, { headers: { cookie: AUTH }, signal: controller.signal });
+	const response = await fetch(f.url + PREFIX, {
+		headers: { cookie: AUTH },
+		signal: controller.signal
+	});
 	assert.equal(response.status, 201);
-	assert.equal(new TextDecoder().decode((await response.body.getReader().read()).value), 'data: first\n\n');
+	assert.equal(
+		new TextDecoder().decode((await response.body.getReader().read()).value),
+		'data: first\n\n'
+	);
 	controller.abort();
 });
 
- test('returns bounded errors for an upstream header timeout', async (t) => {
+test('returns bounded errors for an upstream header timeout', async (t) => {
 	const f = await fixture(t, () => {});
 	const response = await fetch(f.url + PREFIX, { headers: { cookie: AUTH } });
 	assert.equal(response.status, 502);
 	assert.match(await response.text(), /unreachable/);
 });
 
- test('rejects unauthorized and cross-origin upgrades before Docker access', async (t) => {
+test('rejects unauthorized and cross-origin upgrades before Docker access', async (t) => {
 	const f = await fixture(t, (_req, res) => res.end());
 	assert.match(await upgrade(f.port, PREFIX, { cookie: '' }), /^HTTP\/1.1 401/);
 	assert.match(await upgrade(f.port, PREFIX, { origin: 'https://evil.example' }), /^HTTP\/1.1 403/);
 	assert.equal(f.inspections(), 0);
 });
 
- test('tunnels upgrade head bytes without leaking dashboard cookies', async (t) => {
+test('tunnels upgrade head bytes without leaking dashboard cookies', async (t) => {
 	let headers;
 	const f = await fixture(t, (_req, res) => res.end());
 	f.upstream.on('upgrade', (req, socket) => {
 		headers = req.headers;
 		socket.on('error', () => {});
-		socket.end('HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Accept: fixture\r\n\r\nfixture-ready');
+		socket.end(
+			'HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Accept: fixture\r\n\r\nfixture-ready'
+		);
 	});
 	assert.match(await upgrade(f.port, PREFIX), /101 Switching Protocols[\s\S]*fixture-ready/);
 	assert.equal(headers.cookie, undefined);
 });
 
- test('leaves terminal and unrelated paths to their existing handlers', async (t) => {
+test('leaves terminal and unrelated paths to their existing handlers', async (t) => {
 	const f = await fixture(t, (_req, res) => res.end());
 	assert.equal((await fetch(f.url + '/api/terminal')).status, 404);
 	assert.equal(f.inspections(), 0);
 });
 
- test('revalidates Docker state after a previously successful request', async (t) => {
+test('revalidates Docker state after a previously successful request', async (t) => {
 	let stopped = false;
 	let port;
 	const f = await fixture(t, (_req, res) => res.end('ok'), {
@@ -251,7 +323,7 @@ function upgrade(port, path, { cookie = AUTH, origin = ORIGIN } = {}) {
 	assert.equal((await fetch(f.url + PREFIX, { headers: { cookie: AUTH } })).status, 409);
 });
 
- test('bounds a stalled Docker lookup', async (t) => {
+test('bounds a stalled Docker lookup', async (t) => {
 	const f = await fixture(t, (_req, res) => res.end(), {
 		inspect: () => new Promise(() => {})
 	});
@@ -260,9 +332,13 @@ function upgrade(port, path, { cookie = AUTH, origin = ORIGIN } = {}) {
 	assert.equal(await response.text(), 'Container is no longer available.');
 });
 
- test('does not propagate upstream cross-origin grants', async (t) => {
+test('does not propagate upstream cross-origin grants', async (t) => {
 	const f = await fixture(t, (_req, res) => {
-		res.writeHead(200, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Credentials': 'true', 'Service-Worker-Allowed': '/' });
+		res.writeHead(200, {
+			'Access-Control-Allow-Origin': '*',
+			'Access-Control-Allow-Credentials': 'true',
+			'Service-Worker-Allowed': '/'
+		});
 		res.end('ok');
 	});
 	const response = await fetch(f.url + PREFIX, { headers: { cookie: AUTH } });
