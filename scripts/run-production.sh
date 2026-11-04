@@ -51,6 +51,8 @@ An exported SSH_AUTH_SOCK is forwarded at its original Docker-host path.
 DDASH_NONINTERACTIVE=1 requires a supplied DASHBOARD_PASSWORD.
 DDASH_CREATE_WORKSPACE=0 avoids local workspace creation for remote daemons.
 Optional: ORIGIN or DDASH_ORIGIN, DASHBOARD_TEST_NAME, DASHBOARD_HEALTH_TIMEOUT.
+SERVICE_PROXY_ENABLED/HOST/PORTS are forwarded to the test container when set
+(opt-in service gateway; see README).
 Existing containers and volumes remain. Nothing is published or replaced.
 HELP
 }
@@ -130,8 +132,13 @@ prepare_runtime() {
   fi
   [[ -n "$DASHBOARD_PASSWORD" ]] || fail "DASHBOARD_PASSWORD must not be empty"
   export DASHBOARD_PASSWORD WORKSPACE_ROOT ORIGIN
+  # The service gateway is opt-in; forward its configuration when the launcher sets it.
+  export SERVICE_PROXY_ENABLED SERVICE_PROXY_HOST SERVICE_PROXY_PORTS
   [[ "${DDASH_CREATE_WORKSPACE:-1}" == 0 ]] || mkdir -p -- "$WORKSPACE_ROOT"
   RUN_ARGS=(--env HOST_USER --env HOST_UID --env HOST_GID --env HOST_HOME)
+  RUN_ARGS+=(--env SERVICE_PROXY_ENABLED --env SERVICE_PROXY_HOST --env SERVICE_PROXY_PORTS)
+  # adapter-node rejects an empty ORIGIN at startup, so only forward a configured origin.
+  [[ -z "$ORIGIN" ]] || RUN_ARGS+=(--env ORIGIN)
   BUILD_ARGS=(--load --progress=plain --tag "$IMAGE"
     --label "org.opencontainers.image.revision=$REVISION"
     --label "devcontainer-dashboard.local-changes=$DIRTY")
@@ -164,7 +171,7 @@ start_container() {
   printf 'Test container name: %s\nImage: %s\n' "$NAME" "$IMAGE"
   docker run --detach "${RUN_ARGS[@]}" --name "$NAME" \
     --publish "127.0.0.1:$HOST_PORT:3000" \
-    --env DASHBOARD_PASSWORD --env WORKSPACE_ROOT --env ORIGIN \
+    --env DASHBOARD_PASSWORD --env WORKSPACE_ROOT \
     --mount "type=bind,source=$DOCKER_SOCKET,target=/var/run/docker.sock" \
     --mount "type=bind,source=$WORKSPACE_ROOT,target=$WORKSPACE_ROOT" \
     --volume "$NAME-data:/data" --volume "$NAME-zsh:/dashboard-history" \

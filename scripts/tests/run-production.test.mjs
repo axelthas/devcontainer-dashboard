@@ -202,6 +202,29 @@ test('production: current checkout, platform, port, origin fallback, same-path S
 	assert.match(r.stdout, /local changes: true/);
 });
 
+test('production: forwards gateway config and omits a blank ORIGIN', (t) => {
+	const f = fixture(t);
+	const r = f.run('run-production.sh', [], {
+		DDASH_ORIGIN: '',
+		SERVICE_PROXY_ENABLED: '1',
+		SERVICE_PROXY_PORTS: '9001:http,8443:https'
+	});
+	assert.equal(r.status, 0, r.stderr);
+	const run = r.calls.find((c) => c.args[0] === 'run');
+	for (const name of ['SERVICE_PROXY_ENABLED', 'SERVICE_PROXY_HOST', 'SERVICE_PROXY_PORTS']) {
+		assert.ok(run.args.includes(name), `missing passthrough for ${name}`);
+	}
+	// adapter-node rejects an empty ORIGIN at startup, so a blank origin is not forwarded.
+	assert.ok(!run.args.includes('ORIGIN'));
+
+	const withOrigin = fixture(t).run('run-production.sh', [], {
+		ORIGIN: 'https://gateway.example'
+	});
+	assert.equal(withOrigin.status, 0, withOrigin.stderr);
+	const runWithOrigin = withOrigin.calls.find((c) => c.args[0] === 'run');
+	assert.ok(runWithOrigin.args.includes('ORIGIN'));
+});
+
 for (const env of [
 	{ STATE: 'exited' },
 	{ HEALTH: 'none' },

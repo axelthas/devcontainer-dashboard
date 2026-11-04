@@ -88,7 +88,10 @@ Set `DDASH_NONINTERACTIVE=1` to disable all prompts. Supply `DASHBOARD_PASSWORD`
 through the environment. The direct and Compose installers also require
 `WORKSPACE_ROOT`. Set `ORIGIN` (or `DDASH_ORIGIN`) to an HTTP(S) origin, or leave it
 empty for local HTTP. Compose validates the origin and fails without retrying in
-unattended mode. Set `DDASH_DEV_BOOTSTRAP=0` or `1` deliberately.
+unattended mode. Set `DDASH_DEV_BOOTSTRAP=0` or `1` deliberately. The opt-in service
+gateway variables (`SERVICE_PROXY_ENABLED`, `SERVICE_PROXY_HOST`,
+`SERVICE_PROXY_PORTS`) are forwarded to the test container when set; empty values keep
+the gateway disabled.
 
 ```bash
 export DDASH_NONINTERACTIVE=1
