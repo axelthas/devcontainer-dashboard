@@ -3,11 +3,14 @@
 #
 # Usage: bash scripts/tests/container-smoke.sh from an installed project checkout.
 # Requires a non-root Linux operator with a /home home, Docker/Buildx-compatible
-# image builds, Compose 2.24.4+, Node 22, project dependencies and network access.
+# image builds, Node 22, project dependencies and network access.
 # Creates fake SSH data, unique containers/volumes and an operator-hook bootstrap
-# stub. Renders both Compose paths, starts the generated configuration, checks
-# login/terminal identity and provider discovery, then builds a sibling through
-# the authenticated dashboard API. Also checks ownership and fail-closed startup.
+# stub. Builds the image, starts the fixture dashboard with plain docker run
+# mirroring the launcher argv: dynamic loopback publication, read-only fixture
+# hook and SSH binds, same-path workspace and socket binds, per-run named volumes.
+# Then checks login/terminal identity and provider discovery, and builds a sibling
+# through the authenticated dashboard API. Also checks ownership and fail-closed
+# startup.
 # The EXIT trap removes only this fixture's containers, named volumes and files;
 # built images remain cached. Never run against a shared production deployment.
 # This does not test real GitLab credentials or a real bootstrap installation.
@@ -17,7 +20,7 @@ set -euo pipefail
 # Print an actionable error to stderr and exit unsuccessfully. All callers stop the script.
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
-# Validate the local operator, create unique fake data/hooks and initialize fixture configuration.
+# Validate the local operator, create unique fake data/hooks and initialize fixture inputs.
 # Register cleanup only for resources owned by this integration run.
 prepare_fixture() {
   cd "$(dirname "${BASH_SOURCE[0]}")/../.."
@@ -27,9 +30,6 @@ prepare_fixture() {
   export DASHBOARD_PASSWORD=production-smoke-password
   export HOST_USER="$(id -un)" HOST_UID="$(id -u)" HOST_GID="$(id -g)"
   export HOST_HOME="$TEMP_DIR/operator" WORKSPACE_ROOT="$TEMP_DIR/workspace"
-  export DDASH_SSH_DIRECTORY=1 DDASH_DEV_BOOTSTRAP=0 DDASH_NONINTERACTIVE=1
-  export DOCKER_SOCKET="${DOCKER_SOCKET:-/var/run/docker.sock}"
-  unset SSH_AUTH_SOCK DASHBOARD_BIND_ADDRESS ORIGIN DDASH_ORIGIN
   mkdir -p "$HOST_HOME/.ssh" "$WORKSPACE_ROOT/fixture/.devcontainer" "$TEMP_DIR/bin"
   mkdir -p "$TEMP_DIR/hooks"
   echo fixture-only > "$HOST_HOME/.ssh/marker"
@@ -45,80 +45,45 @@ chmod +x "$HOME/.local/bin/devbootstrap"
 HOOK
   chmod +x "$TEMP_DIR/hooks/10-fixture.sh"
   UNSTARTED=''
-  COMPOSE=(docker compose -p "$PROJECT" -f docker-compose.yml -f "$TEMP_DIR/override.yml")
+  CID=''
   trap cleanup EXIT
 }
 
-# Remove fixture siblings by their exact unique workspace label, stop the isolated Compose project,
-# and remove temporary data. Best-effort cleanup also handles partial build/startup failures.
+# Remove fixture siblings by their exact unique workspace label, remove the fixture
+# dashboard and its per-run volumes, and remove temporary data. Best-effort cleanup
+# also handles partial build/startup failures.
 cleanup() {
   local sibling
   [[ -z "$UNSTARTED" ]] || docker rm -f "$UNSTARTED" >/dev/null 2>&1 || true
+  [[ -z "$CID" ]] || docker rm -f "$CID" >/dev/null 2>&1 || true
   # Exact unique fixture label, including when an API build fails before returning.
   while read -r sibling; do
     [[ -z "$sibling" ]] || docker rm -f "$sibling" >/dev/null 2>&1 || true
   done < <(docker ps -aq --filter "label=devcontainer.local_folder=$WORKSPACE_ROOT/fixture")
-  "${COMPOSE[@]}" down -v >/dev/null 2>&1 || true
+  docker volume rm "$PROJECT-data" "$PROJECT-zsh" >/dev/null 2>&1 || true
   rm -rf -- "$TEMP_DIR"
 }
 
-# Generate installer output with a mocked Docker command, then render both Compose configurations
-# with real Compose. Verify publication/identity/storage before selecting generated output for startup.
-check_compose_rendering() {
-  local compose
-  printf '#!/bin/sh\nexit 0\n' > "$TEMP_DIR/bin/docker"
-  chmod +x "$TEMP_DIR/bin/docker"
-  DDASH_CONFIG_DIR="$TEMP_DIR/config" PATH="$TEMP_DIR/bin:$PATH" bash scripts/run-dashboard-compose.sh
-  for compose in docker-compose.yml "$TEMP_DIR/config/docker-compose.yml"; do
-    docker compose -f "$compose" config --format json > "$TEMP_DIR/rendered.json"
-    node --input-type=module - "$TEMP_DIR/rendered.json" <<'JS'
-import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-const service = JSON.parse(readFileSync(process.argv[2], 'utf8')).services.dashboard;
-assert.equal(service.ports[0].host_ip, '127.0.0.1');
-assert.equal(service.environment.HOST_UID, process.env.HOST_UID);
-assert.equal(service.environment.HOST_HOME, process.env.HOST_HOME);
-assert.ok(service.volumes.some(v => v.target === '/dashboard-history'));
-JS
-    DASHBOARD_BIND_ADDRESS=0.0.0.0 docker compose -f "$compose" config --format json > "$TEMP_DIR/remote.json"
-    node --input-type=module - "$TEMP_DIR/remote.json" <<'JS'
-import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-assert.equal(JSON.parse(readFileSync(process.argv[2], 'utf8')).services.dashboard.ports[0].host_ip, '0.0.0.0');
-JS
-  done
-  # Run the real integration against the generated installer output, not just root Compose.
-  COMPOSE=(docker compose -p "$PROJECT" -f "$TEMP_DIR/config/docker-compose.yml" -f "$TEMP_DIR/override.yml")
-}
-
-# Build the production image, add isolated ports/read-only fixture hooks and start the generated stack.
+# Build the production image, then start the fixture dashboard with plain docker run
+# mirroring the launcher argv: dynamic loopback publication, read-only fixture hooks
+# and SSH binds, same-path workspace and socket binds, per-run named volumes.
 # Record its container ID and assigned loopback address for later checks.
 start_dashboard() {
   docker build -t "$PROJECT:test" .
-  cat > "$TEMP_DIR/override.yml" <<YAML
-services:
-  dashboard:
-    image: $PROJECT:test
-    restart: "no"
-    ports: !override
-      - "127.0.0.1::3000"
-    volumes:
-      - type: bind
-        source: '$TEMP_DIR/hooks'
-        target: /docker-entrypoint.d
-        read_only: true
-        bind:
-          create_host_path: false
-      - type: bind
-        source: '$HOST_HOME/.ssh'
-        target: '$HOST_HOME/.ssh'
-        read_only: true
-        bind:
-          create_host_path: false
-YAML
-  "${COMPOSE[@]}" up -d --wait --wait-timeout 180
-  CID=$("${COMPOSE[@]}" ps -q dashboard)
-  ADDRESS=$("${COMPOSE[@]}" port dashboard 3000)
+  CID=$(docker run --detach --restart no \
+    --name "$PROJECT-dashboard" \
+    --publish "127.0.0.1::3000" \
+    --env DASHBOARD_PASSWORD --env HOST_USER --env HOST_UID --env HOST_GID --env HOST_HOME \
+    --env "WORKSPACE_ROOT=$WORKSPACE_ROOT" \
+    --mount "type=bind,source=${DOCKER_SOCKET:-/var/run/docker.sock},target=/var/run/docker.sock" \
+    --mount "type=bind,source=$WORKSPACE_ROOT,target=$WORKSPACE_ROOT" \
+    --mount "type=bind,source=$TEMP_DIR/hooks,target=/docker-entrypoint.d,readonly" \
+    --mount "type=bind,source=$HOST_HOME/.ssh,target=$HOST_HOME/.ssh,readonly" \
+    --volume "$PROJECT-data:/data" --volume "$PROJECT-zsh:/dashboard-history" \
+    "$PROJECT:test") || fail 'Fixture dashboard failed to start; check daemon bind sources and port access'
+  [[ -n "$CID" ]] || fail 'Fixture dashboard did not return a container ID'
+  ADDRESS=$(docker port "$CID" 3000)
+  [[ "$ADDRESS" == 127.0.0.1:* && "$ADDRESS" != *$'\n'* ]] || fail "Unexpected publication address: $ADDRESS"
 }
 
 # Write a HOME-based sibling fixture and run authenticated server/terminal/build integration checks.
@@ -158,7 +123,9 @@ check_fail_closed() {
   if docker run --rm -e DASHBOARD_PASSWORD -e HOST_USER -e HOST_UID -e HOST_GID -e HOST_HOME \
     "$PROJECT:test" > "$TEMP_DIR/failure.log" 2>&1; then fail 'Missing socket was accepted'; fi
   grep -q 'missing or is not a Unix socket' "$TEMP_DIR/failure.log"
-  UNSTARTED=$(docker run -d --health-interval=1s --health-start-period=0s --health-retries=1 --entrypoint sleep "$PROJECT:test" 60)
+  # A zero start period is a Go zero-value and silently keeps the image's 60s
+  # window, during which failed probes do not count; 1ms starts counting at once.
+  UNSTARTED=$(docker run -d --health-interval=1s --health-start-period=1ms --health-retries=1 --entrypoint sleep "$PROJECT:test" 60)
   for attempt in {1..30}; do
     status=$(docker inspect -f '{{.State.Health.Status}}' "$UNSTARTED")
     [[ "$status" != unhealthy ]] || break
@@ -170,7 +137,6 @@ check_fail_closed() {
 # Run the script phases in order. Stop on a failed phase before later work can start.
 main() {
   prepare_fixture
-  check_compose_rendering
   start_dashboard
   check_dashboard_build
   check_fail_closed
