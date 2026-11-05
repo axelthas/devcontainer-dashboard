@@ -2,9 +2,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AUTH_COOKIE_NAME, createSession, resetAuthStateForTesting } from '$lib/server/auth';
 import { handle } from './hooks.server';
 
-function makeEvent(path: string, sessionToken?: string) {
+function makeEvent(path: string, sessionToken?: string, init?: RequestInit) {
+	const url = new URL(path, 'http://localhost');
 	return {
-		url: new URL(path, 'http://localhost'),
+		url,
+		request: new Request(url, init),
 		cookies: {
 			get: (name: string) => (name === AUTH_COOKIE_NAME ? sessionToken : undefined)
 		}
@@ -55,5 +57,16 @@ describe('authentication hook', () => {
 			resolve: async () => new Response('dashboard')
 		});
 		expect(await response.text()).toBe('dashboard');
+	});
+
+	it('rejects sibling-origin requests even with an ambient dashboard cookie', async () => {
+		const response = await handle({
+			event: makeEvent('/api/containers', createSession(), {
+				headers: { Origin: 'http://localhost:8443' }
+			}) as never,
+			resolve: async () => new Response('must not resolve')
+		});
+		expect(response.status).toBe(403);
+		expect(response.headers.get('x-frame-options')).toBe('DENY');
 	});
 });
