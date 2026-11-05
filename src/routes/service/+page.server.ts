@@ -1,20 +1,19 @@
 import { describeServiceTarget, isServiceProxyEnabled } from '$lib/server/serviceGatewayRuntime.js';
+import { serviceOriginLaunch, configuredServiceOrigins } from '$lib/server/serviceOriginRuntime.js';
+import { AUTH_COOKIE_NAME } from '$lib/server/auth.js';
 import { embedProfile, serviceDirectUrl, serviceProxyPath } from '$lib/serviceTargets.js';
 import type { PageServerLoad } from './$types';
 
 /** What the viewer should render for the requested service identity. */
 interface ViewerContract {
 	kind:
-		| 'proxy' // iframe the gateway path proxy
-		| 'legacy' // iframe a raw client-provided URL (non-gateway deployments)
-		| 'unsupported' // running service, but the application cannot live under a prefix
-		| 'unavailable' // identity valid shape, but the target does not check out
-		| 'proxy-disabled'; // gateway not enabled in this process
-	/** Iframe source for proxy/legacy kinds. */
+		| 'proxy'
+		| 'legacy'
+		| 'unsupported'
+		| 'unavailable'
+		| 'proxy-disabled';
 	target?: string;
-	/** Best-effort direct navigation URL (may be unreachable through Tailscale). */
 	directUrl?: string;
-	/** Validated identity, shared with the service switcher and active-state matching. */
 	containerId?: string;
 	containerPort?: string;
 	reason?: string;
@@ -44,7 +43,7 @@ function directUrlFor(hostname: string, hostPort: string | number | undefined): 
 			: undefined;
 }
 
-export const load: PageServerLoad = async ({ url }) => {
+export const load: PageServerLoad = async ({ url, cookies }) => {
 	const params = url.searchParams;
 	const containerId = params.get('cid');
 	const containerPort = params.get('port');
@@ -56,72 +55,62 @@ export const load: PageServerLoad = async ({ url }) => {
 	const allPorts = parsePortsParam(params.get('ports'));
 
 	const base = {
-		label,
-		project,
-		container,
-		workspacePath,
-		allPorts,
-		containerId,
-		containerPort
+		label, project, container, workspacePath, allPorts, containerId, containerPort
 	};
 
-	// Validated identity contract: the server, not the query string, decides the iframe target.
+	// The root-origin listeners are independent of the older same-origin path gateway.
+	const originsEnabled = configuredServiceOrigins().length > 0;
 	if (containerId && containerPort) {
-		if (!isServiceProxyEnabled()) {
-			return {
-				...base,
-				viewer: { kind: 'proxy-disabled', containerId, containerPort } satisfies ViewerContract
-			};
+		if (!/^[a-f0-9]{12,64}$/.test(containerId) ||
+			!/^[1-9][0-9]{0,4}$/.test(containerPort) || Number(containerPort) > 65535) {
+			return { ...base, viewer: {
+				kind: 'unavailable', reason: 'missing-identity'
+			} satisfies ViewerContract };
+		}
+		if (!isServiceProxyEnabled() && !originsEnabled) {
+			return { ...base, viewer: {
+				kind: 'proxy-disabled', containerId, containerPort
+			} satisfies ViewerContract };
+		}
+		// describeServiceTarget is deliberately path-gateway gated. For root origins,
+		// the configured full identity is validated by the listener on each request.
+		if (originsEnabled) {
+			const parent = cookies.get(AUTH_COOKIE_NAME);
+			if (parent) {
+				const launch = serviceOriginLaunch(containerId, containerPort, parent);
+				if (launch) {
+					return { ...base, viewer: {
+						kind: 'proxy', target: launch, containerId, containerPort
+					} satisfies ViewerContract };
+				}
+			}
 		}
 		const target = await describeServiceTarget(containerId, containerPort);
 		if (target.status === 'ok') {
 			const directUrl = directUrlFor(url.hostname, target.publishedHostPort);
 			if (embedProfile(containerPort).mode === 'prefix') {
-				return {
-					...base,
-					viewer: {
-						kind: 'proxy',
-						target: serviceProxyPath(containerId, containerPort),
-						containerId,
-						containerPort,
-						directUrl
-					} satisfies ViewerContract
-				};
+				return { ...base, viewer: {
+					kind: 'proxy', target: serviceProxyPath(containerId, containerPort),
+					containerId, containerPort, directUrl
+				} satisfies ViewerContract };
 			}
-			// Verified root-absolute applications (e.g. OpenCode) cannot embed under a prefix.
-			return {
-				...base,
-				viewer: {
-					kind: 'unsupported',
-					containerId,
-					containerPort,
-					directUrl
-				} satisfies ViewerContract
-			};
+			return { ...base, viewer: {
+				kind: 'unsupported', containerId, containerPort, directUrl
+			} satisfies ViewerContract };
 		}
 		const fallbackHostPort = allPorts?.[containerPort];
-		return {
-			...base,
-			viewer: {
-				kind: 'unavailable',
-				containerId,
-				containerPort,
-				reason: target.status,
-				directUrl: directUrlFor(url.hostname, fallbackHostPort)
-			} satisfies ViewerContract
-		};
+		return { ...base, viewer: {
+			kind: 'unavailable', containerId, containerPort, reason: target.status,
+			directUrl: directUrlFor(url.hostname, fallbackHostPort)
+		} satisfies ViewerContract };
 	}
 
-	// Legacy raw-URL authority, kept for non-gateway deployments and stale links.
 	if (legacyUrl && /^https?:\/\//.test(legacyUrl)) {
-		return {
-			...base,
-			viewer: { kind: 'legacy', target: legacyUrl, directUrl: legacyUrl } satisfies ViewerContract
-		};
+		return { ...base, viewer: {
+			kind: 'legacy', target: legacyUrl, directUrl: legacyUrl
+		} satisfies ViewerContract };
 	}
-
-	return {
-		...base,
-		viewer: { kind: 'unavailable', reason: 'missing-identity' } satisfies ViewerContract
-	};
+	return { ...base, viewer: {
+		kind: 'unavailable', reason: 'missing-identity'
+	} satisfies ViewerContract };
 };

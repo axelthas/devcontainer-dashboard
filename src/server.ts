@@ -3,6 +3,7 @@ import { createServer } from 'node:http';
 import { attachTerminalServer } from './lib/server/terminal.js';
 import { assertAuthConfigured } from './lib/server/auth.js';
 import { createRuntimeServiceGateway } from './lib/server/serviceGatewayRuntime.js';
+import { startServiceOrigins } from './lib/server/serviceOriginRuntime.js';
 
 const PORT = parseInt(process.env.PORT ?? '3000', 10);
 
@@ -19,7 +20,6 @@ const serviceGateway = createRuntimeServiceGateway(`http://localhost:${PORT}`);
 
 const server = createServer((request, response) => {
 	// Application readiness only. Do not disclose Docker, workspace, or session state.
-	// This becomes reachable only after auth configuration and handler initialization.
 	if (request.url === '/healthz' && (request.method === 'GET' || request.method === 'HEAD')) {
 		response.writeHead(200, {
 			'Content-Type': 'application/json',
@@ -42,6 +42,8 @@ server.on('upgrade', (request, socket, head) => {
 });
 attachTerminalServer(server);
 
-server.listen(PORT, '0.0.0.0', () => {
+// Fail startup if any opt-in listener is invalid or unavailable.
+await startServiceOrigins(PORT);
+server.listen(PORT, process.env.DASHBOARD_LISTEN_ADDRESS || '0.0.0.0', () => {
 	console.log(`DevDashboard server running on port ${PORT}`);
 });

@@ -1,6 +1,6 @@
 /**
  * Authenticated streaming gateway for trusted container web applications.
- * Upstream applications must support their configured public base path.
+ * Path applications need base-path support; dedicated listeners use an immutable root target.
  */
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import https from 'node:https';
@@ -50,10 +50,7 @@ export interface ServiceBindingInfo {
 	publishedHostPort?: number;
 }
 
-/**
- * Shared running-state and published-binding checks for the gateway and the viewer
- * contract, so both agree on what makes a service target valid.
- */
+/** Shared running-state and published-binding checks for the gateway and viewer. */
 export function inspectServiceBinding(
 	info: ContainerInspection,
 	containerId: string,
@@ -84,6 +81,8 @@ export interface GatewayOptions {
 	upstreamHost?: string;
 	ports?: Record<string, 'http' | 'https' | 'off'>;
 	connectTimeoutMs?: number;
+	/** Dedicated listener target. Never populate from browser input. */
+	service?: { containerId: string; containerPort: string; cookieNamespace: string };
 }
 
 interface Target {
@@ -92,14 +91,13 @@ interface Target {
 	port: number;
 	path: string;
 	prefix: string;
+	cookieNamespace?: string;
+	publicOrigin?: string;
 }
 
 /** Expose bounded diagnostics instead of internal upstream exceptions. */
 class GatewayError extends Error {
-	constructor(
-		public status: number,
-		message: string
-	) {
+	constructor(public status: number, message: string) {
 		super(message);
 	}
 }
@@ -117,21 +115,15 @@ export function parseServicePath(raw: string): {
 		throw new GatewayError(400, 'Invalid service identity or path.');
 	const path = match[3] ?? '/';
 	const pathname = path.split('?')[0];
-	// Reject ambiguous decoding rather than guessing the upstream's decoding rules.
 	if (
 		pathname.startsWith('//') ||
 		/%(?:2f|5c|25|0[0-9a-f]|1[0-9a-f]|7f)/i.test(pathname) ||
 		// eslint-disable-next-line no-control-regex -- rejecting control characters is the purpose of this check
 		/[\\\x00-\x20]/.test(pathname)
-	) {
-		throw new GatewayError(400, 'Invalid service path.');
-	}
+	) throw new GatewayError(400, 'Invalid service path.');
 	let decoded: string;
-	try {
-		decoded = decodeURIComponent(pathname);
-	} catch {
-		throw new GatewayError(400, 'Invalid service path.');
-	}
+	try { decoded = decodeURIComponent(pathname); }
+	catch { throw new GatewayError(400, 'Invalid service path.'); }
 	if (decoded.split('/').some((part) => part === '.' || part === '..')) {
 		throw new GatewayError(400, 'Service path traversal is not allowed.');
 	}
@@ -143,114 +135,136 @@ export function cleanHeaders(headers: http.IncomingHttpHeaders): http.OutgoingHt
 	const blocked = new Set([
 		...HOP_HEADERS,
 		...(headers.connection ?? '').split(',').map((name) => name.trim().toLowerCase()),
-		'host',
-		'forwarded',
-		'x-forwarded-host',
-		'x-forwarded-proto',
-		'x-forwarded-for',
-		'x-forwarded-port',
-		'x-forwarded-prefix'
+		'host', 'forwarded', 'x-forwarded-host', 'x-forwarded-proto',
+		'x-forwarded-for', 'x-forwarded-port', 'x-forwarded-prefix'
 	]);
 	return Object.fromEntries(Object.entries(headers).filter(([name]) => !blocked.has(name)));
 }
 
-/** Do not forward dashboard credentials, origins, or referrers to services. */
+/** Do not forward dashboard/gateway credentials or sibling-service cookies to applications. */
 function requestHeaders(request: IncomingMessage, target: Target): http.OutgoingHttpHeaders {
 	const headers = cleanHeaders(request.headers);
 	delete headers.authorization;
 	delete headers.origin;
 	delete headers.referer;
-	const cookies = request.headers.cookie
-		?.split(';')
-		.filter((cookie) => {
-			const name = cookie.split('=')[0].trim();
-			return name !== SESSION_COOKIE && !name.startsWith('__Host-');
-		})
-		.join(';');
+	const cookies = request.headers.cookie?.split(';').flatMap((cookie) => {
+		const at = cookie.indexOf('=');
+		if (at < 0) return [];
+		const name = cookie.slice(0, at).trim();
+		if (target.cookieNamespace) {
+			const appPrefix = `${target.cookieNamespace}app_`;
+			return name.startsWith(appPrefix)
+				? [`${name.slice(appPrefix.length)}${cookie.slice(at)}`] : [];
+		}
+		return name === SESSION_COOKIE || name.startsWith('__Host-') ||
+			name.startsWith('__Secure-ddash-svc-') ? [] : [cookie];
+	}).join(';');
 	if (cookies) headers.cookie = cookies;
 	else delete headers.cookie;
-	headers['x-forwarded-prefix'] = target.prefix.slice(0, -1);
+	if (target.publicOrigin) {
+		const publicUrl = new URL(target.publicOrigin);
+		headers.host = publicUrl.host;
+		headers['x-forwarded-host'] = publicUrl.host;
+		headers['x-forwarded-proto'] = 'https';
+		// App-side CSRF checks must see the same validated public origin as the browser.
+		if (request.headers.origin) headers.origin = target.publicOrigin;
+	} else {
+		headers['x-forwarded-prefix'] = target.prefix.slice(0, -1);
+	}
 	return headers;
 }
 
-/** Scope service cookies to their prefix and protect the dashboard cookie name. */
-function scopeCookies(cookies: string[] | undefined, prefix: string): string[] | undefined {
+/** Scope service cookies and protect reserved names; dedicated origins namespace app cookies. */
+function scopeCookies(cookies: string[] | undefined, target: Target): string[] | undefined {
 	return cookies?.flatMap((cookie) => {
 		const parts = cookie.split(';');
-		const name = parts[0].split('=')[0].trim();
-		if (name === SESSION_COOKIE || name.startsWith('__Host-')) return [];
-		return [
-			[
-				parts[0],
-				...parts.slice(1).filter((part) => !/^\s*(?:domain|path)\s*=/i.test(part)),
-				`Path=${prefix}`
-			].join(';')
-		];
+		const at = parts[0].indexOf('=');
+		if (at < 1) return [];
+		const name = parts[0].slice(0, at).trim();
+		if (name === SESSION_COOKIE || name.startsWith('__Host-') ||
+			name.startsWith('__Secure-ddash-svc-')) return [];
+		if (target.cookieNamespace) {
+			return [[
+				`${target.cookieNamespace}app_${name}${parts[0].slice(at)}`,
+				...parts.slice(1).filter((part) => !/^\s*(?:domain|path|samesite)\s*=/i.test(part)),
+				'Path=/', 'Secure', 'SameSite=Strict'
+			].join(';')];
+		}
+		return [[
+			parts[0],
+			...parts.slice(1).filter((part) => !/^\s*(?:domain|path)\s*=/i.test(part)),
+			`Path=${target.prefix}`
+		].join(';')];
 	});
 }
 
-/** Rewrite redirects within this upstream, without weakening frame restrictions. */
+/** Rewrite confined redirects while preserving application frame protections. */
 function responseHeaders(upstream: IncomingMessage, target: Target): http.OutgoingHttpHeaders {
 	const headers = cleanHeaders(upstream.headers);
-	// An upstream CORS policy must not grant browser access to dashboard-origin data.
 	for (const name of Object.keys(headers)) {
 		if (name.startsWith('access-control-')) delete headers[name];
 	}
 	headers['cache-control'] = 'no-store';
+	headers['referrer-policy'] = 'no-referrer';
 	delete headers['service-worker-allowed'];
-	const cookies = scopeCookies(upstream.headers['set-cookie'], target.prefix);
+	// Alt-Svc could bypass the authenticated listener; Clear-Site-Data can affect
+	// sibling-port cookies, including dashboard authentication.
+	if (target.publicOrigin) {
+		delete headers['alt-svc'];
+		delete headers['clear-site-data'];
+	}
+	const cookies = scopeCookies(upstream.headers['set-cookie'], target);
 	if (cookies?.length) headers['set-cookie'] = cookies;
 	else delete headers['set-cookie'];
 	if (upstream.headers.location) {
 		const host = target.hostname.includes(':') ? `[${target.hostname}]` : target.hostname;
 		const base = new URL(target.path, `${target.protocol}//${host}:${target.port}`);
-		const redirect = new URL(upstream.headers.location, base);
-		if (redirect.origin !== base.origin) {
-			throw new GatewayError(
-				502,
-				'Service redirected to another origin. Configure a dedicated HTTPS service origin.'
-			);
+		const redirect = new URL(upstream.headers.location, target.publicOrigin ?
+			new URL(target.path, target.publicOrigin) : base);
+		if (redirect.origin !== base.origin && redirect.origin !== target.publicOrigin) {
+			throw new GatewayError(502, 'Service redirected to another origin. Configure a dedicated HTTPS service origin.');
 		}
 		headers.location = `${target.prefix}${redirect.pathname.slice(1)}${redirect.search}${redirect.hash}`;
 	}
 	return headers;
 }
 
-/** Authenticate before Docker access; require a matching Origin on writes and upgrades. */
+/** Authenticate before Docker access; require exact Origin on writes, CORS reads and upgrades. */
 function authorize(request: IncomingMessage, options: GatewayOptions, upgrade: boolean): void {
 	if (!options.authenticated(request.headers.cookie))
 		throw new GatewayError(401, 'Sign in to the dashboard again.');
+	if (request.headers.origin && request.headers.origin !== options.origin) {
+		throw new GatewayError(403, 'A matching gateway Origin is required.');
+	}
 	if (upgrade || !['GET', 'HEAD', 'OPTIONS'].includes(request.method ?? '')) {
-		if (!request.headers.origin || request.headers.origin !== options.origin) {
+		if (request.headers.origin !== options.origin) {
 			throw new GatewayError(403, 'A matching dashboard Origin is required.');
 		}
 	}
 }
 
-/** Revalidate the running container and its TCP port for every incoming request. */
+/** Revalidate the running container and current TCP binding for every incoming request. */
 async function resolveTarget(raw: string, options: GatewayOptions): Promise<Target> {
-	const parsed = parseServicePath(raw);
+	const service = options.service;
+	const source = service ? `${PREFIX}${service.containerId}/${service.containerPort}${raw}` : raw;
+	const parsed = parseServicePath(source);
 	if (!parsed) throw new GatewayError(404, 'Unknown service route.');
 	const scheme = resolveServiceScheme(options.ports, parsed.port);
 	if (!scheme) throw new GatewayError(422, 'This port is not an enabled web service.');
 	let info: ContainerInspection;
+	let deadline: ReturnType<typeof setTimeout> | undefined;
 	try {
-		let deadline: ReturnType<typeof setTimeout> | undefined;
-		try {
-			info = await Promise.race([
-				options.inspect(parsed.id),
-				new Promise<never>((_resolve, reject) => {
-					deadline = setTimeout(
-						() => reject(new Error('Docker lookup timeout')),
-						options.connectTimeoutMs ?? 10000
-					);
-				})
-			]);
-		} finally {
-			clearTimeout(deadline);
-		}
+		info = await Promise.race([
+			options.inspect(parsed.id),
+			new Promise<never>((_resolve, reject) => {
+				deadline = setTimeout(() => reject(new Error('Docker lookup timeout')),
+					options.connectTimeoutMs ?? 10000);
+			})
+		]);
 	} catch {
 		throw new GatewayError(404, 'Container is no longer available.');
+	} finally {
+		clearTimeout(deadline);
 	}
 	const binding = inspectServiceBinding(info, parsed.id, parsed.port);
 	if (binding.state === 'unknown-container')
@@ -266,58 +280,45 @@ async function resolveTarget(raw: string, options: GatewayOptions): Promise<Targ
 		const hostPorts = new Set(
 			(info.NetworkSettings.Ports?.[`${parsed.port}/tcp`] ?? []).map((entry) => entry.HostPort)
 		);
-		if (hostPorts.size !== 1) {
-			throw new GatewayError(503, 'Service has ambiguous published ports.');
-		}
+		if (hostPorts.size !== 1) throw new GatewayError(503, 'Service has ambiguous published ports.');
 		port = binding.publishedHostPort ?? Number.NaN;
 		if (!Number.isInteger(port) || port < 1 || port > 65535)
 			throw new GatewayError(503, 'Invalid published service port.');
 	} else {
-		// Do not mistake dashboard loopback for Docker-host loopback.
-		// This direct container route still requires compatible Docker network policy.
-		const addresses = [
-			...new Set(
-				Object.values(info.NetworkSettings.Networks ?? {})
-					.map((network) => network.IPAddress)
-					.filter((address): address is string => Boolean(address))
-			)
-		];
+		const addresses = [...new Set(Object.values(info.NetworkSettings.Networks ?? {})
+			.map((network) => network.IPAddress)
+			.filter((address): address is string => Boolean(address)))];
 		if (addresses.length !== 1 || !isIP(addresses[0])) {
-			throw new GatewayError(
-				503,
-				'Configure SERVICE_PROXY_HOST or a single reachable container network.'
-			);
+			throw new GatewayError(503, 'Configure SERVICE_PROXY_HOST or a single reachable container network.');
 		}
 		hostname = addresses[0];
 		port = Number(parsed.port);
 	}
-	return { protocol: `${scheme}:`, hostname, port, path: parsed.path, prefix: parsed.prefix };
+	return {
+		protocol: `${scheme}:`, hostname, port, path: parsed.path,
+		prefix: service ? '/' : parsed.prefix,
+		cookieNamespace: service?.cookieNamespace,
+		publicOrigin: service ? options.origin : undefined
+	};
 }
 
 /** Convert internal errors to safe public diagnostics. */
 function failure(error: unknown): { status: number; message: string } {
-	return error instanceof GatewayError
-		? { status: error.status, message: error.message }
-		: {
-				status: 502,
-				message:
-					'Service is unreachable. Check Docker routing, the service base path, and SERVICE_PROXY_HOST.'
-			};
+	return error instanceof GatewayError ? { status: error.status, message: error.message } : {
+		status: 502,
+		message: 'Service is unreachable. Check Docker routing, the service base path, and SERVICE_PROXY_HOST.'
+	};
 }
 
 /** Create an upstream request without disabling HTTPS certificate verification. */
 function upstreamRequest(request: IncomingMessage, target: Target): http.ClientRequest {
 	return (target.protocol === 'https:' ? https : http).request({
-		protocol: target.protocol,
-		hostname: target.hostname,
-		port: target.port,
-		path: target.path,
-		method: request.method,
-		headers: requestHeaders(request, target)
+		protocol: target.protocol, hostname: target.hostname, port: target.port,
+		path: target.path, method: request.method, headers: requestHeaders(request, target)
 	});
 }
 
-/** Create handlers shared by the production server and Vite development middleware. */
+/** Create handlers shared by production, Vite and dedicated service listeners. */
 export function createServiceGateway(options: GatewayOptions) {
 	/** Stream HTTP bodies and SSE with backpressure and disconnect cleanup. */
 	async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -326,10 +327,8 @@ export function createServiceGateway(options: GatewayOptions) {
 			const target = await resolveTarget(request.url ?? '', options);
 			if (request.destroyed || response.destroyed) return;
 			const upstream = upstreamRequest(request, target);
-			const deadline = setTimeout(
-				() => upstream.destroy(new Error('Service response timeout')),
-				options.connectTimeoutMs ?? 10000
-			);
+			const deadline = setTimeout(() => upstream.destroy(new Error('Service response timeout')),
+				options.connectTimeoutMs ?? 10000);
 			const stop = () => upstream.destroy();
 			request.once('aborted', stop);
 			response.once('close', stop);
@@ -339,10 +338,7 @@ export function createServiceGateway(options: GatewayOptions) {
 				if (response.headersSent) response.destroy();
 				else {
 					const result = failure(error);
-					response.writeHead(result.status, {
-						'Content-Type': 'text/plain',
-						'Cache-Control': 'no-store'
-					});
+					response.writeHead(result.status, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' });
 					response.end(result.message);
 				}
 			});
@@ -357,24 +353,15 @@ export function createServiceGateway(options: GatewayOptions) {
 					incoming.destroy();
 					upstream.destroy();
 					const result = failure(error);
-					response.writeHead(result.status, {
-						'Content-Type': 'text/plain',
-						'Cache-Control': 'no-store'
-					});
+					response.writeHead(result.status, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' });
 					response.end(result.message);
 				}
 			});
 			request.pipe(upstream);
 		} catch (error) {
-			if (response.headersSent) {
-				response.destroy();
-				return;
-			}
+			if (response.headersSent) { response.destroy(); return; }
 			const result = failure(error);
-			response.writeHead(result.status, {
-				'Content-Type': 'text/plain',
-				'Cache-Control': 'no-store'
-			});
+			response.writeHead(result.status, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' });
 			response.end(result.message);
 		}
 	}
@@ -382,7 +369,6 @@ export function createServiceGateway(options: GatewayOptions) {
 	/** Tunnel only this gateway's authenticated WebSocket upgrade requests. */
 	async function upgrade(request: IncomingMessage, socket: Duplex, head: Buffer): Promise<void> {
 		let upstream: http.ClientRequest | undefined;
-		// A client can disconnect while Docker inspection is still pending.
 		socket.on('error', () => socket.destroy());
 		try {
 			authorize(request, options, true);
@@ -393,10 +379,8 @@ export function createServiceGateway(options: GatewayOptions) {
 			upstream = upstreamRequest(request, target);
 			upstream.setHeader('connection', 'Upgrade');
 			upstream.setHeader('upgrade', 'websocket');
-			const deadline = setTimeout(
-				() => upstream?.destroy(new Error('Service upgrade timeout')),
-				options.connectTimeoutMs ?? 10000
-			);
+			const deadline = setTimeout(() => upstream?.destroy(new Error('Service upgrade timeout')),
+				options.connectTimeoutMs ?? 10000);
 			socket.once('close', () => upstream?.destroy());
 			upstream.once('error', () => {
 				clearTimeout(deadline);
@@ -416,9 +400,7 @@ export function createServiceGateway(options: GatewayOptions) {
 					headers.upgrade = 'websocket';
 					const lines = Object.entries(headers).flatMap(([name, value]) =>
 						(Array.isArray(value) ? value : [value])
-							.filter((item) => item !== undefined)
-							.map((item) => `${name}: ${item}`)
-					);
+							.filter((item) => item !== undefined).map((item) => `${name}: ${item}`));
 					socket.write(`HTTP/1.1 101 Switching Protocols\r\n${lines.join('\r\n')}\r\n\r\n`);
 					if (peerHead.length) socket.write(peerHead);
 					if (head.length) peer.write(head);
@@ -427,23 +409,18 @@ export function createServiceGateway(options: GatewayOptions) {
 					socket.once('close', () => peer.destroy());
 					peer.once('close', () => socket.destroy());
 					socket.pipe(peer).pipe(socket);
-				} catch {
-					peer.destroy();
-					socket.destroy();
-				}
+				} catch { peer.destroy(); socket.destroy(); }
 			});
 			upstream.end();
 		} catch (error) {
 			upstream?.destroy();
 			const result = failure(error);
-			socket.end(
-				`HTTP/1.1 ${result.status} Service Gateway Error\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`
-			);
+			socket.end(`HTTP/1.1 ${result.status} Service Gateway Error\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
 		}
 	}
 
 	return {
-		matches: (raw: string | undefined) => Boolean(raw?.startsWith(PREFIX)),
+		matches: (raw: string | undefined) => Boolean(options.service || raw?.startsWith(PREFIX)),
 		handle,
 		upgrade
 	};
