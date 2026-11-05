@@ -2,6 +2,7 @@
 import { createServer } from 'node:http';
 import { attachTerminalServer } from './lib/server/terminal.js';
 import { assertAuthConfigured } from './lib/server/auth.js';
+import { createRuntimeServiceGateway } from './lib/server/serviceGatewayRuntime.js';
 
 const PORT = parseInt(process.env.PORT ?? '3000', 10);
 
@@ -14,6 +15,7 @@ if (!proxyConfigured) process.env.PROTOCOL_HEADER = INTERNAL_PROTOCOL_HEADER;
 
 // @ts-expect-error: build output, types not available at source time
 const { handler } = await import('./handler.js');
+const serviceGateway = createRuntimeServiceGateway(`http://localhost:${PORT}`);
 
 const server = createServer((request, response) => {
 	// Application readiness only. Do not disclose Docker, workspace, or session state.
@@ -27,9 +29,17 @@ const server = createServer((request, response) => {
 		return;
 	}
 	if (!proxyConfigured) request.headers[INTERNAL_PROTOCOL_HEADER] = 'http';
+	// This handler runs before SvelteKit, so it authenticates independently.
+	if (serviceGateway?.matches(request.url)) {
+		void serviceGateway.handle(request, response);
+		return;
+	}
 	handler(request, response);
 });
 
+server.on('upgrade', (request, socket, head) => {
+	if (serviceGateway?.matches(request.url)) void serviceGateway.upgrade(request, socket, head);
+});
 attachTerminalServer(server);
 
 server.listen(PORT, '0.0.0.0', () => {

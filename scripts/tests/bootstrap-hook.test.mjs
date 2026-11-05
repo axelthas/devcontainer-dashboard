@@ -46,7 +46,7 @@ chmod +x "$HOME/.devbootstrap/install.sh"
 		home,
 		// Execute the fixture copy with per-test overrides; return captured output/status (and recorded calls).
 		run(env = {}) {
-			return spawnSync('bash', [join(root, 'scripts/10-dev-bootstrap.sh')], {
+			return spawnSync('bash', [join(root, 'plugins/10-dev-bootstrap.sh')], {
 				encoding: 'utf8',
 				timeout: 5000,
 				env: {

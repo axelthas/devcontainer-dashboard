@@ -4,10 +4,10 @@
 // Create a real disposable Unix socket, but mock account/group/storage commands and
 // privilege dropping. Rewrite only the fixture copy's absolute paths before running
 // it. Cover configured identity, account collisions, hooks, shell templates and
-// fail-closed diagnostics; compare standalone launcher identity implementations.
-// No real host users, socket permissions or dashboard data are changed. Assertions
-// about mocked runuser/chown calls are not proof of real privilege or ownership.
-// node:test registers and runs the cases, then removes their temporary fixtures.
+// fail-closed diagnostics. No real host users, socket permissions or dashboard data
+// are changed. Assertions about mocked runuser/chown calls are not proof of real
+// privilege or ownership. node:test registers and runs the cases, then removes
+// their temporary fixtures.
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -68,7 +68,7 @@ exec "$@"`,
 	const source = read('docker-entrypoint.sh')
 		.replaceAll('/var/run/docker.sock', socket)
 		.replaceAll('/opt/dashboard-shell', join(dir, 'shell'))
-		.replaceAll('/opt/dashboard/hooks', join(dir, 'bundled'))
+		.replaceAll('/opt/dashboard/plugins', join(dir, 'bundled'))
 		.replaceAll('/docker-entrypoint.d', join(dir, 'hooks'))
 		.replaceAll('/etc/sudoers.d', join(dir, 'sudoers'))
 		.replaceAll('mkdir -p /data /dashboard-history', `mkdir -p "${dir}/data" "${dir}/history"`)
@@ -192,22 +192,8 @@ test('hooks run after privilege dropping and preserve existing shell files', asy
 	assert.notEqual(f.run({}, ['unknown']).status, 0);
 });
 
-test('standalone launchers share one identity contract', () => {
-	const scripts = ['run-production.sh', 'run-dashboard.sh', 'run-dashboard-compose.sh'].map(
-		(name) => read(`scripts/${name}`).match(/resolve_identity\(\) \{[\s\S]*?\n\}/)[0]
-	);
-	assert.equal(scripts[0], scripts[1]);
-	assert.equal(scripts[1], scripts[2]);
-});
-
-test('Compose uses explicit identity, strict bind sources and stable history volume', () => {
-	const compose = read('docker-compose.yml');
-	for (const key of ['HOST_USER', 'HOST_UID', 'HOST_GID', 'HOST_HOME']) {
-		assert.ok(compose.includes(`${key}: \${${key}:?`));
-	}
-	assert.match(compose, /create_host_path: false/);
-	assert.match(compose, /ddash_zsh_data:\/dashboard-history/);
-	assert.doesNotMatch(compose, /\/home\/ddash/);
+test('Dockerfile keeps the dashboard tools prefix and healthcheck contract', () => {
 	assert.match(read('Dockerfile'), /NPM_CONFIG_PREFIX=\/opt\/dashboard-tools/);
 	assert.match(read('Dockerfile'), /HEALTHCHECK[\s\S]*\/healthz/);
+	assert.match(read('Dockerfile'), /plugins\/10-dev-bootstrap\.sh/);
 });

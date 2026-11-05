@@ -6,6 +6,7 @@ import {
 	resolveContainerWorkspaceFolder,
 	WORKSPACE_ROOT
 } from '$lib/server/workspaces';
+import { isServiceProxyEnabled } from '$lib/server/serviceGatewayRuntime';
 import type { ContainerData } from '$lib/types';
 import type { PageServerLoad } from './$types';
 
@@ -104,6 +105,7 @@ export const load: PageServerLoad = async () => {
 		hostname: hostName,
 		workspaces,
 		workspaceRoot: WORKSPACE_ROOT,
-		vscodeSshHost
+		vscodeSshHost,
+		serviceProxyEnabled: isServiceProxyEnabled()
 	};
 };

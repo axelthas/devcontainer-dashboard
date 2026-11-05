@@ -15,6 +15,7 @@ npm run lint             # prettier --check + eslint
 npm run format           # prettier --write
 npm run test:deployment  # Entrypoint and deployment regressions (no Docker needed)
 npm run test:production  # Built custom-server smoke test (build both outputs first)
+npm run test:gateway     # Standalone service-gateway regressions (build both outputs first)
 bash scripts/tests/container-smoke.sh # Build and test an isolated container deployment
 npm run test:unit        # vitest (interactive watch mode)
 npm run test:unit -- --run  # vitest single run
@@ -44,7 +45,10 @@ npm run test             # deployment + unit + e2e combined
 | `PRESETS_FILE`             | `/data/presets.json`             | Path to bootstrap presets JSON file                   |
 | `BOOTSTRAP_PROVIDERS_FILE` | `/data/bootstrap-providers.json` | Path to bootstrap provider definitions                |
 | `PORT`                     | `3000`                           | Port used by the custom server entry point            |
-| `DASHBOARD_BIND_ADDRESS`   | `127.0.0.1`                      | Host publication address in Compose and installers    |
+| `DASHBOARD_BIND_ADDRESS`   | `127.0.0.1`                      | Launcher publication address; pass `--bind-address`   |
+| `SERVICE_PROXY_ENABLED`    | (empty)                          | Set to `1` to enable the opt-in service gateway       |
+| `SERVICE_PROXY_HOST`       | (empty)                          | Operator-owned host route for gateway upstreams       |
+| `SERVICE_PROXY_PORTS`      | (empty)                          | `port:http\|https\|off` policy overrides              |
 
 ### Runtime notes
 
@@ -54,6 +58,7 @@ npm run test             # deployment + unit + e2e combined
 - Bootstrap provider loading lives in [src/lib/server/bootstrap.ts](src/lib/server/bootstrap.ts), with a fallback to `~/.devbootstrap` if no providers file exists.
 - Runtime startup fails when `DASHBOARD_PASSWORD` is empty. Sessions are in memory and end on logout, browser close, or process restart.
 - Keep `DASHBOARD_PASSWORD` excluded from terminal child-process environments in [src/lib/server/terminal.ts](src/lib/server/terminal.ts).
+- The service gateway is disabled unless `SERVICE_PROXY_ENABLED=1`. When enabled, [src/routes/service/+page.server.ts](src/routes/service/+page.server.ts) is the authoritative viewer contract: the server validates the container/port and picks the iframe target. Keep the client-side `src/lib/serviceTargets.ts` free of server imports.
 - Container startup also fails if `/var/run/docker.sock` is missing, inaccessible, or group setup fails. Do not change host socket permissions.
 - `/healthz` is a public production-only application readiness probe with no sensitive state. It does not check Docker daemon availability.
 - Use `npm start`, not Vite preview, for production and terminal integration checks.
@@ -63,7 +68,8 @@ npm run test             # deployment + unit + e2e combined
 | Route                                  | Purpose                                                                                      |
 | -------------------------------------- | -------------------------------------------------------------------------------------------- |
 | `/`                                    | Main dashboard: SSR loads containers via `+page.server.ts`, polls `/api/containers` every 5s |
-| `/service`                             | Iframe viewer for a service, opened from service buttons                                     |
+| `/service`                             | Identity-validated service viewer; SSR load decides the iframe target                        |
+| `/service-proxy/[id]/[port]/`          | Opt-in authenticated streaming gateway to a running container web service                    |
 | `/demo/playwright`                     | Playwright test target page                                                                  |
 | `/healthz`                             | Public production readiness (GET or HEAD)                                                    |
 | `/api/containers` (GET)                | Returns all containers with exposed ports as JSON                                            |
@@ -82,20 +88,24 @@ npm run test             # deployment + unit + e2e combined
 
 ### Key files
 
-| File                                   | Purpose                                                                                        |
-| -------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `src/lib/server/auth.ts`               | Password validation, login throttling, opaque sessions, and cookie helpers                     |
-| `src/lib/server/docker.ts`             | Dockerode client singleton                                                                     |
-| `src/lib/server/terminal.ts`           | WebSocket PTY server (attaches to Vite dev or production HTTP server)                          |
-| `src/lib/server/workspaces.ts`         | Scans `WORKSPACE_ROOT` for task/repo pairs with `.devcontainer`                                |
-| `src/lib/server/bootstrap.ts`          | Loads bootstrap providers and resolves the active provider                                     |
-| `src/lib/server/bootstrapRuns.ts`      | Tracks bootstrap run sessions in memory                                                        |
-| `src/lib/server/devcontainerBuilds.ts` | Tracks active devcontainer build sessions in memory                                            |
-| `src/lib/types.ts`                     | Shared interfaces: `ContainerData`, `LocalWorkspaceData`, `BootstrapPreset`, `TerminalSession` |
-| `src/lib/portConfig.ts`                | Port-to-label/icon mapping for known services                                                  |
-| `src/lib/components/`                  | UI components (see conventions below)                                                          |
-| `src/routes/+page.server.ts`           | SSR data loader: filters containers, builds port maps                                          |
-| `src/routes/api/containers/+server.ts` | REST endpoint duplicating page.server logic for client polling                                 |
+| File                                      | Purpose                                                                                        |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `src/lib/server/auth.ts`                  | Password validation, login throttling, opaque sessions, and cookie helpers                     |
+| `src/lib/server/docker.ts`                | Dockerode client singleton                                                                     |
+| `src/lib/server/terminal.ts`              | WebSocket PTY server (attaches to Vite dev or production HTTP server)                          |
+| `src/lib/server/workspaces.ts`            | Scans `WORKSPACE_ROOT` for task/repo pairs with `.devcontainer`                                |
+| `src/lib/server/bootstrap.ts`             | Loads bootstrap providers and resolves the active provider                                     |
+| `src/lib/server/bootstrapRuns.ts`         | Tracks bootstrap run sessions in memory                                                        |
+| `src/lib/server/devcontainerBuilds.ts`    | Tracks active devcontainer build sessions in memory                                            |
+| `src/lib/types.ts`                        | Shared interfaces: `ContainerData`, `LocalWorkspaceData`, `BootstrapPreset`, `TerminalSession` |
+| `src/lib/portConfig.ts`                   | Port-to-label/icon mapping for known services                                                  |
+| `src/lib/serviceTargets.ts`               | Client-safe service identity, viewer hrefs, proxy paths, and embed profiles                    |
+| `src/lib/server/serviceGateway.ts`        | Streaming gateway core: auth, origin checks, cookie scoping, redirects, upgrades               |
+| `src/lib/server/serviceGatewayRuntime.ts` | Docker/session wiring, opt-in flag, `SERVICE_PROXY_PORTS` policy, viewer target validation     |
+| `src/routes/service/+page.server.ts`      | Validated viewer contract; server decides the iframe target from live Docker state             |
+| `src/lib/components/`                     | UI components (see conventions below)                                                          |
+| `src/routes/+page.server.ts`              | SSR data loader: filters containers, builds port maps                                          |
+| `src/routes/api/containers/+server.ts`    | REST endpoint duplicating page.server logic for client polling                                 |
 
 ### Component conventions
 
@@ -161,7 +171,8 @@ Important:
 - When changing Svelte components, run the Svelte MCP autofixer before finalizing and keep runes syntax consistent.
 - `test:deployment` uses Node's test runner with mocked privileged commands and a real temporary Unix socket. It requires no npm dependencies.
 - `test:production` exercises the compiled custom server, HTTP login, WebSocket authorization, and PTY output. `SMOKE_BASE_URL` targets a disposable external container.
-- `container-smoke.sh` requires Docker, Compose 2.24.4+, Node 22, util-linux `script`, and installed project dependencies. It cleans up only its isolated Compose project and test resources.
+- `test:gateway` runs disposable HTTP/upgrade regressions against the compiled gateway module in `build/lib/server/serviceGateway.js`; `GATEWAY_MODULE_URL` can point at an isolated transpiled build when project dependencies are unavailable.
+- `container-smoke.sh` requires Docker, Node 22, util-linux `script`, and installed project dependencies. It cleans up only its isolated containers, volumes and test resources.
 
 ## Svelte MCP Tools
 

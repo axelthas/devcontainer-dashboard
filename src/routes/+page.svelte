@@ -31,6 +31,7 @@
 			workspaces: LocalWorkspaceData[];
 			workspaceRoot: string;
 			vscodeSshHost: string;
+			serviceProxyEnabled: boolean;
 		};
 	}
 
@@ -415,6 +416,7 @@
 							<DevcontainerCard
 								{container}
 								{vscodeSshHost}
+								serviceProxyEnabled={data.serviceProxyEnabled}
 								onRefresh={refreshContainers}
 								onOpenTerminal={handleOpenTerminal}
 							/>
@@ -429,6 +431,7 @@
 								<DevcontainerRow
 									{container}
 									{vscodeSshHost}
+									serviceProxyEnabled={data.serviceProxyEnabled}
 									onRefresh={refreshContainers}
 									onOpenTerminal={handleOpenTerminal}
 								/>
@@ -454,6 +457,7 @@
 				{workspaces}
 				{containers}
 				{vscodeSshHost}
+				serviceProxyEnabled={data.serviceProxyEnabled}
 				onOpenTerminal={handleOpenTerminal}
 				onRefreshWorkspaces={refreshWorkspaces}
 				onBootstrap={() => (bootstrapModalOpen = true)}
@@ -491,6 +495,7 @@
 									projectName={group.projectName}
 									containers={group.containers}
 									{vscodeSshHost}
+									serviceProxyEnabled={data.serviceProxyEnabled}
 									onRefresh={refreshContainers}
 									onOpenTerminal={handleOpenTerminal}
 								/>
@@ -499,6 +504,7 @@
 								<SandboxRow
 									{container}
 									{vscodeSshHost}
+									serviceProxyEnabled={data.serviceProxyEnabled}
 									onRefresh={refreshContainers}
 									onOpenTerminal={handleOpenTerminal}
 								/>

@@ -20,49 +20,46 @@ LOGNAME describe that account. The target devcontainer's remoteUser is separate.
 Set all four values together for an explicit identity:
 
 ```bash
-export HOST_USER=axel
-export HOST_UID=1000
-export HOST_GID=1000
-export HOST_HOME=/home/axel
-bash scripts/run-production.sh
+bash scripts/run-dashboard.sh --build \
+  --host-user axel \
+  --host-uid 1000 \
+  --host-gid 1000 \
+  --host-home /home/axel
 ```
 
 Normal local launcher invocations capture the current account from passwd.
-Under sudo, they select SUDO_USER. Partial overrides are rejected. For systemd,
-remote Docker hosts, and launches inside another container, supply all four
-values explicitly. The launcher cannot discover a remote daemon's operator.
-Root UID/GID is not supported. Existing image accounts must match exactly;
+Under sudo, they select SUDO_USER. Partial `--host-*` overrides are rejected.
+For systemd, remote Docker hosts, and launches inside another container, supply
+all four values explicitly. The launcher cannot discover a remote daemon's
+operator. Root UID/GID is not supported. Existing image accounts must match exactly;
 conflicting accounts fail rather than being renamed or repurposed.
 
 Home paths must be canonical absolute paths without symlink parents. System
-directories, shell/Compose interpolation characters and commas are rejected.
+directories, shell interpolation characters and commas are rejected.
 Spaces are supported in mounts. Structured build commands still have the
 separate shell-argument limitation tracked in issue #11.
 
 ## Production launcher
 
 ```bash
-export DASHBOARD_PASSWORD='choose-a-strong-password'
-bash scripts/run-production.sh --workspace "$HOME/ddash-production-workspace"
+bash scripts/run-dashboard.sh --build \
+  --workspace "$HOME/ddash-production-workspace" \
+  --non-interactive --password-file /path/to/password
 ```
 
-The runner builds both application outputs through the Dockerfile, loads the
+Build mode builds both application outputs through the Dockerfile, loads the
 image locally, and starts a separate instance on loopback port 3001. It does not
-publish, replace another instance, or use Vite preview. ORIGIN still configures
-an external HTTPS origin. Existing containers and data remain for inspection.
+publish, replace another instance, or use Vite preview. `--origin` still
+configures an external HTTPS origin. Existing containers and data remain for
+inspection.
 
-The direct installer and generated-Compose installer use the same identity
-contract. Set WORKSPACE_ROOT and DASHBOARD_PASSWORD to avoid their respective
-prompts. The Compose installer still prompts for the external origin.
-DDASH_DEV_BOOTSTRAP=0 or 1 bypasses its hook prompt. The production and direct
-launchers run without the bundled hook unless DDASH_DEV_BOOTSTRAP=1 is set.
-
-For checked-in Compose, export the four HOST\_\* values before `docker compose up`.
-Create WORKSPACE_ROOT first. Bind mounts use `create_host_path: false`, so a
-missing source fails instead of silently creating a root-owned directory.
-Generated Compose persists the selected identity and paths, but not the password.
-Re-run the installer after changing identity; restarting an old container does
-not change its configuration.
+Both launcher modes use the same identity contract. Supply `--workspace` and a
+password to avoid prompts; registry mode still prompts for the workspace and
+password when a terminal is available. Runs use the bundled hook only with
+`--bootstrap`. The launcher forwards the selected identity into the container,
+and its bind mounts fail closed: a missing workspace source fails instead of
+silently creating a root-owned directory. Restarting an old container does not
+change its configuration; start a new one with updated flags.
 
 ## SSH and bind paths
 
@@ -74,7 +71,7 @@ mounted below it. The workspace uses the same absolute path on both sides.
 To expose the host SSH directory:
 
 ```bash
-DDASH_SSH_DIRECTORY=1 bash scripts/run-production.sh
+bash scripts/run-dashboard.sh --build --ssh-dir
 ```
 
 This mounts HOST_HOME/.ssh read-only at the same absolute path. The directory
@@ -125,8 +122,7 @@ bootstrap hook can reinstall the provider in the new container-private home.
 Run the no-Docker regression suite:
 
 ```bash
-node --test scripts/tests/deployment.test.mjs \
-  scripts/tests/run-production.test.mjs scripts/tests/socket-symlink.test.mjs
+npm run test:deployment
 ```
 
 Run the real integration fixture on a trusted local Linux Docker host:
@@ -135,8 +131,8 @@ Run the real integration fixture on a trusted local Linux Docker host:
 bash scripts/tests/container-smoke.sh
 ```
 
-It requires a non-root operator with a `/home` home, Docker Compose 2.24.4+, Node
-22, util-linux `script`, installed project dependencies and network access. It
+It requires a non-root operator with a `/home` home, Node 22, util-linux `script`,
+installed project dependencies and network access. It
 creates a temporary home under the operator's home with fake SSH data, checks
 numeric ownership, starts the compiled production server, tests login/terminal
 behavior, and starts a sibling devcontainer with a HOME-based bind. It removes
