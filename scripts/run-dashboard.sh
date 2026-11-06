@@ -13,6 +13,8 @@
 # exported SSH_AUTH_SOCK (forwarded read-only) and SUDO_USER (identity under
 # sudo). The selected image has full operator access to the Docker daemon.
 # Bind paths must exist on the Docker host; --mount does not create them.
+# Optional wildcard service subdomains (--service-domain) publish one extra HTTPS
+# listener on host loopback; see tasks/TAILNET-SERVICE-SUBDOMAINS.md.
 # See scripts/README.md for the full flag grammar and host-path contract.
 
 set -euo pipefail
@@ -57,6 +59,13 @@ Options:
   --gateway                Enable the opt-in service gateway (SERVICE_PROXY_ENABLED=1).
   --gateway-host HOST      SERVICE_PROXY_HOST passthrough.
   --gateway-ports SPEC     SERVICE_PROXY_PORTS passthrough (port:http|https|off,...).
+  --service-domain NAME    Enable wildcard service subdomains under NAME, the
+                           Tailscale node name used by --origin https://NAME.
+  --service-cert PATH      Docker-host PEM certificate for *.NAME (mounted read-only).
+  --service-key PATH       Docker-host PEM key for *.NAME, readable by the operator.
+  --service-port N         Browser-facing HTTPS port of the service listener
+                           (default: 8443); route it with Tailscale Serve --tcp.
+  --service-listen-port N  Host loopback port for the service listener (default: 4443).
   --vscode-ssh-host VALUE  VSCODE_SSH_HOST passthrough for VS Code remote URIs.
   --image REF              Registry mode only: image reference
                            (default: ghcr.io/axelthas/devcontainer-dashboard:latest).
@@ -81,6 +90,7 @@ parse_arguments() {
   HOST_USER='' HOST_UID='' HOST_GID='' HOST_HOME=''
   BOOTSTRAP=0 SSH_DIR=0 CREATE_WORKSPACE=1 NON_INTERACTIVE=0 GATEWAY=0
   GATEWAY_HOST='' GATEWAY_PORTS='' VSCODE_SSH_HOST=''
+  SERVICE_DOMAIN='' SERVICE_CERT='' SERVICE_KEY='' SERVICE_PORT='' SERVICE_LISTEN_PORT=''
   IMAGE='' PLATFORM='' TEST_NAME='' HEALTH_TIMEOUT=''
   while (( $# )); do
     case "$1" in
@@ -88,7 +98,7 @@ parse_arguments() {
         SHOW_HELP=1
         return
         ;;
-      --workspace|--socket|--port|--bind-address|--origin|--password|--password-file|--host-user|--host-uid|--host-gid|--host-home|--gateway-host|--gateway-ports|--vscode-ssh-host|--image|--platform|--name|--health-timeout)
+      --workspace|--socket|--port|--bind-address|--origin|--password|--password-file|--host-user|--host-uid|--host-gid|--host-home|--gateway-host|--gateway-ports|--service-domain|--service-cert|--service-key|--service-port|--service-listen-port|--vscode-ssh-host|--image|--platform|--name|--health-timeout)
         [[ $# -ge 2 && -n "$2" ]] || fail "$1 requires a value"
         case "$1" in
           --workspace) WORKSPACE=$2 ;;
@@ -104,6 +114,11 @@ parse_arguments() {
           --host-home) HOST_HOME=$2 ;;
           --gateway-host) GATEWAY_HOST=$2 ;;
           --gateway-ports) GATEWAY_PORTS=$2 ;;
+          --service-domain) SERVICE_DOMAIN=$2 ;;
+          --service-cert) SERVICE_CERT=$2 ;;
+          --service-key) SERVICE_KEY=$2 ;;
+          --service-port) SERVICE_PORT=$2 ;;
+          --service-listen-port) SERVICE_LISTEN_PORT=$2 ;;
           --vscode-ssh-host) VSCODE_SSH_HOST=$2 ;;
           --image) IMAGE=$2 ;;
           --platform) PLATFORM=$2 ;;
@@ -168,6 +183,11 @@ valid_gateway_ports() {
     (( 10#${BASH_REMATCH[1]} <= 65535 )) || return 1
   done
   return 0
+}
+
+# Return success for a decimal TCP port from 1 to 65535.
+valid_port() {
+  [[ "$1" =~ ^[0-9]{1,5}$ ]] && (( 10#$1 >= 1 && 10#$1 <= 65535 ))
 }
 
 # Resolve the intended operator from --host-* flags or passwd (SUDO_USER under sudo).
@@ -238,6 +258,34 @@ read_secrets() {
   export DASHBOARD_PASSWORD="$PASSWORD"
 }
 
+# Validate the optional wildcard service-subdomain flags as one all-or-none group.
+# The dashboard origin must be the same node name, because the certificate is *.NAME.
+validate_service_options() {
+  local file
+  if [[ -z "$SERVICE_DOMAIN" ]]; then
+    [[ -z "$SERVICE_CERT$SERVICE_KEY$SERVICE_PORT$SERVICE_LISTEN_PORT" ]] ||
+      fail '--service-cert, --service-key, --service-port and --service-listen-port require --service-domain'
+    return 0
+  fi
+  SERVICE_DOMAIN="${SERVICE_DOMAIN,,}"
+  [[ "$SERVICE_DOMAIN" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ ]] ||
+    fail 'Invalid --service-domain: use the Tailscale node name, e.g. host.tailnet.ts.net'
+  [[ "${ORIGIN,,}" == "https://$SERVICE_DOMAIN" ]] ||
+    fail "--service-domain requires --origin https://$SERVICE_DOMAIN exactly"
+  [[ -n "$SERVICE_CERT" && -n "$SERVICE_KEY" ]] || fail '--service-domain requires --service-cert and --service-key'
+  for file in "$SERVICE_CERT" "$SERVICE_KEY"; do
+    [[ "$file" == /* && "$file" != *,* && "$file" != *$'\n'* && -f "$file" && -r "$file" ]] ||
+      fail "Service TLS files must be readable absolute Docker-host paths without commas: $file"
+  done
+  SERVICE_PORT="${SERVICE_PORT:-8443}"
+  SERVICE_LISTEN_PORT="${SERVICE_LISTEN_PORT:-4443}"
+  valid_port "$SERVICE_PORT" || fail '--service-port must be from 1 to 65535'
+  valid_port "$SERVICE_LISTEN_PORT" || fail '--service-listen-port must be from 1 to 65535'
+  SERVICE_PORT=$((10#$SERVICE_PORT))
+  SERVICE_LISTEN_PORT=$((10#$SERVICE_LISTEN_PORT))
+  (( SERVICE_LISTEN_PORT != PORT )) || fail '--service-listen-port must differ from --port'
+}
+
 # Validate bind paths, ports, origin, image and passthrough values before creating resources.
 # Apply per-mode defaults and reject values Docker or the gateway would misinterpret.
 validate_options() {
@@ -273,6 +321,7 @@ validate_options() {
     fail 'Invalid --gateway-host'
   valid_gateway_ports "$GATEWAY_PORTS" ||
     fail 'Invalid --gateway-ports: use comma-separated port:http|https|off pairs, e.g. 9001:http,8443:https'
+  validate_service_options
 }
 
 # Check daemon reachability so registry pulls fail with an actionable diagnostic.
@@ -304,6 +353,20 @@ prepare_checkout() {
   fi
 }
 
+# Add the service-subdomain environment, read-only TLS mounts and loopback listener.
+# The listener is always published on host loopback; Tailscale Serve forwards to it.
+prepare_service_arguments() {
+  SERVICE_PUBLISH=()
+  [[ -n "$SERVICE_DOMAIN" ]] || return 0
+  ARGS+=(--env "SERVICE_SUBDOMAIN_BASE=$SERVICE_DOMAIN"
+    --env "SERVICE_SUBDOMAIN_PUBLIC_PORT=$SERVICE_PORT"
+    --env SERVICE_TLS_CERT_FILE=/run/ddash-tls/cert.pem
+    --env SERVICE_TLS_KEY_FILE=/run/ddash-tls/key.pem
+    --mount "type=bind,source=$SERVICE_CERT,target=/run/ddash-tls/cert.pem,readonly"
+    --mount "type=bind,source=$SERVICE_KEY,target=/run/ddash-tls/key.pem,readonly")
+  SERVICE_PUBLISH=(--publish "127.0.0.1:$SERVICE_LISTEN_PORT:4443")
+}
+
 # Assemble the docker argv shared by both modes: identity, secrets, binds and selected options.
 # Preserve argument boundaries; keep bind sources and targets identical on both sides.
 prepare_arguments() {
@@ -319,6 +382,7 @@ prepare_arguments() {
   [[ -z "$GATEWAY_HOST" ]] || ARGS+=(--env "SERVICE_PROXY_HOST=$GATEWAY_HOST")
   [[ -z "$GATEWAY_PORTS" ]] || ARGS+=(--env "SERVICE_PROXY_PORTS=$GATEWAY_PORTS")
   [[ -z "$VSCODE_SSH_HOST" ]] || ARGS+=(--env "VSCODE_SSH_HOST=$VSCODE_SSH_HOST")
+  prepare_service_arguments
   if [[ -n "${SSH_AUTH_SOCK:-}" ]]; then
     export SSH_AUTH_SOCK
     ARGS+=(--env SSH_AUTH_SOCK --mount "type=bind,source=$SSH_AUTH_SOCK,target=$SSH_AUTH_SOCK,readonly")
@@ -346,6 +410,12 @@ print_plan() {
   fi
   printf 'Operator: %s (%s:%s), home %s\n' "$HOST_USER" "$HOST_UID" "$HOST_GID" "$HOST_HOME"
   printf 'dev-bootstrap: %s (1=enabled, 0=disabled)\n' "$BOOTSTRAP"
+  if [[ -n "$SERVICE_DOMAIN" ]]; then
+    printf 'Service subdomains: https://<port>-<container>.%s:%s -> 127.0.0.1:%s\n' \
+      "$SERVICE_DOMAIN" "$SERVICE_PORT" "$SERVICE_LISTEN_PORT"
+    printf 'Tailscale was NOT changed. Route it once: tailscale serve --bg --tcp=%s tcp://127.0.0.1:%s\n' \
+      "$SERVICE_PORT" "$SERVICE_LISTEN_PORT"
+  fi
   echo 'All bind sources must exist on the Docker host. SSH resources are read-only.'
 }
 
@@ -357,7 +427,7 @@ run_registry() {
   echo 'Ctrl+C stops the container; the dashboard_data and ddash_zsh_data volumes persist.'
   exec docker run --rm "${ARGS[@]}" \
     --volume dashboard_data:/data --volume ddash_zsh_data:/dashboard-history \
-    --publish "$BIND_ADDRESS:$PORT:3000" \
+    --publish "$BIND_ADDRESS:$PORT:3000" "${SERVICE_PUBLISH[@]}" \
     --name devcontainer-dashboard "$IMAGE" "${HOOK[@]}"
 }
 
@@ -368,7 +438,7 @@ run_build() {
   docker buildx build "${BUILD_ARGS[@]}" .
   docker run --detach "${ARGS[@]}" \
     --volume "$TEST_NAME-data:/data" --volume "$TEST_NAME-zsh:/dashboard-history" \
-    --publish "127.0.0.1:$PORT:3000" \
+    --publish "127.0.0.1:$PORT:3000" "${SERVICE_PUBLISH[@]}" \
     --name "$TEST_NAME" "$IMAGE" "${HOOK[@]}" ||
     fail "Container creation failed. Check daemon-host bind sources, socket access and port availability; --mount does not create missing sources."
   printf 'Retained volumes: %s-data %s-zsh\n' "$TEST_NAME" "$TEST_NAME"
