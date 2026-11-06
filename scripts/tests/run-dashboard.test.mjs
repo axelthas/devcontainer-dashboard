@@ -626,3 +626,75 @@ test('build mode: an existing container name is rejected', (t) => {
 	assert.match(r.stderr, /Container already exists/);
 	assert.equal(runCall(r), undefined);
 });
+
+// Write placeholder PEM files on the launcher host; contents are never read by the launcher.
+function tlsFiles(f) {
+	const cert = join(f.dir, 'cert.pem');
+	const key = join(f.dir, 'key.pem');
+	writeFileSync(cert, 'certificate');
+	writeFileSync(key, 'private key');
+	return { cert, key };
+}
+
+const serviceOrigin = ['--origin', 'https://host.tailnet.ts.net'];
+const serviceDomain = ['--service-domain', 'host.tailnet.ts.net'];
+
+test('forwards service subdomains with read-only TLS mounts and a loopback listener', (t) => {
+	const f = fixture(t);
+	const { cert, key } = tlsFiles(f);
+	const tls = ['--service-cert', cert, '--service-key', key];
+	const r = registry(f, [...serviceOrigin, ...serviceDomain, ...tls]);
+	assert.equal(r.status, 0, r.stderr);
+	const args = runCall(r).args;
+	for (const value of [
+		'SERVICE_SUBDOMAIN_BASE=host.tailnet.ts.net',
+		'SERVICE_SUBDOMAIN_PUBLIC_PORT=8443',
+		'SERVICE_TLS_CERT_FILE=/run/ddash-tls/cert.pem',
+		'SERVICE_TLS_KEY_FILE=/run/ddash-tls/key.pem',
+		`type=bind,source=${cert},target=/run/ddash-tls/cert.pem,readonly`,
+		`type=bind,source=${key},target=/run/ddash-tls/key.pem,readonly`,
+		'127.0.0.1:4443:4443'
+	]) {
+		assert.ok(args.includes(value), `missing ${value}`);
+	}
+	assert.match(r.stdout, /tailscale serve --bg --tcp=8443 tcp:\/\/127\.0\.0\.1:4443/);
+	const plain = runCall(registry(f)).args;
+	assert.ok(!plain.some((a) => a.startsWith('SERVICE_SUBDOMAIN') || a.includes('ddash-tls')));
+});
+
+test('build mode: service ports and the loopback listener port are configurable', (t) => {
+	const f = fixture(t);
+	const { cert, key } = tlsFiles(f);
+	const tls = ['--service-cert', cert, '--service-key', key];
+	const ports = ['--service-port', '443', '--service-listen-port', '4444'];
+	const r = build(f, [...serviceOrigin, ...serviceDomain, ...tls, ...ports]);
+	assert.equal(r.status, 0, r.stderr);
+	const args = runCall(r).args;
+	assert.ok(args.includes('SERVICE_SUBDOMAIN_PUBLIC_PORT=443'));
+	assert.ok(args.includes('127.0.0.1:4444:4443'));
+	assert.ok(args.includes('127.0.0.1:3001:3000'));
+});
+
+test('rejects invalid service subdomain flags before any container starts', (t) => {
+	const f = fixture(t);
+	const { cert, key } = tlsFiles(f);
+	const tls = ['--service-cert', cert, '--service-key', key];
+	for (const extra of [
+		['--service-port', '8443'],
+		['--service-cert', cert],
+		[...serviceDomain, ...tls],
+		['--origin', 'https://other.tailnet.ts.net', ...serviceDomain, ...tls],
+		['--origin', 'http://host.tailnet.ts.net', ...serviceDomain, ...tls],
+		[...serviceOrigin, ...serviceDomain],
+		[...serviceOrigin, ...serviceDomain, '--service-cert', cert],
+		[...serviceOrigin, ...serviceDomain, '--service-cert', 'cert.pem', '--service-key', key],
+		[...serviceOrigin, ...serviceDomain, '--service-cert', `${cert}.missing`, '--service-key', key],
+		[...serviceOrigin, ...serviceDomain, ...tls, '--service-port', '0'],
+		[...serviceOrigin, ...serviceDomain, ...tls, '--service-listen-port', '3000'],
+		['--origin', 'https://bad_name.ts.net', '--service-domain', 'bad_name.ts.net', ...tls]
+	]) {
+		const r = registry(f, extra);
+		assert.notEqual(r.status, 0, extra.join(' '));
+		assert.equal(runCall(r), undefined);
+	}
+});
