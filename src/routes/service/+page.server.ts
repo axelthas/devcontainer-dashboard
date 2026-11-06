@@ -1,5 +1,5 @@
 import { describeServiceTarget, isServiceProxyEnabled } from '$lib/server/serviceGatewayRuntime.js';
-import { serviceOriginLaunch, configuredServiceOrigins } from '$lib/server/serviceOriginRuntime.js';
+import { subdomainConfig, subdomainLaunch } from '$lib/server/serviceSubdomainRuntime.js';
 import { AUTH_COOKIE_NAME } from '$lib/server/auth.js';
 import { embedProfile, serviceDirectUrl, serviceProxyPath } from '$lib/serviceTargets.js';
 import type { PageServerLoad } from './$types';
@@ -58,8 +58,8 @@ export const load: PageServerLoad = async ({ url, cookies }) => {
 		label, project, container, workspacePath, allPorts, containerId, containerPort
 	};
 
-	// The root-origin listeners are independent of the older same-origin path gateway.
-	const originsEnabled = configuredServiceOrigins().length > 0;
+	// Root-origin subdomains are independent of the older same-origin path gateway.
+	const subdomainsEnabled = Boolean(subdomainConfig());
 	if (containerId && containerPort) {
 		if (!/^[a-f0-9]{12,64}$/.test(containerId) ||
 			!/^[1-9][0-9]{0,4}$/.test(containerPort) || Number(containerPort) > 65535) {
@@ -67,22 +67,27 @@ export const load: PageServerLoad = async ({ url, cookies }) => {
 				kind: 'unavailable', reason: 'missing-identity'
 			} satisfies ViewerContract };
 		}
-		if (!isServiceProxyEnabled() && !originsEnabled) {
+		if (!isServiceProxyEnabled() && !subdomainsEnabled) {
 			return { ...base, viewer: {
 				kind: 'proxy-disabled', containerId, containerPort
 			} satisfies ViewerContract };
 		}
-		// describeServiceTarget is deliberately path-gateway gated. For root origins,
-		// the configured full identity is validated by the listener on each request.
-		if (originsEnabled) {
+		// Subdomains give every allowed web port its own root origin, so they win when enabled.
+		// The launch validates live Docker state and issues a one-use, origin-bound ticket.
+		if (subdomainsEnabled) {
 			const parent = cookies.get(AUTH_COOKIE_NAME);
-			if (parent) {
-				const launch = serviceOriginLaunch(containerId, containerPort, parent);
-				if (launch) {
-					return { ...base, viewer: {
-						kind: 'proxy', target: launch, containerId, containerPort
-					} satisfies ViewerContract };
-				}
+			const launch = parent
+				? await subdomainLaunch(containerId, containerPort, parent)
+				: { status: 'disabled' as const };
+			if (launch.status === 'ok') {
+				return { ...base, viewer: {
+					kind: 'proxy', target: launch.target, containerId, containerPort
+				} satisfies ViewerContract };
+			}
+			if (launch.status !== 'disabled' && !isServiceProxyEnabled()) {
+				return { ...base, viewer: {
+					kind: 'unavailable', containerId, containerPort, reason: launch.status
+				} satisfies ViewerContract };
 			}
 		}
 		const target = await describeServiceTarget(containerId, containerPort);

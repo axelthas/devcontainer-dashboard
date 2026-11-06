@@ -1,6 +1,6 @@
 /**
  * Authenticated streaming gateway for trusted container web applications.
- * Path applications need base-path support; dedicated listeners use an immutable root target.
+ * Path applications need base-path support; subdomain origins use a root target per request.
  */
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import https from 'node:https';
@@ -81,8 +81,11 @@ export interface GatewayOptions {
 	upstreamHost?: string;
 	ports?: Record<string, 'http' | 'https' | 'off'>;
 	connectTimeoutMs?: number;
-	/** Dedicated listener target. Never populate from browser input. */
-	service?: { containerId: string; containerPort: string; cookieNamespace: string };
+	/**
+	 * Root-origin target resolved from an authenticated grant. Never populate from
+	 * browser input. reservedCookies are gateway credentials, never forwarded.
+	 */
+	service?: { containerId: string; containerPort: string; reservedCookies: string[] };
 }
 
 interface Target {
@@ -91,7 +94,7 @@ interface Target {
 	port: number;
 	path: string;
 	prefix: string;
-	cookieNamespace?: string;
+	reservedCookies?: string[];
 	publicOrigin?: string;
 }
 
@@ -141,7 +144,13 @@ export function cleanHeaders(headers: http.IncomingHttpHeaders): http.OutgoingHt
 	return Object.fromEntries(Object.entries(headers).filter(([name]) => !blocked.has(name)));
 }
 
-/** Do not forward dashboard/gateway credentials or sibling-service cookies to applications. */
+/** Report whether a cookie name belongs to the dashboard or a gateway, not the application. */
+function reservedCookie(name: string, target: Target): boolean {
+	return name === SESSION_COOKIE || name.startsWith('__Host-') ||
+		name.startsWith('__Secure-ddash-') || Boolean(target.reservedCookies?.includes(name));
+}
+
+/** Do not forward dashboard or gateway credentials to applications. */
 function requestHeaders(request: IncomingMessage, target: Target): http.OutgoingHttpHeaders {
 	const headers = cleanHeaders(request.headers);
 	delete headers.authorization;
@@ -151,14 +160,8 @@ function requestHeaders(request: IncomingMessage, target: Target): http.Outgoing
 		const at = cookie.indexOf('=');
 		if (at < 0) return [];
 		const name = cookie.slice(0, at).trim();
-		if (target.cookieNamespace) {
-			const appPrefix = `${target.cookieNamespace}app_`;
-			return name.startsWith(appPrefix)
-				? [`${name.slice(appPrefix.length)}${cookie.slice(at)}`] : [];
-		}
-		return name === SESSION_COOKIE || name.startsWith('__Host-') ||
-			name.startsWith('__Secure-ddash-svc-') ? [] : [cookie];
-	}).join(';');
+		return reservedCookie(name, target) ? [] : [cookie.trim()];
+	}).join('; ');
 	if (cookies) headers.cookie = cookies;
 	else delete headers.cookie;
 	if (target.publicOrigin) {
@@ -174,21 +177,19 @@ function requestHeaders(request: IncomingMessage, target: Target): http.Outgoing
 	return headers;
 }
 
-/** Scope service cookies and protect reserved names; dedicated origins namespace app cookies. */
+/**
+ * Protect reserved names. Path apps get prefix-scoped cookies. Root-origin apps keep
+ * their names and paths but lose Domain, so each cookie stays host-only on its subdomain.
+ */
 function scopeCookies(cookies: string[] | undefined, target: Target): string[] | undefined {
 	return cookies?.flatMap((cookie) => {
 		const parts = cookie.split(';');
 		const at = parts[0].indexOf('=');
 		if (at < 1) return [];
 		const name = parts[0].slice(0, at).trim();
-		if (name === SESSION_COOKIE || name.startsWith('__Host-') ||
-			name.startsWith('__Secure-ddash-svc-')) return [];
-		if (target.cookieNamespace) {
-			return [[
-				`${target.cookieNamespace}app_${name}${parts[0].slice(at)}`,
-				...parts.slice(1).filter((part) => !/^\s*(?:domain|path|samesite)\s*=/i.test(part)),
-				'Path=/', 'Secure', 'SameSite=Strict'
-			].join(';')];
+		if (reservedCookie(name, target)) return [];
+		if (target.publicOrigin) {
+			return [[parts[0], ...parts.slice(1).filter((part) => !/^\s*domain\s*=/i.test(part))].join(';')];
 		}
 		return [[
 			parts[0],
@@ -207,8 +208,8 @@ function responseHeaders(upstream: IncomingMessage, target: Target): http.Outgoi
 	headers['cache-control'] = 'no-store';
 	headers['referrer-policy'] = 'no-referrer';
 	delete headers['service-worker-allowed'];
-	// Alt-Svc could bypass the authenticated listener; Clear-Site-Data can affect
-	// sibling-port cookies, including dashboard authentication.
+	// Alt-Svc could bypass the authenticated listener. Clear-Site-Data clears cookies
+	// for the whole site, including the dashboard session on the parent hostname.
 	if (target.publicOrigin) {
 		delete headers['alt-svc'];
 		delete headers['clear-site-data'];
@@ -297,7 +298,7 @@ async function resolveTarget(raw: string, options: GatewayOptions): Promise<Targ
 	return {
 		protocol: `${scheme}:`, hostname, port, path: parsed.path,
 		prefix: service ? '/' : parsed.prefix,
-		cookieNamespace: service?.cookieNamespace,
+		reservedCookies: service?.reservedCookies,
 		publicOrigin: service ? options.origin : undefined
 	};
 }

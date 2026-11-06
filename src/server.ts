@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import { attachTerminalServer } from './lib/server/terminal.js';
 import { assertAuthConfigured } from './lib/server/auth.js';
 import { createRuntimeServiceGateway } from './lib/server/serviceGatewayRuntime.js';
-import { startServiceOrigins } from './lib/server/serviceOriginRuntime.js';
+import { startServiceSubdomains } from './lib/server/serviceSubdomainRuntime.js';
 
 const PORT = parseInt(process.env.PORT ?? '3000', 10);
 
@@ -42,8 +42,8 @@ server.on('upgrade', (request, socket, head) => {
 });
 attachTerminalServer(server);
 
-// Fail startup if any opt-in listener is invalid or unavailable.
-await startServiceOrigins(PORT);
+// Fail startup if the opt-in service listener or its certificate is invalid.
+await startServiceSubdomains();
 server.listen(PORT, process.env.DASHBOARD_LISTEN_ADDRESS || '0.0.0.0', () => {
 	console.log(`DevDashboard server running on port ${PORT}`);
 });
