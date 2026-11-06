@@ -1,8 +1,9 @@
 /**
- * Prevent sibling-port service applications from using ambient dashboard cookies.
- * Different ports are different origins but share the hostname's cookie jar.
+ * Prevent service subdomains from using ambient dashboard cookies. Sibling subdomains of
+ * one Tailscale node are same-site, so SameSite cookies alone do not stop them.
  */
-/** Enforce exact-origin writes/CORS reads and reject cross-origin resource embeddings. */
+
+/** Enforce exact-origin writes and CORS reads, and reject cross-origin resource embeddings. */
 export function isDashboardRequestAllowed(
 	method: string,
 	headers: Headers,

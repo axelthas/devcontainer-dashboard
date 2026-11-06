@@ -6,7 +6,11 @@
 import { readFileSync, statSync } from 'node:fs';
 import { createServer, type Server } from 'node:https';
 import docker from './docker.js';
-import { inspectServiceBinding, resolveServiceScheme } from './serviceGateway.js';
+import {
+	inspectServiceBinding,
+	resolveServiceScheme,
+	type ServiceBindingState
+} from './serviceGateway.js';
 import { resolveServicePorts } from './serviceGatewayRuntime.js';
 import { issueServiceLaunch } from './serviceOriginAuth.js';
 import { parseSubdomainConfig, serviceOrigin } from './serviceSubdomains.js';
@@ -16,9 +20,9 @@ const CERT_CHECK_MS = 10 * 60_000;
 
 export type SubdomainLaunch =
 	| { status: 'ok'; target: string }
-	| { status: 'disabled' | 'port-not-allowed' | 'unknown-container' | 'not-running' | 'no-published-binding' };
+	| { status: 'disabled' | 'port-not-allowed' | Exclude<ServiceBindingState, 'ok'> };
 
-/** Read current configuration; an invalid configuration fails loudly. */
+/** Read the current configuration; an invalid configuration throws. */
 export function subdomainConfig() {
 	return parseSubdomainConfig(process.env);
 }
@@ -31,7 +35,11 @@ export async function subdomainLaunch(
 ): Promise<SubdomainLaunch> {
 	const config = subdomainConfig();
 	if (!config) return { status: 'disabled' };
-	if (!resolveServiceScheme(resolveServicePorts(), containerPort)) return { status: 'port-not-allowed' };
+	// Never pass a name or path-like value to the Docker API as a container identity.
+	if (!/^[a-f0-9]{12,64}$/.test(containerId)) return { status: 'unknown-container' };
+	if (!resolveServiceScheme(resolveServicePorts(), containerPort)) {
+		return { status: 'port-not-allowed' };
+	}
 	let info;
 	try {
 		info = await docker.getContainer(containerId).inspect();
@@ -49,7 +57,7 @@ export async function subdomainLaunch(
 	return { status: 'ok', target: issueServiceLaunch(route, parent) };
 }
 
-/** Load the PEM pair; return modification times for later reload checks. */
+/** Load the PEM pair and a modification stamp for later reload checks. */
 function readPair(certFile: string, keyFile: string) {
 	return {
 		cert: readFileSync(certFile),
@@ -58,7 +66,16 @@ function readPair(certFile: string, keyFile: string) {
 	};
 }
 
-/** Start the shared listener. Configuration or certificate errors stop startup. */
+/** Read the listener port; an invalid value throws. */
+function listenPort(): number {
+	const port = Number(process.env.SERVICE_SUBDOMAIN_LISTEN_PORT || '4443');
+	if (!Number.isInteger(port) || port < 1 || port > 65535) {
+		throw new Error('SERVICE_SUBDOMAIN_LISTEN_PORT must be from 1 to 65535.');
+	}
+	return port;
+}
+
+/** Start the shared listener. A configuration or certificate error stops startup. */
 export async function startServiceSubdomains(): Promise<Server | undefined> {
 	const config = subdomainConfig();
 	if (!config) return undefined;
@@ -67,10 +84,7 @@ export async function startServiceSubdomains(): Promise<Server | undefined> {
 	if (!certFile || !keyFile) {
 		throw new Error('Service subdomains require SERVICE_TLS_CERT_FILE and SERVICE_TLS_KEY_FILE.');
 	}
-	const listenPort = Number(process.env.SERVICE_SUBDOMAIN_LISTEN_PORT || '4443');
-	if (!Number.isInteger(listenPort) || listenPort < 1 || listenPort > 65535) {
-		throw new Error('SERVICE_SUBDOMAIN_LISTEN_PORT must be from 1 to 65535.');
-	}
+	const port = listenPort();
 	let pair = readPair(certFile, keyFile);
 	const gateway = createSubdomainGateway({
 		config,
@@ -97,8 +111,8 @@ export async function startServiceSubdomains(): Promise<Server | undefined> {
 	reload.unref();
 	await new Promise<void>((resolve, reject) => {
 		server.once('error', reject);
-		server.listen(listenPort, process.env.SERVICE_SUBDOMAIN_LISTEN_ADDRESS || '0.0.0.0', resolve);
+		server.listen(port, process.env.SERVICE_SUBDOMAIN_LISTEN_ADDRESS || '0.0.0.0', resolve);
 	});
-	console.log(`Service subdomains ready: https://<port>-<container>.${config.baseDomain}:${config.publicPort}`);
+	console.log(`Service subdomains: https://<port>-<container>.${config.baseDomain}`);
 	return server;
 }

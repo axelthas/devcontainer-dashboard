@@ -20,6 +20,7 @@ const serviceGateway = createRuntimeServiceGateway(`http://localhost:${PORT}`);
 
 const server = createServer((request, response) => {
 	// Application readiness only. Do not disclose Docker, workspace, or session state.
+	// This becomes reachable only after auth configuration and handler initialization.
 	if (request.url === '/healthz' && (request.method === 'GET' || request.method === 'HEAD')) {
 		response.writeHead(200, {
 			'Content-Type': 'application/json',
@@ -42,8 +43,9 @@ server.on('upgrade', (request, socket, head) => {
 });
 attachTerminalServer(server);
 
-// Fail startup if the opt-in service listener or its certificate is invalid.
+// The opt-in subdomain listener fails startup on invalid configuration or certificates.
 await startServiceSubdomains();
-server.listen(PORT, process.env.DASHBOARD_LISTEN_ADDRESS || '0.0.0.0', () => {
+
+server.listen(PORT, '0.0.0.0', () => {
 	console.log(`DevDashboard server running on port ${PORT}`);
 });

@@ -15,7 +15,7 @@ function unauthorizedApiResponse(): Response {
 	});
 }
 
-/** Prevent origin-separated services from embedding the operator dashboard. */
+/** Prevent service origins from framing the operator dashboard or caching its responses. */
 function protect(response: Response): Response {
 	const result = new Response(response.body, response);
 	result.headers.set('X-Frame-Options', 'DENY');
@@ -28,9 +28,9 @@ function protect(response: Response): Response {
 export const handle: Handle = async ({ event, resolve }) => {
 	assertAuthConfigured();
 
-	if (!isDashboardRequestAllowed(
-		event.request.method, event.request.headers, process.env.ORIGIN || event.url.origin
-	)) {
+	// Service subdomains are same-site, so they must not use ambient dashboard cookies.
+	const dashboardOrigin = process.env.ORIGIN || event.url.origin;
+	if (!isDashboardRequestAllowed(event.request.method, event.request.headers, dashboardOrigin)) {
 		return protect(new Response('Dashboard origin required', { status: 403 }));
 	}
 	if (isPublicPath(event.url.pathname)) return protect(await resolve(event));

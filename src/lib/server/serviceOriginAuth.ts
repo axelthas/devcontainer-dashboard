@@ -1,6 +1,6 @@
 /**
  * Short-lived launch tickets and revocable per-origin service sessions.
- * Only digests index bearer values. Global state bridges SvelteKit/custom-server imports.
+ * Only digests index bearer values. Global state bridges SvelteKit and custom-server imports.
  */
 import { createHash, randomBytes } from 'node:crypto';
 import { isSessionValid } from './auth.js';
@@ -9,7 +9,7 @@ const TICKET_MS = 30_000;
 const SESSION_MS = 8 * 60 * 60_000;
 const MAX_ENTRIES = 2048;
 
-/** Host-only cookie on a service subdomain; never valid on another subdomain. */
+/** Host-only cookie on one service subdomain; the browser never sends it to another host. */
 export const SERVICE_SESSION_COOKIE = '__Host-ddash-service-session';
 
 /** A grant binds one browser origin to one full Docker identity and one dashboard session. */
@@ -18,14 +18,17 @@ export interface ServiceRoute {
 	containerId: string;
 	containerPort: string;
 }
+
 interface Grant extends ServiceRoute {
 	parent: string;
 	expires: number;
 }
+
 interface Store {
 	tickets: Map<string, Grant>;
 	sessions: Map<string, Grant>;
 }
+
 const shared = globalThis as typeof globalThis & { __ddashServiceSubdomainAuth?: Store };
 const store = (shared.__ddashServiceSubdomainAuth ??= { tickets: new Map(), sessions: new Map() });
 
@@ -63,8 +66,12 @@ export function issueServiceLaunch(route: ServiceRoute, parent: string, now = Da
 	return `${route.origin}/__ddash/launch#${token}`;
 }
 
-/** Consume atomically; a ticket for another origin is rejected and cannot be replayed. */
-export function exchangeServiceLaunch(origin: string, ticket: string, now = Date.now()): string | undefined {
+/** Consume a ticket once; a ticket issued for another origin is rejected. */
+export function exchangeServiceLaunch(
+	origin: string,
+	ticket: string,
+	now = Date.now()
+): string | undefined {
 	prune(now);
 	const key = digest(ticket);
 	const grant = store.tickets.get(key);
@@ -76,7 +83,7 @@ export function exchangeServiceLaunch(origin: string, ticket: string, now = Date
 	return token;
 }
 
-/** Return the route for a valid session on this origin; recheck on every request and lease. */
+/** Return the route of a valid session on this origin; callers recheck it on every request. */
 export function serviceSessionRoute(
 	origin: string,
 	cookie: string | undefined,
@@ -86,5 +93,9 @@ export function serviceSessionRoute(
 	const token = readUniqueCookie(cookie, SERVICE_SESSION_COOKIE);
 	const grant = token ? store.sessions.get(digest(token)) : undefined;
 	if (!grant || grant.origin !== origin) return undefined;
-	return { origin: grant.origin, containerId: grant.containerId, containerPort: grant.containerPort };
+	return {
+		origin: grant.origin,
+		containerId: grant.containerId,
+		containerPort: grant.containerPort
+	};
 }
