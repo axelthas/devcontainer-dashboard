@@ -39,6 +39,14 @@
 
 	const portEntries = $derived(allPorts ? Object.entries(allPorts) : []);
 
+	// A service subdomain is cross-origin, so it needs delegated clipboard and fullscreen
+	// access. Never delegate them to legacy raw URLs, which come from the query string.
+	const frameAllow = $derived(
+		viewer.kind === 'proxy' && viewer.target?.startsWith('https://')
+			? 'clipboard-read; clipboard-write; fullscreen'
+			: undefined
+	);
+
 	const UNAVAILABLE_REASONS: Record<string, string> = {
 		'unknown-container': 'This container is no longer available.',
 		'not-running': 'The container is not running. Start it from the dashboard.',
@@ -175,7 +183,7 @@
 	</header>
 
 	{#if (viewer.kind === 'proxy' || viewer.kind === 'legacy') && viewer.target}
-		<iframe src={viewer.target} title={label}></iframe>
+		<iframe src={viewer.target} title={label} allow={frameAllow}></iframe>
 	{:else if viewer.kind === 'unsupported'}
 		<div class="panel">
 			<p class="message">{label} cannot be embedded under the dashboard origin.</p>

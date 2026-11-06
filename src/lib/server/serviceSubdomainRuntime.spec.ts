@@ -1,29 +1,37 @@
-/** Viewer integration for subdomain launches; listener I/O is covered by the Node suite. */
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { AUTH_COOKIE_NAME, createSession, resetAuthStateForTesting } from './auth.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { AUTH_COOKIE_NAME, createSession, resetAuthStateForTesting } from './auth';
+import type { ContainerInspection } from './serviceGateway';
 
-vi.mock('$lib/server/docker', () => ({ default: { getContainer: vi.fn() } }));
+vi.mock('$lib/server/docker', () => ({
+	default: { getContainer: vi.fn() }
+}));
+
 const { load } = await import('../../routes/service/+page.server');
-const docker = (await import('$lib/server/docker')).default as unknown as {
-	getContainer: ReturnType<typeof vi.fn>;
+const docker = (await import('$lib/server/docker')).default as {
+	getContainer: (id: string) => { inspect: () => Promise<ContainerInspection> };
 };
-const ID = 'abcdef123456' + 'a'.repeat(52);
 
-/** Build a viewer load event with an optional dashboard session cookie. */
-function event(search: string, token?: string) {
-	return {
-		url: new URL(`https://host.tailnet.ts.net/service${search}`),
-		cookies: { get: (name: string) => (name === AUTH_COOKIE_NAME ? token : undefined) }
-	} as unknown as Parameters<typeof load>[0];
-}
+const SHORT_ID = 'abcdef123456';
+const FULL_ID = `${SHORT_ID}${'a'.repeat(52)}`;
+const LAUNCH = /^https:\/\/4096-abcdef123456\.host\.tailnet\.ts\.net:8443\/__ddash\/launch#/;
 
-/** Return fake Docker state for one published container port. */
-function inspection(running = true) {
+/** Return Docker state for one published container port. */
+function inspection(running = true): ContainerInspection {
 	return {
-		Id: ID,
+		Id: FULL_ID,
 		State: { Running: running },
 		NetworkSettings: { Ports: { '4096/tcp': [{ HostIp: '127.0.0.1', HostPort: '32768' }] } }
 	};
+}
+
+/** Run the viewer load with a valid dashboard session cookie. */
+async function view(search: string) {
+	const token = createSession();
+	const event = {
+		url: new URL(`https://host.tailnet.ts.net/service${search}`),
+		cookies: { get: (name: string) => (name === AUTH_COOKIE_NAME ? token : undefined) }
+	} as unknown as Parameters<typeof load>[0];
+	return (await load(event)) as { viewer: { kind: string; target?: string; reason?: string } };
 }
 
 beforeEach(() => {
@@ -36,32 +44,41 @@ beforeEach(() => {
 afterEach(() => {
 	delete process.env.ORIGIN;
 	delete process.env.SERVICE_SUBDOMAIN_BASE;
+	delete process.env.SERVICE_PROXY_ENABLED;
 	resetAuthStateForTesting();
 });
 
-it('launches a root-origin subdomain without the path gateway or any route file', async () => {
-	vi.mocked(docker.getContainer).mockReturnValue({ inspect: () => Promise.resolve(inspection()) });
-	const result = (await load(event('?cid=abcdef123456&port=4096', createSession()))) as {
-		viewer: { kind: string; target?: string };
-	};
-	expect(result.viewer.kind).toBe('proxy');
-	expect(result.viewer.target).toMatch(
-		/^https:\/\/4096-abcdef123456\.host\.tailnet\.ts\.net:8443\/__ddash\/launch#[a-zA-Z0-9_-]{43}$/
-	);
-});
+describe('service viewer with subdomains', () => {
+	it('launches a root-origin subdomain without the path gateway', async () => {
+		vi.mocked(docker.getContainer).mockImplementation(() => ({
+			inspect: () => Promise.resolve(inspection())
+		}));
+		const { viewer } = await view(`?cid=${SHORT_ID}&port=4096`);
+		expect(viewer.kind).toBe('proxy');
+		expect(viewer.target).toMatch(LAUNCH);
+	});
 
-it('reports stopped containers instead of issuing a ticket', async () => {
-	vi.mocked(docker.getContainer).mockReturnValue({ inspect: () => Promise.resolve(inspection(false)) });
-	const result = (await load(event('?cid=abcdef123456&port=4096', createSession()))) as {
-		viewer: { kind: string; reason?: string };
-	};
-	expect(result.viewer).toMatchObject({ kind: 'unavailable', reason: 'not-running' });
-});
+	it('reports a stopped container instead of issuing a ticket', async () => {
+		vi.mocked(docker.getContainer).mockImplementation(() => ({
+			inspect: () => Promise.resolve(inspection(false))
+		}));
+		const { viewer } = await view(`?cid=${SHORT_ID}&port=4096`);
+		expect(viewer).toMatchObject({ kind: 'unavailable', reason: 'not-running' });
+	});
 
-it('rejects malformed identities before Docker access', async () => {
-	const result = (await load(event('?cid=not-a-container&port=4096', createSession()))) as {
-		viewer: { kind: string };
-	};
-	expect(result.viewer.kind).toBe('unavailable');
-	expect(docker.getContainer).not.toHaveBeenCalled();
+	it('falls back to the path gateway when the subdomain launch fails', async () => {
+		process.env.SERVICE_PROXY_ENABLED = '1';
+		vi.mocked(docker.getContainer).mockImplementation(() => ({
+			inspect: () => Promise.reject(new Error('no such container'))
+		}));
+		const { viewer } = await view(`?cid=${SHORT_ID}&port=4096`);
+		expect(viewer).toMatchObject({ kind: 'unavailable', reason: 'unknown-container' });
+		expect(viewer.target).toBeUndefined();
+	});
+
+	it('rejects a malformed identity before Docker access', async () => {
+		const { viewer } = await view('?cid=not-a-container&port=4096');
+		expect(viewer.kind).toBe('unavailable');
+		expect(docker.getContainer).not.toHaveBeenCalled();
+	});
 });

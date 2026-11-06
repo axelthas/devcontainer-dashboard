@@ -49,13 +49,14 @@ function directUrlFor(hostname: string, hostPort: string | number | undefined): 
 /**
  * Subdomain viewer contract, or undefined to fall back to the path gateway. A subdomain
  * gives each allowed port its own root origin, so it takes precedence when enabled.
+ * The caller passes a parent session only when subdomains are enabled.
  */
 async function subdomainViewer(
 	containerId: string,
 	containerPort: string,
 	parent: string | undefined
 ): Promise<ViewerContract | undefined> {
-	if (!parent || !subdomainConfig()) return undefined;
+	if (!parent) return undefined;
 	const launch = await subdomainLaunch(containerId, containerPort, parent);
 	if (launch.status === 'ok') {
 		return { kind: 'proxy', target: launch.target, containerId, containerPort };
@@ -88,7 +89,8 @@ export const load: PageServerLoad = async ({ url, cookies }) => {
 
 	// Validated identity contract: the server, not the query string, decides the iframe target.
 	if (containerId && containerPort) {
-		const parent = cookies.get(AUTH_COOKIE_NAME);
+		// Read the dashboard session only when subdomains can use it.
+		const parent = subdomainConfig() ? cookies.get(AUTH_COOKIE_NAME) : undefined;
 		const subdomain = await subdomainViewer(containerId, containerPort, parent);
 		if (subdomain) return { ...base, viewer: subdomain };
 		if (!isServiceProxyEnabled()) {
