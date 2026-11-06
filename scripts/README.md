@@ -29,8 +29,8 @@ All inputs are explicit CLI flags; see `bash scripts/run-dashboard.sh --help` fo
 the full grammar. The launcher reads no deployment environment. An exported
 `SSH_AUTH_SOCK` is forwarded read-only at its original absolute path, and
 `SUDO_USER` selects the passwd-based operator identity under sudo. Everything
-else (`DASHBOARD_*`, `DDASH_*`, `WORKSPACE_ROOT`, `HOST_*`, `SERVICE_PROXY_*`)
-is ignored.
+else (`DASHBOARD_*`, `DDASH_*`, `WORKSPACE_ROOT`, `HOST_*`, `SERVICE_PROXY_*`,
+`SERVICE_SUBDOMAIN_*`, `SERVICE_TLS_*`) is ignored.
 
 Common flags:
 
@@ -49,6 +49,7 @@ Common flags:
 | `--no-create-workspace`                          | Skip local workspace creation for remote daemons.                                                                                |
 | `--non-interactive`                              | Disable all prompts; requires `--password` or `--password-file`.                                                                 |
 | `--gateway`, `--gateway-host`, `--gateway-ports` | Opt-in service-gateway passthroughs.                                                                                             |
+| `--service-*`                                    | Wildcard service subdomains over Tailscale; see [the setup notes](../tasks/TAILNET-SERVICE-SUBDOMAINS.md).                       |
 | `--vscode-ssh-host VALUE`                        | `VSCODE_SSH_HOST` passthrough.                                                                                                   |
 | `--image REF`                                    | Registry mode only: image reference.                                                                                             |
 | `--platform`, `--name`, `--health-timeout`       | Build mode only. Cross-mode flags fail with clear errors.                                                                        |
@@ -130,6 +131,18 @@ bash scripts/run-dashboard.sh --non-interactive \
 
 The application grants full operator capability; these mounts are not isolation.
 
+## Service subdomains
+
+`--service-domain NAME` gives each allowed container web port its own HTTPS
+origin, `https://<port>-<container>.NAME:8443`. The flag requires
+`--origin https://NAME`, `--service-cert PATH` and `--service-key PATH`. The
+launcher mounts both PEM files read-only and publishes one TLS listener on
+`127.0.0.1:4443`. Use `--service-port N` to change the browser-facing port and
+`--service-listen-port N` to change the loopback port. The launcher does not
+change Tailscale. It prints the one `tailscale serve --tcp` command to run. See
+[the setup notes](../tasks/TAILNET-SERVICE-SUBDOMAINS.md) for the wildcard
+certificate and the tailnet policy.
+
 ## Validation
 
 ```bash
@@ -146,7 +159,7 @@ bash scripts/tests/container-smoke.sh
 
 Deployment tests use mocked privileged commands and Docker calls. They cover
 identity flags and passwd fallback, sudo capture, the rejection matrix, password
-prompt and file handling, origin and gateway validation, same-path mounts,
+prompt and file handling, origin, gateway and service-subdomain validation, same-path mounts,
 mode violations, unattended startup, retained resources and password
 non-disclosure. They do not prove real privilege dropping, SSH authentication or
 Docker behavior.

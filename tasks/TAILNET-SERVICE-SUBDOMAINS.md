@@ -29,7 +29,9 @@ hostname automatically. The dashboard embeds the service in its existing viewer.
    container therefore never inherits an older session.
 
 Requests reach the application unchanged at `/`, including assets, APIs, SSE,
-uploads and WebSockets. Path-prefix incompatibility does not apply.
+uploads and WebSockets. Path-prefix incompatibility does not apply. Encoded path
+segments pass through unchanged, because a subdomain needs no prefix confinement.
+The viewer delegates clipboard and fullscreen access to subdomain frames only.
 
 ## Security model
 
@@ -153,14 +155,14 @@ bash scripts/run-dashboard.sh --build --gateway --ssh-dir --bootstrap \
 
 ## Environment contract
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `SERVICE_SUBDOMAIN_BASE` | unset (disabled) | Node name; must equal the `ORIGIN` hostname |
-| `SERVICE_SUBDOMAIN_PUBLIC_PORT` | `8443` | Browser-facing HTTPS port in generated URLs |
-| `SERVICE_SUBDOMAIN_LISTEN_PORT` | `4443` | Listener port inside the dashboard |
-| `SERVICE_SUBDOMAIN_LISTEN_ADDRESS` | `0.0.0.0` | Listener address inside the dashboard |
-| `SERVICE_TLS_CERT_FILE` | required when enabled | PEM certificate for `*.<node>` |
-| `SERVICE_TLS_KEY_FILE` | required when enabled | PEM private key |
+| Variable                           | Default               | Purpose                                     |
+| ---------------------------------- | --------------------- | ------------------------------------------- |
+| `SERVICE_SUBDOMAIN_BASE`           | unset (disabled)      | Node name; must equal the `ORIGIN` hostname |
+| `SERVICE_SUBDOMAIN_PUBLIC_PORT`    | `8443`                | Browser-facing HTTPS port in generated URLs |
+| `SERVICE_SUBDOMAIN_LISTEN_PORT`    | `4443`                | Listener port inside the dashboard          |
+| `SERVICE_SUBDOMAIN_LISTEN_ADDRESS` | `0.0.0.0`             | Listener address inside the dashboard       |
+| `SERVICE_TLS_CERT_FILE`            | required when enabled | PEM certificate for `*.<node>`              |
+| `SERVICE_TLS_KEY_FILE`             | required when enabled | PEM private key                             |
 
 An invalid configuration or unreadable certificate stops startup. The listener is
 production-server-only; Vite does not start it.
@@ -170,13 +172,13 @@ production-server-only; Vite does not start it.
 In the authoring environment, the following ran against isolated
 TypeScript-transpiled modules:
 
-- 9 new subdomain regression tests: passed.
-- 18 unchanged PR #22 gateway tests: passed.
+- `service-subdomains.test.mjs`: 10 tests passed.
+- `service-gateway.test.mjs` from PR #22, unchanged: 18 tests passed.
+- `run-dashboard.test.mjs`, including 3 service-flag cases: 63 tests passed.
 - A real TLS check with a self-signed wildcard certificate: SNI, ticket
   exchange, asset request and WebSocket upgrade passed.
-- `run-dashboard.sh` with a mock Docker: existing flags unchanged; new flags and
-  error cases as expected.
 
-Not run: full type checking, lint, Vitest, SvelteKit and server builds, Docker,
-real browsers, the Tailscale node attribute, `tailscale cert` with a wildcard,
-or real OpenCode and OpenChamber embedding.
+Not run: Prettier, the project ESLint setup, `svelte-check`, Vitest, SvelteKit and
+server builds, Docker, real browsers, the Tailscale node attribute, `tailscale cert`
+with a wildcard, or real OpenCode and OpenChamber embedding. Run `npm run format`
+and `npm run lint` before you open a pull request.
