@@ -58,6 +58,11 @@ type Runtime = {
 const shared = globalThis as typeof globalThis & { __ddashTailscaleRuntime?: Runtime };
 const SESSION_COOKIE = 'devcontainer-dashboard-session';
 
+/** Preserve a caught error's cause without requiring the ES2022 Error constructor overload. */
+function causedError(message: string, cause: unknown): Error & { cause: unknown } {
+	return Object.assign(new Error(message), { cause });
+}
+
 /** Parse strict startup settings only when the operator supplied an explicit socket. */
 export function tailscaleSettings(env: NodeJS.ProcessEnv): TailscaleSettings | null {
 	if (!env.TAILSCALE_SOCKET) return null;
@@ -254,8 +259,9 @@ export async function startTailscaleServices(options: Options): Promise<Runtime>
 			start: string;
 		};
 		if (owner.host !== hostname() || !Number.isInteger(owner.pid) || owner.pid < 1) {
-			throw new Error(
-				'Tailscale journal locked by another container; inspect it before removing the lock'
+			throw causedError(
+				'Tailscale journal locked by another container; inspect it before removing the lock',
+				error
 			);
 		}
 		let active = false;
@@ -272,7 +278,7 @@ export async function startTailscaleServices(options: Options): Promise<Runtime>
 			)
 				throw lookupError;
 		}
-		if (active) throw new Error('Tailscale state is locked by a running process');
+		if (active) throw causedError('Tailscale state is locked by a running process', error);
 		await rm(lock, { recursive: true });
 		await mkdir(lock);
 	}
@@ -611,7 +617,7 @@ export async function startTailscaleServices(options: Options): Promise<Runtime>
 	/** Retire only confirmed vanished/stopped/changed services; transient Docker failures keep intents. */
 	async function reconcile() {
 		for (const entry of [...journal.entries]) {
-			let remove = false;
+			let remove: boolean;
 			try {
 				const info = await lookup(entry.id);
 				try {
