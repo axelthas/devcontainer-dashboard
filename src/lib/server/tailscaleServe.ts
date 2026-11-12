@@ -86,20 +86,18 @@ export function createServeConfigClient(socketPath?: string) {
 	}
 
 	/** Re-run a pure merge on fresh state after HTTP 412; null means no write. */
-	async function update(merge: (config: ServeConfig) => ServeConfig | null): Promise<ServeConfig> {
+	async function update(
+		merge: (config: ServeConfig) => ServeConfig | null | Promise<ServeConfig | null>
+	): Promise<ServeConfig> {
 		for (let attempt = 0; attempt < 3; attempt++) {
 			const snapshot = await get();
-			const next = merge(structuredClone(snapshot.config));
+			const next = await merge(structuredClone(snapshot.config));
 			if (next === null) return snapshot.config;
 			try {
 				await send('POST', JSON.stringify(next), snapshot.etag);
 				return next;
 			} catch (error) {
-				if (
-					!(error instanceof Error) ||
-					!('statusCode' in error) ||
-					error.statusCode !== 412
-				) {
+				if (!(error instanceof Error) || !('statusCode' in error) || error.statusCode !== 412) {
 					throw error;
 				}
 			}

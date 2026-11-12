@@ -1,20 +1,13 @@
 import { describeServiceTarget, isServiceProxyEnabled } from '$lib/server/serviceGatewayRuntime.js';
+import { launchTailscaleService } from '$lib/server/tailscaleServiceRuntime.js';
 import { embedProfile, serviceDirectUrl, serviceProxyPath } from '$lib/serviceTargets.js';
 import type { PageServerLoad } from './$types';
 
 /** What the viewer should render for the requested service identity. */
 interface ViewerContract {
-	kind:
-		| 'proxy' // iframe the gateway path proxy
-		| 'legacy' // iframe a raw client-provided URL (non-gateway deployments)
-		| 'unsupported' // running service, but the application cannot live under a prefix
-		| 'unavailable' // identity valid shape, but the target does not check out
-		| 'proxy-disabled'; // gateway not enabled in this process
-	/** Iframe source for proxy/legacy kinds. */
+	kind: 'proxy' | 'legacy' | 'unsupported' | 'unavailable' | 'proxy-disabled';
 	target?: string;
-	/** Best-effort direct navigation URL (may be unreachable through Tailscale). */
 	directUrl?: string;
-	/** Validated identity, shared with the service switcher and active-state matching. */
 	containerId?: string;
 	containerPort?: string;
 	reason?: string;
@@ -54,18 +47,41 @@ export const load: PageServerLoad = async ({ url }) => {
 	const container = params.get('container') ?? '';
 	const workspacePath = params.get('path') ?? '';
 	const allPorts = parsePortsParam(params.get('ports'));
+	const base = { label, project, container, workspacePath, allPorts, containerId, containerPort };
 
-	const base = {
-		label,
-		project,
-		container,
-		workspacePath,
-		allPorts,
-		containerId,
-		containerPort
-	};
+	// In Tailscale mode the custom server alone allocates and validates HTTPS origins.
+	// Never fall back to a raw URL or the same-origin path gateway on an allocation failure.
+	if (process.env.TAILSCALE_SOCKET) {
+		try {
+			if (!containerId || !containerPort) throw new Error('Missing service identity');
+			const origin = await launchTailscaleService(containerId, containerPort);
+			return {
+				...base,
+				viewer: {
+					kind: 'proxy',
+					target: `${origin}/`,
+					directUrl: `${origin}/`,
+					containerId,
+					containerPort
+				} satisfies ViewerContract
+			};
+		} catch (error) {
+			console.error(
+				'[tailscale] Service launch failed:',
+				error instanceof Error ? error.message : 'unknown'
+			);
+			return {
+				...base,
+				viewer: {
+					kind: 'unavailable',
+					reason: 'tailscale-allocation-failed',
+					containerId: containerId ?? undefined,
+					containerPort: containerPort ?? undefined
+				} satisfies ViewerContract
+			};
+		}
+	}
 
-	// Validated identity contract: the server, not the query string, decides the iframe target.
 	if (containerId && containerPort) {
 		if (!isServiceProxyEnabled()) {
 			return {
@@ -88,7 +104,6 @@ export const load: PageServerLoad = async ({ url }) => {
 					} satisfies ViewerContract
 				};
 			}
-			// Verified root-absolute applications (e.g. OpenCode) cannot embed under a prefix.
 			return {
 				...base,
 				viewer: {
@@ -99,7 +114,6 @@ export const load: PageServerLoad = async ({ url }) => {
 				} satisfies ViewerContract
 			};
 		}
-		const fallbackHostPort = allPorts?.[containerPort];
 		return {
 			...base,
 			viewer: {
@@ -107,19 +121,16 @@ export const load: PageServerLoad = async ({ url }) => {
 				containerId,
 				containerPort,
 				reason: target.status,
-				directUrl: directUrlFor(url.hostname, fallbackHostPort)
+				directUrl: directUrlFor(url.hostname, allPorts?.[containerPort])
 			} satisfies ViewerContract
 		};
 	}
-
-	// Legacy raw-URL authority, kept for non-gateway deployments and stale links.
 	if (legacyUrl && /^https?:\/\//.test(legacyUrl)) {
 		return {
 			...base,
 			viewer: { kind: 'legacy', target: legacyUrl, directUrl: legacyUrl } satisfies ViewerContract
 		};
 	}
-
 	return {
 		...base,
 		viewer: { kind: 'unavailable', reason: 'missing-identity' } satisfies ViewerContract
