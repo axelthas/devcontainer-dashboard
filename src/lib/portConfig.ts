@@ -10,11 +10,17 @@ export interface PortConfig {
 }
 
 export const PORT_MAP: Record<string, PortConfig> = {
+	'3000': {
+		label: 'OpenChamber',
+		icon: Globe,
+		colorClass:
+			'text-[#8fbcbb] bg-[#8fbcbb]/20 border-[#8fbcbb]/30 hover:bg-[#8fbcbb]/30 dark:text-[#8fbcbb] dark:bg-[#8fbcbb]/20 dark:border-[#8fbcbb]/30 dark:hover:bg-[#8fbcbb]/30'
+	},
 	'6904': {
 		label: 'NoVNC',
 		icon: Monitor,
 		colorClass:
-			'text-[#5e81ac] bg-[#81a1c1]/20 border-[#81a1c1]/30 hover:bg-[#81a1c1]/30 dark:text-[#88c0d0] dark:bg-[#81a1c1]/20 dark:border-[#81a1c1]/30 dark:hover:bg-[#81a1c1]/40'
+			'text-[#5e81ac] bg-[#81a1c1]/20 border-[#81a1c1]/30 hover:bg-[#81a1c1]/30 dark:text-[#88c0d0] dark:bg-[#81a1c1]/20 dark:border-[#88c0d0]/30 dark:hover:bg-[#81a1c1]/40'
 	},
 	'4096': {
 		label: 'OpenCode',

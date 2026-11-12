@@ -17,13 +17,27 @@ function unauthorizedApiResponse(): Response {
 export const handle: Handle = async ({ event, resolve }) => {
 	assertAuthConfigured();
 
-	if (isPublicPath(event.url.pathname)) return resolve(event);
+	// Service ports are same-site but cross-origin. Cookies do not provide CSRF protection.
+	// In this opt-in mode reject sibling-origin writes and non-navigation reads before auth.
+	if (process.env.TAILSCALE_SOCKET) {
+		const origin = event.request.headers.get('origin');
+		const site = event.request.headers.get('sec-fetch-site');
+		const navigation = event.request.headers.get('sec-fetch-mode') === 'navigate';
+		const write = !['GET', 'HEAD', 'OPTIONS'].includes(event.request.method);
+		if (
+			event.request.headers.has('service-worker') ||
+			(origin && origin !== process.env.ORIGIN) ||
+			(write && origin !== process.env.ORIGIN) ||
+			(!origin && site && !['same-origin', 'none'].includes(site) && !navigation)
+		) {
+			return new Response('Dashboard origin required', { status: 403 });
+		}
+	}
 
+	if (isPublicPath(event.url.pathname)) return resolve(event);
 	const sessionToken = event.cookies.get(AUTH_COOKIE_NAME);
 	if (isSessionValid(sessionToken)) return resolve(event);
-
 	if (event.url.pathname.startsWith('/api/')) return unauthorizedApiResponse();
-
 	const next = `${event.url.pathname}${event.url.search}`;
 	const location = `/login?${new URLSearchParams({ next })}`;
 	return new Response(null, { status: 303, headers: { Location: location } });

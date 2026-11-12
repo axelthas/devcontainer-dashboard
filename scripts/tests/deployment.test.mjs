@@ -197,3 +197,85 @@ test('Dockerfile keeps the dashboard tools prefix and healthcheck contract', () 
 	assert.match(read('Dockerfile'), /HEALTHCHECK[\s\S]*\/healthz/);
 	assert.match(read('Dockerfile'), /plugins\/10-dev-bootstrap\.sh/);
 });
+
+// Run the actual Dockerfile instruction with fake downloads and a harmless installer.
+// The stub sources the sibling helper exactly as upstream does; it installs nothing.
+function featureInstallerFixture(t, failure = '') {
+	const directory = mkdtempSync(join(root, '.feature-installer-'));
+	t.after(() => rmSync(directory, { recursive: true, force: true }));
+	const bin = join(directory, 'bin');
+	mkdirSync(bin);
+	const log = join(directory, 'downloads');
+	const marker = join(directory, 'installed');
+	writeFileSync(
+		join(bin, 'curl'),
+		`#!/bin/sh
+set -eu
+test "$1" = -fsSL
+url=$2
+test "$3" = -o
+target=$4
+printf '%s\\n' "$url" >> "$DOWNLOAD_LOG"
+case "$url" in
+  */scripts/version-resolution.sh)
+    test "$FAIL_DOWNLOAD" != helper || exit 22
+    printf '%s\\n' 'FEATURE_HELPER_LOADED=yes' > "$target" ;;
+  */install.sh)
+    test "$FAIL_DOWNLOAD" != installer || exit 22
+    cat > "$target" <<'INSTALLER'
+#!/bin/bash
+set -eu
+. "$(dirname "\${BASH_SOURCE[0]}")/scripts/version-resolution.sh"
+test "$FEATURE_HELPER_LOADED" = yes
+printf '%s\\n' "$0" > "$INSTALL_MARKER"
+INSTALLER
+    ;;
+  *) exit 99 ;;
+esac
+`,
+		{ mode: 0o755 }
+	);
+	const dockerfile = read('Dockerfile');
+	const instruction = dockerfile.match(/RUN set -eu; \\\n[\s\S]*?rm -rf "\$feature_dir"/)?.[0];
+	assert.ok(instruction, 'Missing pinned feature installation instruction');
+	const command = instruction.slice(4).replaceAll(/\\\n/g, '');
+	const result = spawnSync('sh', ['-c', command], {
+		encoding: 'utf8',
+		env: {
+			...process.env,
+			PATH: `${bin}:${process.env.PATH}`,
+			TMPDIR: directory,
+			DOWNLOAD_LOG: log,
+			INSTALL_MARKER: marker,
+			FAIL_DOWNLOAD: failure
+		}
+	});
+	return { directory, log, marker, result };
+}
+
+test('Dockerfile installs the feature and sibling helper from one immutable revision', (t) => {
+	const f = featureInstallerFixture(t);
+	assert.equal(f.result.status, 0, f.result.stderr);
+	const urls = readFileSync(f.log, 'utf8').trim().split('\n');
+	assert.equal(urls.length, 2);
+	const revisions = urls.map((url) => {
+		const match = /devcontainers\/features\/([a-f0-9]{40})\/src\/docker-outside-of-docker\//.exec(
+			url
+		);
+		assert.ok(match, 'Feature downloads must use an immutable commit');
+		return match[1];
+	});
+	assert.equal(revisions[0], revisions[1]);
+	assert.match(urls[1], /\/scripts\/version-resolution\.sh$/);
+	const installer = readFileSync(f.marker, 'utf8').trim();
+	assert.match(installer, /\/install\.sh$/);
+	assert.throws(() => readFileSync(installer), { code: 'ENOENT' });
+});
+
+for (const download of ['installer', 'helper']) {
+	test(`Dockerfile stops before installation when the ${download} download fails`, (t) => {
+		const f = featureInstallerFixture(t, download);
+		assert.notEqual(f.result.status, 0);
+		assert.throws(() => readFileSync(f.marker), { code: 'ENOENT' });
+	});
+}

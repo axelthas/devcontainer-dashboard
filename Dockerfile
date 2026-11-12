@@ -16,7 +16,18 @@ RUN if id ubuntu >/dev/null 2>&1; then userdel -r ubuntu; fi \
        python3-pip-whl locales util-linux passwd sudo \
     && locale-gen en_US.UTF-8 && rm -rf /var/lib/apt/lists/*
 ENV LANG=en_US.UTF-8 LANGUAGE=en_US:en LC_ALL=en_US.UTF-8
-RUN curl -sL https://raw.githubusercontent.com/devcontainers/features/refs/heads/main/src/docker-outside-of-docker/install.sh | bash
+# The feature installer sources a sibling helper. Keep both files at one reviewed
+# revision and execute a file, not stdin, so BASH_SOURCE resolves that helper.
+RUN set -eu; \
+    feature_revision=b6877129e0a264b8e83a63e8b93de29077132e5b; \
+    feature_dir="$(mktemp -d)"; \
+    mkdir -p "$feature_dir/scripts"; \
+    curl -fsSL "https://raw.githubusercontent.com/devcontainers/features/${feature_revision}/src/docker-outside-of-docker/install.sh" \
+      -o "$feature_dir/install.sh"; \
+    curl -fsSL "https://raw.githubusercontent.com/devcontainers/features/${feature_revision}/src/docker-outside-of-docker/scripts/version-resolution.sh" \
+      -o "$feature_dir/scripts/version-resolution.sh"; \
+    bash "$feature_dir/install.sh"; \
+    rm -rf "$feature_dir"
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
