@@ -54,21 +54,31 @@ fi
 DOCKER_GROUP=$(getent group "$DOCKER_GID" | cut -d: -f1)
 usermod -aG "$DOCKER_GROUP" "$HOST_USER" || fail "Cannot add operator to Docker socket group"
 
+# An explicit socket grants broad tailscaled control. Never change host permissions.
+if [ -n "${TAILSCALE_SOCKET:-}" ]; then
+    [ "$TAILSCALE_SOCKET" = /var/run/tailscale/tailscaled.sock ] || fail "Unexpected TAILSCALE_SOCKET mount target"
+    [ -S "$TAILSCALE_SOCKET" ] || fail "Tailscale socket is missing or is not a Unix socket"
+    TAILSCALE_GID=$(stat -Lc '%g' "$TAILSCALE_SOCKET") || fail "Cannot read Tailscale socket group"
+    case "$TAILSCALE_GID" in ''|*[!0-9]*) fail "Invalid Tailscale socket group" ;; esac
+    if ! getent group "$TAILSCALE_GID" >/dev/null 2>&1; then
+        groupadd --gid "$TAILSCALE_GID" "tailscale-host-$TAILSCALE_GID" || fail "Cannot create Tailscale socket group"
+    fi
+    TAILSCALE_GROUP=$(getent group "$TAILSCALE_GID" | cut -d: -f1)
+    usermod -aG "$TAILSCALE_GROUP" "$HOST_USER" || fail "Cannot add operator to Tailscale socket group"
+fi
+
 # Validate the home before touching storage. It must remain container-private.
 HOME_PARENT="$HOST_HOME"
 while [ ! -e "$HOME_PARENT" ]; do HOME_PARENT=$(dirname "$HOME_PARENT"); done
 [ "$(realpath "$HOME_PARENT")" = "$HOME_PARENT" ] || fail "HOST_HOME must not have symlink parents"
 [ "$(findmnt -n -o TARGET -T "$HOME_PARENT")" = / ] || fail "Do not mount the host home or a parent; mount selected resources only"
-if [ ! -e "$HOST_HOME" ]; then
-    mkdir -p "$HOST_HOME"
-fi
+if [ ! -e "$HOST_HOME" ]; then mkdir -p "$HOST_HOME"; fi
 [ ! -L "$HOST_HOME" ] || fail "HOST_HOME must not be a symlink"
 [ "$(realpath "$HOST_HOME")" = "$HOST_HOME" ] || fail "HOST_HOME must be canonical without symlink parents"
 [ "$(findmnt -n -o TARGET -T "$HOST_HOME")" = / ] || fail "Do not mount the host home or a parent; mount selected resources only"
 # Reserved for dashboard-owned named volumes, never HOME or host workspaces.
 mkdir -p /data /dashboard-history
 chown -hR -P "$HOST_UID:$HOST_GID" /data /dashboard-history
-# Docker may create this container-private directory as root for a nested SSH mount.
 chown "$HOST_UID:$HOST_GID" "$HOST_HOME"
 printf '%s ALL=(root) NOPASSWD:ALL\n' "$HOST_USER" > /etc/sudoers.d/dashboard-operator
 chmod 0440 /etc/sudoers.d/dashboard-operator
@@ -83,6 +93,12 @@ exec runuser -u "$HOST_USER" -- /bin/sh -c '
         echo "[entrypoint] ERROR: Docker socket is not readable and writable by $USER" >&2
         exit 1
     }
+    if [ -n "${TAILSCALE_SOCKET:-}" ]; then
+        test -r "$TAILSCALE_SOCKET" && test -w "$TAILSCALE_SOCKET" || {
+            echo "[entrypoint] ERROR: Tailscale socket is not accessible by $USER; review host operator permissions" >&2
+            exit 1
+        }
+    fi
     test -w "$HOME" || { echo "[entrypoint] ERROR: HOME is not writable" >&2; exit 1; }
     for name in .zshrc .bashrc; do
         if [ ! -e "$HOME/$name" ] && [ ! -L "$HOME/$name" ]; then
