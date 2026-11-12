@@ -8,11 +8,13 @@
 	interface Props {
 		container: ContainerData;
 		vscodeSshHost?: string;
+		serviceProxyEnabled?: boolean;
 		onRefresh: () => Promise<void>;
 		onOpenTerminal?: (id: string, command: string, name: string, cwd: string) => void;
 	}
 
-	let { container, vscodeSshHost, onRefresh, onOpenTerminal }: Props = $props();
+	let { container, vscodeSshHost, serviceProxyEnabled, onRefresh, onOpenTerminal }: Props =
+		$props();
 
 	const isRunning = $derived(container.state === 'running');
 
@@ -101,6 +103,8 @@
 					projectName={container.projectName}
 					workspacePath={container.localWorkspacePath}
 					allPorts={container.ports}
+					containerId={container.id}
+					{serviceProxyEnabled}
 				/>
 			{/each}
 		</div>

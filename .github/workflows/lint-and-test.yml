@@ -7,13 +7,16 @@ on:
 jobs:
   test:
     name: Lint and Unit Tests
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest resolves to Ubuntu 26.04, which Playwright 1.x
+    # does not support yet (playwright install fails to resolve browser
+    # downloads for ubuntu26.04-x64). Unpin once Playwright adds support.
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '22'
           cache: 'npm'
@@ -29,3 +32,9 @@ jobs:
 
       - name: Unit tests
         run: npm run test:unit -- --run
+
+      - name: Build production outputs
+        run: npm run build && npm run build:server
+
+      - name: Service gateway tests
+        run: npm run test:gateway

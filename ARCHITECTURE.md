@@ -11,7 +11,7 @@ This document is a living architecture reference for Devcontainer Dashboard. It 
 ├── README.md
 ├── ARCHITECTURE.md
 ├── Dockerfile
-├── docker-compose.yml
+├── plugins/
 ├── package.json
 ├── playwright.config.ts
 ├── svelte.config.js

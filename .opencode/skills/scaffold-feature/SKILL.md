@@ -28,4 +28,4 @@ Create the full vertical slice for a new dashboard feature following project con
 - [ ] Dark/light mode supported via `dark:` variants
 - [ ] `onRefresh` callback pattern for mutation actions
 - [ ] At least one assertion per test (`requireAssertions` is enabled)
-- [ ] Run `svelte-autofixer` on any `.svelte` files
+- [ ] Run the Svelte MCP autofixer on any `.svelte` files

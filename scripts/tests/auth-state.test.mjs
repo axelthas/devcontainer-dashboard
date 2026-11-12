@@ -1,3 +1,13 @@
+// Guard the shared authentication-state type against an inferred-union regression.
+//
+// Usage: node --test scripts/tests/auth-state.test.mjs with project TypeScript installed.
+// Extract the real auth.ts state declarations into a temporary strict TypeScript
+// program. Check assigning and clearing the optional verifier, then remove the type
+// annotation to prove that the original TS2339 regression is detected.
+// No server is started and no real authentication or cryptography is exercised.
+// The Buffer alias models only the state shape. Temporary source files are removed
+// by node:test cleanup. This is not a full application type-check or security test.
+
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -16,6 +26,8 @@ test('shared auth state supports the optional verifier under strict TypeScript c
 	const dir = mkdtempSync(join(tmpdir(), 'ddash-auth-types-'));
 	t.after(() => rmSync(dir, { recursive: true, force: true }));
 	const path = join(dir, 'state.ts');
+	// Write a temporary state declaration, compile it with strict no-emit settings, and return diagnostics.
+	// Call with both the typed declaration and its regression variant to prove the test is meaningful.
 	function diagnostics(declaration) {
 		writeFileSync(
 			path,
