@@ -233,6 +233,9 @@ function clean(headers: http.IncomingHttpHeaders): http.OutgoingHttpHeaders {
 /** Start the authenticated origin listener and own at most one serialized journal/config update. */
 export async function startTailscaleServices(options: Options): Promise<Runtime> {
 	const { settings, client } = options;
+	// OpenChamber's standard port is enabled only for dedicated origins, not the
+	// old same-origin path proxy. An explicit operator 'off' still wins.
+	const ports: Record<string, 'http' | 'https' | 'off'> = { '3000': 'http', ...options.ports };
 	const lock = `${settings.stateFile}.lock`;
 	await mkdir(dirname(settings.stateFile), { recursive: true });
 	/** Linux process start ticks distinguish a reused PID after a container restart. */
@@ -346,7 +349,7 @@ export async function startTailscaleServices(options: Options): Promise<Runtime>
 			!/^[a-f0-9]{12,64}$/.test(id) ||
 			!/^[1-9]\d{0,4}$/.test(port) ||
 			Number(port) > 65535 ||
-			!['http', 'https'].includes(options.ports[port])
+			!['http', 'https'].includes(ports[port])
 		) {
 			throw new Error('Invalid or disabled web service identity');
 		}
@@ -423,6 +426,16 @@ export async function startTailscaleServices(options: Options): Promise<Runtime>
 	function requestHeaders(request: IncomingMessage, entry: Entry, origin: string) {
 		const headers = clean(request.headers);
 		delete headers.authorization;
+		// Dashboard authentication uses only its session cookie. A service's
+		// explicit same-origin Basic credentials (OpenCode) belong upstream.
+		// Do not forward ambient credentials from a navigation or another origin.
+		if (
+			/^Basic [A-Za-z0-9+/]+={0,2}$/i.test(request.headers.authorization ?? '') &&
+			(request.headers.origin === origin ||
+				(!request.headers.origin && request.headers['sec-fetch-site'] === 'same-origin'))
+		) {
+			headers.authorization = request.headers.authorization;
+		}
 		delete headers.referer;
 		delete headers.cookie;
 		const prefix = `ddash-s${entry.servePort}-`;
@@ -471,7 +484,7 @@ export async function startTailscaleServices(options: Options): Promise<Runtime>
 		if (incoming.headers.location) {
 			const redirect = new URL(incoming.headers.location, origin);
 			if (
-				![origin, `${options.ports[entry.port]}://127.0.0.1:${entry.hostPort}`].includes(
+				![origin, `${ports[entry.port]}://127.0.0.1:${entry.hostPort}`].includes(
 					redirect.origin
 				)
 			) {
@@ -484,7 +497,7 @@ export async function startTailscaleServices(options: Options): Promise<Runtime>
 
 	/** Open the validated host-loopback upstream with the service's configured protocol. */
 	function upstream(request: IncomingMessage, entry: Entry, origin: string) {
-		return (options.ports[entry.port] === 'https' ? https : http).request({
+		return (ports[entry.port] === 'https' ? https : http).request({
 			hostname: '127.0.0.1',
 			port: entry.hostPort,
 			method: request.method,
