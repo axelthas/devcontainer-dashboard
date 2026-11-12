@@ -89,15 +89,21 @@ export function getActiveRuns(): ActiveBootstrapRun[] {
 }
 
 /** Stops a running bootstrap run, or dismisses a failed run and deletes its log. */
-export function removeBootstrapRun(id: string): void {
+export function removeBootstrapRun(id: string): Promise<void> {
 	const run = activeRuns.get(id);
-	if (!run) return;
+	if (!run) return Promise.resolve();
 	// Untrack the run first, so that its exit callback keeps no log.
 	activeRuns.delete(id);
-	deletePersistentSession(id);
-	if (run.hasLog) {
-		deleteRunLog(id).catch((err) => console.error('Could not delete the run log', err));
-	}
+	const operation = deletePersistentSession(id)
+		.then(async () => {
+			if (run.hasLog) await deleteRunLog(id);
+		})
+		.catch((error) => {
+			activeRuns.set(id, run);
+			throw error;
+		});
+	void operation.catch((error) => console.error('Could not stop bootstrap run', error));
+	return operation;
 }
 
 function cleanupOldRuns(now = Date.now()): void {

@@ -20,7 +20,7 @@ export interface ActiveDevcontainerBuild {
 	status: 'running' | 'success' | 'failed';
 	startedAt: string;
 	exitCode?: number;
-	/** True when the output of a failed build is kept as a log */
+	/** True when the output of a failed run is kept as a log */
 	hasLog?: boolean;
 }
 
@@ -100,15 +100,21 @@ export function getActiveBuilds(): ActiveDevcontainerBuild[] {
 }
 
 /** Cancels a running build, or dismisses a finished build and deletes its log. */
-export function removeDevcontainerBuild(id: string): void {
+export function removeDevcontainerBuild(id: string): Promise<void> {
 	const build = activeBuilds.get(id);
-	if (!build) return;
+	if (!build) return Promise.resolve();
 	// Untrack the build first, so that its exit callback treats it as cancelled.
 	activeBuilds.delete(id);
-	deletePersistentSession(id);
-	if (build.hasLog) {
-		deleteRunLog(id).catch((err) => console.error('Could not delete the run log', err));
-	}
+	const operation = deletePersistentSession(id)
+		.then(async () => {
+			if (build.hasLog) await deleteRunLog(id);
+		})
+		.catch((error) => {
+			activeBuilds.set(id, build);
+			throw error;
+		});
+	void operation.catch((error) => console.error('Could not stop devcontainer build', error));
+	return operation;
 }
 
 function cleanupOldBuilds(now = Date.now()): void {
