@@ -117,7 +117,10 @@ async function fixture(t, overrides = {}) {
 		else if (req.url === '/stream') {
 			res.writeHead(200, { 'Content-Type': 'text/event-stream' });
 			res.write('data: connected\n\n');
-		} else res.end(req.url);
+		} else {
+			res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+			res.end(req.url);
+		}
 	});
 	upstream.server.on('upgrade', (req, socket, head) => {
 		received.push({ url: req.url, headers: req.headers });
@@ -294,6 +297,16 @@ test('HTTP roots, absolute assets, POST, redirects and credential filtering work
 	assert.equal((await fetchLocal(f.port, '/escape')).status, 502);
 	assert.equal((await fetchLocal(f.port, '/', { origin }, 'POST', 'body')).status, 200);
 	assert.equal((await fetchLocal(f.port, '/', { origin: dashboardOrigin }, 'POST')).status, 403);
+});
+
+test('the echo fixture declares untrusted request paths as plain text, not HTML', async (t) => {
+	const f = await fixture(t);
+	await f.runtime.ensure(id, '4096');
+	const path = '/<svg/onload=alert(1)>';
+	const result = await fetchLocal(f.port, path);
+	assert.equal(result.status, 200);
+	assert.equal(result.headers['content-type'], 'text/plain; charset=utf-8');
+	assert.equal(result.text, path);
 });
 
 test('unauthenticated, unknown-host and non-loopback targets never reach an upstream', async (t) => {

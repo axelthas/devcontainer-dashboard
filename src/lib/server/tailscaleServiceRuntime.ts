@@ -484,9 +484,7 @@ export async function startTailscaleServices(options: Options): Promise<Runtime>
 		if (incoming.headers.location) {
 			const redirect = new URL(incoming.headers.location, origin);
 			if (
-				![origin, `${ports[entry.port]}://127.0.0.1:${entry.hostPort}`].includes(
-					redirect.origin
-				)
+				![origin, `${ports[entry.port]}://127.0.0.1:${entry.hostPort}`].includes(redirect.origin)
 			) {
 				throw new Error('Cross-origin service redirect refused');
 			}
