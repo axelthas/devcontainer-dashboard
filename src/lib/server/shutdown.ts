@@ -12,8 +12,15 @@ export function installShutdown(server: Server, retire?: () => Promise<void>): v
 		server.close();
 		const deadline = setTimeout(() => process.exit(1), 15_000);
 		deadline.unref();
-		try { await shutdownTerminals(); await flushRunLogs(); await retire?.(); process.exit(0); }
-		catch (error) { console.error('Shutdown cleanup incomplete', error); process.exit(1); }
+		try {
+			await shutdownTerminals();
+			await flushRunLogs();
+			await retire?.();
+			process.exit(0);
+		} catch (error) {
+			console.error('Shutdown cleanup incomplete', error);
+			process.exit(1);
+		}
 	}
 	process.once('SIGTERM', () => void stop());
 	process.once('SIGINT', () => void stop());

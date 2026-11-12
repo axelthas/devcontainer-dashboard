@@ -4,7 +4,13 @@ export function terminalLimits(env: NodeJS.ProcessEnv = process.env) {
 		const raw = env[name];
 		if (raw === undefined || raw === '') return fallback;
 		const value = Number(raw);
-		if (!/^\d+$/.test(raw) || !Number.isSafeInteger(value) || value < (allowZero ? 0 : 1) || value > max) throw new Error(`Invalid ${name}`);
+		if (
+			!/^\d+$/.test(raw) ||
+			!Number.isSafeInteger(value) ||
+			value < (allowZero ? 0 : 1) ||
+			value > max
+		)
+			throw new Error(`Invalid ${name}`);
 		return value;
 	}
 	return {
@@ -24,7 +30,10 @@ export function appendOutput(buffer: string[], data: string, limit: number): num
 	while (length > limit) {
 		const excess = length - limit;
 		if (buffer[0].length <= excess) length -= buffer.shift()!.length;
-		else { buffer[0] = buffer[0].slice(excess); length = limit; }
+		else {
+			buffer[0] = buffer[0].slice(excess);
+			length = limit;
+		}
 	}
 	return length;
 }
