@@ -5,10 +5,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import {
-	allocateServePort,
-	createServeConfigClient
-} from '../../src/lib/server/tailscaleServe.ts';
+import { allocateServePort, createServeConfigClient } from '../../src/lib/server/tailscaleServe.ts';
 
 /** Supply a disposable Unix LocalAPI fixture and always release its socket. */
 async function fixture(t, handler) {
@@ -48,7 +45,13 @@ test('allocation reserves all known scopes and preserves the input', () => {
 });
 
 test('allocation validates ranges and fails closed on malformed maps', () => {
-	for (const [first, last] of [[0, 10], [10, 9], [1, 65536], [1.5, 2], [NaN, 5]]) {
+	for (const [first, last] of [
+		[0, 10],
+		[10, 9],
+		[1, 65536],
+		[1.5, 2],
+		[NaN, 5]
+	]) {
 		assert.throws(() => allocateServePort({}, first, last), /range/);
 	}
 	for (const config of [{ TCP: [] }, { TCP: { oops: {} } }, { Foreground: { bad: null } }]) {
@@ -87,15 +90,17 @@ test('412 retries the merge against fresh operator changes and ETag', async (t) 
 	const client = await fixture(t, (req, res) => {
 		if (req.method === 'GET') {
 			reads++;
-			res.writeHead(200, { ETag: `"v${reads}"` }).end(
-				JSON.stringify({ TCP: { [reads === 1 ? 443 : 8443]: { HTTPS: true } }, Future: 7 })
-			);
+			res
+				.writeHead(200, { ETag: `"v${reads}"` })
+				.end(JSON.stringify({ TCP: { [reads === 1 ? 443 : 8443]: { HTTPS: true } }, Future: 7 }));
 			return;
 		}
 		writes++;
 		assert.equal(req.headers['if-match'], `"v${writes}"`);
 		let body = '';
-		req.on('data', (chunk) => { body += chunk; });
+		req.on('data', (chunk) => {
+			body += chunk;
+		});
 		req.on('end', () => {
 			const config = JSON.parse(body);
 			assert.equal(config.Future, 7);
@@ -132,7 +137,10 @@ test('repeated conflicts stop after three attempts', async (t) => {
 			res.writeHead(412).end('{}');
 		}
 	});
-	await assert.rejects(client.update((config) => config), /three update attempts/);
+	await assert.rejects(
+		client.update((config) => config),
+		/three update attempts/
+	);
 	assert.equal(reads, 3);
 	assert.equal(writes, 3);
 });
@@ -141,9 +149,15 @@ test('non-conflict write failures are not retried', async (t) => {
 	let writes = 0;
 	const client = await fixture(t, (req, res) => {
 		if (req.method === 'GET') res.writeHead(200, { ETag: '"v1"' }).end('{}');
-		else { writes++; res.writeHead(500).end('{}'); }
+		else {
+			writes++;
+			res.writeHead(500).end('{}');
+		}
 	});
-	await assert.rejects(client.update((config) => config), /HTTP 500/);
+	await assert.rejects(
+		client.update((config) => config),
+		/HTTP 500/
+	);
 	assert.equal(writes, 1);
 });
 
