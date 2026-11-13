@@ -1,44 +1,42 @@
+/** Persistent local PTYs. Browser disconnect and explicit process cancellation are distinct. */
 import * as pty from 'node-pty';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { IncomingMessage, Server } from 'node:http';
 import type { Duplex } from 'node:stream';
 import type { IPty } from 'node-pty';
 import { isCookieHeaderAuthenticated } from './auth.js';
+import { stopTerminalProcess } from './terminalStop.js';
+import { appendOutput, terminalLimits } from './terminalPolicy.js';
+import { sameOrigin } from './requestPolicy.js';
 
-const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT ?? '/workspaces';
-
-// Cap buffered scrollback per session so long-lived interactive shells don't leak memory.
-const MAX_OUTPUT_BUFFER_CHARS = 500_000;
-
-// Exited sessions stay as tombstones for this long, so a late viewer receives the exit event
-// instead of starting a new shell with the same id.
-const EXITED_SESSION_RETENTION_MS = 5 * 60_000;
-
-// SIGHUP (terminal closed or process stopped), SIGINT (Ctrl+C), and SIGTERM mean a cancellation.
 const CANCEL_SIGNALS = new Set([1, 2, 15]);
-
-/** True when a process ended because the user cancelled it, not because of its own result. */
-export function isCancelledExit(exitCode: number, signal?: number): boolean {
-	if (signal !== undefined && CANCEL_SIGNALS.has(signal)) return true;
-	// Shells report a process that a signal stopped as exit code 128 + signal number.
-	return CANCEL_SIGNALS.has(exitCode - 128);
-}
-
+const limits = terminalLimits();
 export type PersistentSessionKind = 'shell' | 'bootstrap' | 'devcontainer-build';
-
+export interface PersistentSessionExit {
+	exitCode: number;
+	signal?: number;
+	output: string;
+}
+interface PersistentSessionOptions {
+	name?: string;
+	kind?: PersistentSessionKind;
+	maxOutputChars?: number;
+	onExit?: (exit: PersistentSessionExit) => void;
+}
 interface PersistentSession {
 	pty: IPty;
 	name: string;
 	kind: PersistentSessionKind;
 	startedAt: string;
+	lastActivity: number;
 	maxOutputChars: number;
 	outputBuffer: string[];
 	outputBufferLength: number;
 	viewers: Set<WebSocket>;
 	status: 'running' | 'exited';
 	exitCode?: number;
+	stopping?: Promise<void>;
 }
-
 export interface PersistentSessionInfo {
 	id: string;
 	name: string;
@@ -47,57 +45,76 @@ export interface PersistentSessionInfo {
 	status: 'running' | 'exited';
 	exitCode?: number;
 }
-
-export interface PersistentSessionExit {
-	exitCode: number;
-	signal?: number;
-	/** Buffered output, limited to the session's maxOutputChars */
-	output: string;
-}
-
-interface PersistentSessionOptions {
-	name?: string;
-	kind?: PersistentSessionKind;
-	/** Output kept for replay and for onExit; defaults to MAX_OUTPUT_BUFFER_CHARS */
-	maxOutputChars?: number;
-	/** Called once when the process exits */
-	onExit?: (exit: PersistentSessionExit) => void;
-}
-
-// Use globalThis so that the vite.config.ts plugin import and the Vite SSR API-route
-// import share the same Map in dev mode (they are separate module instances).
-const g = globalThis as typeof globalThis & {
+const globalSessions = globalThis as typeof globalThis & {
 	__terminalSessions?: Map<string, PersistentSession>;
 };
-if (!g.__terminalSessions) g.__terminalSessions = new Map();
-const persistentSessions = g.__terminalSessions;
+const persistentSessions = (globalSessions.__terminalSessions ??= new Map());
+let shuttingDown = false;
 
-function buildFilteredEnv(): Record<string, string> {
-	const filteredEnv: Record<string, string> = {};
-	for (const [key, value] of Object.entries(process.env)) {
-		if (value === undefined) continue;
-		if (key.startsWith('VSCODE_')) continue;
-		if (key === 'DASHBOARD_PASSWORD') continue;
-		if (key === 'TERM_PROGRAM' || key === 'TERM_PROGRAM_VERSION') continue;
-		if (key === 'GIT_ASKPASS' || key === 'BROWSER') continue;
-		filteredEnv[key] = value;
-	}
-	filteredEnv['TERM'] = 'xterm-256color';
-	return filteredEnv;
+/** Bounded URL-safe identity, shared by HTTP and WebSocket validation. */
+export function validSessionId(value: unknown): value is string {
+	return typeof value === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(value);
 }
-
+/** Reject malformed kinds rather than silently creating a shell. */
+export function validSessionKind(value: unknown): value is PersistentSessionKind {
+	return value === 'shell' || value === 'bootstrap' || value === 'devcontainer-build';
+}
+/** Classify deliberate process cancellation separately from command failure. */
+export function isCancelledExit(exitCode: number, signal?: number): boolean {
+	return (signal !== undefined && CANCEL_SIGNALS.has(signal)) || CANCEL_SIGNALS.has(exitCode - 128);
+}
+/** Remove dashboard credentials and editor launch hooks from child environments. */
+function buildFilteredEnv(): Record<string, string> {
+	const result: Record<string, string> = {};
+	for (const [key, value] of Object.entries(process.env)) {
+		if (
+			value === undefined ||
+			key.startsWith('VSCODE_') ||
+			[
+				'DASHBOARD_PASSWORD',
+				'TERM_PROGRAM',
+				'TERM_PROGRAM_VERSION',
+				'GIT_ASKPASS',
+				'BROWSER'
+			].includes(key)
+		)
+			continue;
+		result[key] = value;
+	}
+	return { ...result, TERM: 'xterm-256color' };
+}
+/** Bound total replay memory without terminating work. Oldest session output is evicted first. */
+function enforceGlobalOutput(): void {
+	let excess =
+		[...persistentSessions.values()].reduce((sum, session) => sum + session.outputBufferLength, 0) -
+		limits.totalOutput;
+	for (const session of persistentSessions.values()) {
+		if (excess <= 0) break;
+		const remove = Math.min(excess, session.outputBufferLength);
+		session.outputBufferLength = appendOutput(
+			session.outputBuffer,
+			'',
+			session.outputBufferLength - remove
+		);
+		excess -= remove;
+	}
+}
+/** Create once for an explicit start. Reusing an existing ID never reruns its command. */
 export function createPersistentSession(
-	sessionId: string,
+	id: string,
 	command: string | undefined,
 	cwd: string,
 	options?: PersistentSessionOptions
 ): void {
-	if (persistentSessions.has(sessionId)) return;
-
-	// With no command, spawn an interactive login shell; otherwise run the command directly via
-	// bash -c so it starts immediately without shell init delays.
-	const shell = process.env.SHELL ?? '/bin/bash';
-	const ptyProcess = command
+	if (!validSessionId(id) || (options?.kind !== undefined && !validSessionKind(options.kind)))
+		throw new Error('Invalid terminal identity');
+	if (persistentSessions.has(id)) return;
+	if (shuttingDown || persistentSessions.size >= limits.sessions)
+		throw new Error('Terminal session capacity reached');
+	const maxOutputChars = options?.maxOutputChars ?? limits.output;
+	if (!Number.isSafeInteger(maxOutputChars) || maxOutputChars < 1 || maxOutputChars > 10_000_000)
+		throw new Error('Invalid terminal output limit');
+	const child = command
 		? pty.spawn('/bin/bash', ['-c', command], {
 				name: 'xterm-256color',
 				cols: 120,
@@ -105,187 +122,223 @@ export function createPersistentSession(
 				cwd,
 				env: buildFilteredEnv()
 			})
-		: pty.spawn(shell, [], {
+		: pty.spawn(process.env.SHELL ?? '/bin/bash', [], {
 				name: 'xterm-256color',
 				cols: 120,
 				rows: 30,
 				cwd,
 				env: buildFilteredEnv()
 			});
-
 	const session: PersistentSession = {
-		pty: ptyProcess,
+		pty: child,
 		name: options?.name ?? 'Shell',
 		kind: options?.kind ?? 'shell',
 		startedAt: new Date().toISOString(),
-		maxOutputChars: options?.maxOutputChars ?? MAX_OUTPUT_BUFFER_CHARS,
+		lastActivity: Date.now(),
+		maxOutputChars,
 		outputBuffer: [],
 		outputBufferLength: 0,
 		viewers: new Set(),
 		status: 'running'
 	};
-	persistentSessions.set(sessionId, session);
-
-	ptyProcess.onData((data: string) => {
-		session.outputBuffer.push(data);
-		session.outputBufferLength += data.length;
-		while (session.outputBufferLength > session.maxOutputChars && session.outputBuffer.length > 1) {
-			const dropped = session.outputBuffer.shift()!;
-			session.outputBufferLength -= dropped.length;
-		}
+	persistentSessions.set(id, session);
+	const lifetime = setInterval(() => {
+		const now = Date.now();
+		if (
+			(limits.lifetimeMs && now - Date.parse(session.startedAt) >= limits.lifetimeMs) ||
+			(limits.idleMs && session.viewers.size === 0 && now - session.lastActivity >= limits.idleMs)
+		)
+			void deletePersistentSession(id).catch(() => {});
+	}, 1000);
+	lifetime.unref();
+	child.onData((data) => {
+		session.lastActivity = Date.now();
+		session.outputBufferLength = appendOutput(session.outputBuffer, data, session.maxOutputChars);
+		enforceGlobalOutput();
 		for (const viewer of session.viewers) {
-			if (viewer.readyState === WebSocket.OPEN) {
-				viewer.send(JSON.stringify({ type: 'data', data }));
+			if (viewer.bufferedAmount > 1_000_000) {
+				viewer.close(1013, 'Viewer cannot keep up; reconnect');
+				continue;
 			}
+			if (viewer.readyState === WebSocket.OPEN) viewer.send(JSON.stringify({ type: 'data', data }));
 		}
 	});
-
-	ptyProcess.onExit(({ exitCode, signal }) => {
+	child.onExit(({ exitCode, signal }) => {
+		clearInterval(lifetime);
 		session.status = 'exited';
 		session.exitCode = exitCode;
-		const output = session.outputBuffer.join('');
-		// Viewers close their terminal on exit, so the scrollback is no longer needed.
-		session.outputBuffer = [];
-		session.outputBufferLength = 0;
-		for (const viewer of session.viewers) {
+		for (const viewer of session.viewers)
 			if (viewer.readyState === WebSocket.OPEN) {
-				viewer.send(JSON.stringify({ type: 'exit', exitCode: exitCode ?? 0 }));
-				viewer.close();
+				viewer.send(JSON.stringify({ type: 'exit', exitCode }));
+				viewer.close(1000, 'Process exited');
 			}
-		}
 		session.viewers.clear();
-		options?.onExit?.({ exitCode: exitCode ?? 0, signal, output });
-
+		try {
+			options?.onExit?.({ exitCode, signal, output: session.outputBuffer.join('') });
+		} catch (error) {
+			console.error('Terminal exit callback failed', error);
+		}
 		const cleanup = setTimeout(() => {
-			if (persistentSessions.get(sessionId) === session) persistentSessions.delete(sessionId);
-		}, EXITED_SESSION_RETENTION_MS);
+			if (persistentSessions.get(id) === session) persistentSessions.delete(id);
+		}, 300_000);
 		cleanup.unref();
 	});
 }
-
-/** Lists running sessions. Exited sessions are tombstones and are not listed. */
+/** List processes, not viewer connections. */
 export function listPersistentSessions(kind?: PersistentSessionKind): PersistentSessionInfo[] {
-	const infos: PersistentSessionInfo[] = [];
-	for (const [id, session] of persistentSessions) {
-		if (session.status !== 'running') continue;
-		if (kind && session.kind !== kind) continue;
-		infos.push({
+	return [...persistentSessions]
+		.filter(([, session]) => session.status === 'running' && (!kind || session.kind === kind))
+		.map(([id, session]) => ({
 			id,
 			name: session.name,
 			kind: session.kind,
 			startedAt: session.startedAt,
 			status: session.status,
 			exitCode: session.exitCode
-		});
+		}));
+}
+/** Find a session without creating a process. */
+export function getPersistentSession(id: string): PersistentSession | undefined {
+	return persistentSessions.get(id);
+}
+/** Stop and verify the local process tree. Retain the ID as a short-lived exit tombstone. */
+export function deletePersistentSession(id: string): Promise<void> {
+	const session = persistentSessions.get(id);
+	if (!session || session.status === 'exited') return Promise.resolve();
+	if (!session.stopping) {
+		session.stopping = stopTerminalProcess(session.pty.pid)
+			.then(async () => {
+				const deadline = Date.now() + 1500;
+				while (session.status !== 'exited') {
+					if (Date.now() >= deadline) throw new Error('PTY exit notification deadline exceeded');
+					await new Promise((resolve) => setTimeout(resolve, 25));
+				}
+			})
+			.catch((error) => {
+				session.stopping = undefined;
+				throw error;
+			});
+		void session.stopping.catch(() => {});
 	}
-	return infos;
+	return session.stopping;
 }
-
-export function getPersistentSession(sessionId: string): PersistentSession | undefined {
-	return persistentSessions.get(sessionId);
-}
-
-export function deletePersistentSession(sessionId: string): void {
-	const session = persistentSessions.get(sessionId);
-	if (!session) return;
-	try {
-		session.pty.kill();
-	} catch {
-		// already dead
-	}
-	persistentSessions.delete(sessionId);
-}
-
 export const killPersistentSession = deletePersistentSession;
-
+/** Prevent new processes and upgrades before shutdown starts collecting work. */
+export function beginTerminalShutdown(): void {
+	shuttingDown = true;
+}
+/** Check browser authority and authentication before accepting an upgrade. */
 export function isTerminalUpgradeAuthorized(request: IncomingMessage): boolean {
-	if (!isCookieHeaderAuthenticated(request.headers.cookie)) return false;
-
-	const origin = request.headers.origin;
-	const host = request.headers.host;
-	if (!origin || !host) return false;
-
-	try {
-		return new URL(origin).host === host;
-	} catch {
+	if (
+		!isCookieHeaderAuthenticated(request.headers.cookie) ||
+		!request.headers.origin ||
+		!request.headers.host
+	)
 		return false;
-	}
+	const encrypted = Boolean(
+		(request.socket as (typeof request.socket & { encrypted?: boolean }) | undefined)?.encrypted
+	);
+	return sameOrigin(
+		request.headers.origin,
+		process.env.ORIGIN || `${encrypted ? 'https' : 'http'}://${request.headers.host}`
+	);
 }
-
+/** Reject before any Docker, shell, or PTY operation. */
 function rejectUpgrade(socket: Duplex): void {
-	socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
-	socket.destroy();
+	socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
 }
-
-export function attachTerminalServer(httpServer: Server): void {
-	const wss = new WebSocketServer({ noServer: true });
-
-	httpServer.on('upgrade', (request: IncomingMessage, socket: Duplex, head: Buffer) => {
-		const url = new URL(request.url ?? '/', `http://localhost`);
-		if (url.pathname !== '/api/terminal') {
-			return; // let other handlers (e.g. Vite HMR) deal with their own upgrades
-		}
-		if (!isTerminalUpgradeAuthorized(request)) {
+/** Attach-only transport; unknown or exited identities never start a command. */
+export function attachTerminalServer(server: Server): void {
+	const wss = new WebSocketServer({ noServer: true, maxPayload: 65_536 });
+	server.on('upgrade', (request, socket, head) => {
+		const url = new URL(request.url ?? '/', 'http://localhost');
+		if (url.pathname !== '/api/terminal') return;
+		if (shuttingDown || !isTerminalUpgradeAuthorized(request)) {
 			rejectUpgrade(socket);
 			return;
 		}
-		wss.handleUpgrade(request, socket, head, (ws) => {
-			wss.emit('connection', ws, request);
-		});
+		wss.handleUpgrade(request, socket, head, (ws) => wss.emit('connection', ws, request));
 	});
-
 	wss.on('connection', (ws: WebSocket, request: IncomingMessage) => {
-		const url = new URL(request.url ?? '/', `http://localhost`);
-		const sessionId = url.searchParams.get('sessionId');
-		const command = url.searchParams.get('command') || undefined;
-		const cwd = url.searchParams.get('cwd') ?? WORKSPACE_ROOT;
-		const name = url.searchParams.get('name') || undefined;
-		const kindParam = url.searchParams.get('kind');
-		const kind: PersistentSessionKind =
-			kindParam === 'bootstrap' || kindParam === 'devcontainer-build' ? kindParam : 'shell';
-
-		if (!sessionId) {
-			ws.close();
+		const id = new URL(request.url ?? '/', 'http://localhost').searchParams.get('sessionId');
+		if (!validSessionId(id)) {
+			ws.close(1008, 'Invalid session id');
 			return;
 		}
-
-		// All terminal sessions are persistent: they keep running in the background once the
-		// WebSocket disconnects, and any client can reattach later using the same sessionId.
-		if (!persistentSessions.has(sessionId)) {
-			createPersistentSession(sessionId, command, cwd, { name, kind });
+		const session = persistentSessions.get(id);
+		if (!session) {
+			ws.send(JSON.stringify({ type: 'missing' }));
+			ws.close(1008, 'Session no longer exists');
+			return;
 		}
-		const session = persistentSessions.get(sessionId)!;
-
-		// An exited session has nothing to show; tell the client to close its terminal.
+		if (session.viewers.size >= limits.viewers) {
+			ws.close(1008, 'Terminal viewer capacity reached');
+			return;
+		}
+		ws.send(
+			JSON.stringify({
+				type: 'ready',
+				output: session.outputBuffer.join(''),
+				status: session.status
+			})
+		);
 		if (session.status === 'exited') {
 			ws.send(JSON.stringify({ type: 'exit', exitCode: session.exitCode ?? 0 }));
-			ws.close();
+			ws.close(1000, 'Process exited');
 			return;
 		}
-
-		// Replay buffered output so the viewer sees the full history
-		if (session.outputBuffer.length > 0) {
-			ws.send(JSON.stringify({ type: 'data', data: session.outputBuffer.join('') }));
-		}
-
 		session.viewers.add(ws);
-
-		ws.on('message', (rawMsg: Buffer | string) => {
+		let alive = true;
+		ws.on('pong', () => {
+			alive = true;
+		});
+		const heartbeat = setInterval(() => {
+			if (!isCookieHeaderAuthenticated(request.headers.cookie, false)) {
+				ws.close(1008, 'Authentication expired. Sign in and retry.');
+				return;
+			}
+			if (!alive) {
+				ws.terminate();
+				return;
+			}
+			alive = false;
+			ws.ping();
+		}, 5000);
+		heartbeat.unref();
+		ws.on('error', () => ws.close());
+		ws.on('message', (raw) => {
+			if (!isCookieHeaderAuthenticated(request.headers.cookie)) {
+				ws.close(1008, 'Authentication required');
+				return;
+			}
+			if (session.status !== 'running' || session.stopping) return;
 			try {
-				const msg = JSON.parse(rawMsg.toString());
-				if (msg.type === 'data') {
-					session.pty.write(msg.data);
-				} else if (msg.type === 'resize') {
-					session.pty.resize(msg.cols, msg.rows);
-				}
+				const message = JSON.parse(raw.toString());
+				if (
+					message.type === 'data' &&
+					typeof message.data === 'string' &&
+					message.data.length <= 16_384
+				) {
+					session.lastActivity = Date.now();
+					session.pty.write(message.data);
+				} else if (
+					message.type === 'resize' &&
+					Number.isInteger(message.cols) &&
+					Number.isInteger(message.rows) &&
+					message.cols > 0 &&
+					message.rows > 0 &&
+					message.cols <= 1000 &&
+					message.rows <= 1000
+				)
+					session.pty.resize(message.cols, message.rows);
+				else ws.close(1008, 'Invalid terminal message');
 			} catch {
-				// ignore malformed messages
+				ws.close(1008, 'Invalid terminal message');
 			}
 		});
-
 		ws.on('close', () => {
+			clearInterval(heartbeat);
 			session.viewers.delete(ws);
-			// Do NOT kill the PTY — session continues in the background
 		});
 	});
 }

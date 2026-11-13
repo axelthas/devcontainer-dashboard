@@ -115,7 +115,7 @@
 	}
 
 	function onUpdateExit(exitCode: number) {
-		// The terminal closes when the process exits; a failure stays visible as a status line.
+		// Failed output stays in the mounted viewer until dismissal or retry.
 		updating = false;
 		if (exitCode === 0) {
 			updateTerminalVisible = false;
@@ -133,7 +133,7 @@
 	}
 </script>
 
-{#if !loading && info?.installed}
+{#if info?.installed}
 	<div
 		class="rounded-xl border border-[#d8dee9] bg-white px-4 py-3 shadow-sm dark:border-[#4c566a] dark:bg-[#3b4252]"
 	>
@@ -305,7 +305,7 @@
 						</button>
 					{/if}
 				</div>
-				{#if updating}
+				{#key updateSessionId}
 					<div class="h-40">
 						<TerminalTab
 							sessionId={updateSessionId}
@@ -315,7 +315,7 @@
 							onExit={onUpdateExit}
 						/>
 					</div>
-				{/if}
+				{/key}
 			</div>
 		{/if}
 	</div>

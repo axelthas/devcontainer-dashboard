@@ -16,7 +16,7 @@ export const POST: RequestHandler = async ({ request }) => {
 	if (typeof repoPath !== 'string' || !repoPath.trim()) throw error(400, 'repoPath is required');
 	if (typeof repoName !== 'string' || !repoName.trim()) throw error(400, 'repoName is required');
 
-	// Security: ensure repoPath is within WORKSPACE_ROOT to prevent path traversal
+	// Security: ensure repoPath is within WORKSPACE_ROOT to prevent path traversal.
 	const normalized = normalize(repoPath.trim());
 	if (!normalized.startsWith(WORKSPACE_ROOT + '/')) {
 		throw error(400, 'repoPath must be within workspace root');
@@ -27,7 +27,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		if (typeof configPath !== 'string' || !configPath.trim()) {
 			throw error(400, 'configPath must be a non-empty string');
 		}
-		// Security: ensure configPath resolves to a path inside the repo (no traversal)
+		// Security: ensure configPath resolves to a path inside the repo (no traversal).
 		const absoluteConfig = normalize(join(normalized, configPath.trim()));
 		if (!absoluteConfig.startsWith(normalized + '/')) {
 			throw error(400, 'configPath must be within the repository');
@@ -50,7 +50,7 @@ export const DELETE: RequestHandler = async ({ request }) => {
 
 	if (typeof id !== 'string' || !id.trim()) throw error(400, 'id is required');
 
-	removeDevcontainerBuild(id.trim());
+	await removeDevcontainerBuild(id.trim());
 
 	return json({ success: true });
 };
