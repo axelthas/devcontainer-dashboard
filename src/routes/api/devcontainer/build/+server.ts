@@ -1,8 +1,14 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { startDevcontainerBuild, removeDevcontainerBuild } from '$lib/server/devcontainerBuilds';
+import {
+	DevcontainerBuildConflict,
+	startDevcontainerBuild,
+	removeDevcontainerBuild
+} from '$lib/server/devcontainerBuilds';
+import { DevcontainerTargetError, resolveDevcontainerTarget } from '$lib/server/devcontainerRebuild';
 import { randomUUID } from 'node:crypto';
-import { normalize, join } from 'node:path';
+import { normalize, join, relative } from 'node:path';
+import { access } from 'node:fs/promises';
 
 const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT ?? '/workspaces';
 
@@ -15,30 +21,40 @@ export const POST: RequestHandler = async ({ request }) => {
 
 	if (typeof repoPath !== 'string' || !repoPath.trim()) throw error(400, 'repoPath is required');
 	if (typeof repoName !== 'string' || !repoName.trim()) throw error(400, 'repoName is required');
+	if (configPath !== undefined && (typeof configPath !== 'string' || !configPath.trim())) {
+		throw error(400, 'configPath must be a non-empty string');
+	}
 
-	// Security: ensure repoPath is within WORKSPACE_ROOT to prevent path traversal.
 	const normalized = normalize(repoPath.trim());
-	if (!normalized.startsWith(WORKSPACE_ROOT + '/')) {
-		throw error(400, 'repoPath must be within workspace root');
-	}
-
-	let validatedConfigPath: string | undefined;
-	if (configPath !== undefined) {
-		if (typeof configPath !== 'string' || !configPath.trim()) {
-			throw error(400, 'configPath must be a non-empty string');
+	let selectedConfig = typeof configPath === 'string' ? join(normalized, configPath.trim()) : undefined;
+	// Preserve CLI default discovery, but validate the selected default before acquiring a build lock.
+	if (!selectedConfig) {
+		for (const candidate of ['.devcontainer/devcontainer.json', '.devcontainer.json']) {
+			try {
+				await access(join(normalized, candidate));
+				selectedConfig = join(normalized, candidate);
+				break;
+			} catch {
+				// Try the next supported CLI default. Named configurations require an explicit selection.
+			}
 		}
-		// Security: ensure configPath resolves to a path inside the repo (no traversal).
-		const absoluteConfig = normalize(join(normalized, configPath.trim()));
-		if (!absoluteConfig.startsWith(normalized + '/')) {
-			throw error(400, 'configPath must be within the repository');
-		}
-		validatedConfigPath = configPath.trim();
 	}
+	if (!selectedConfig) throw error(400, 'No default devcontainer configuration. Select a configuration.');
 
-	const id = randomUUID();
-	const build = startDevcontainerBuild(id, normalized, repoName.trim(), validatedConfigPath);
-
-	return json({ id: build.id, repoPath: build.repoPath });
+	try {
+		const target = await resolveDevcontainerTarget(WORKSPACE_ROOT, normalized, selectedConfig);
+		const build = startDevcontainerBuild(
+			randomUUID(),
+			target.repoPath,
+			repoName.trim(),
+			relative(target.repoPath, target.configPath)
+		);
+		return json({ id: build.id, repoPath: build.repoPath });
+	} catch (cause) {
+		if (cause instanceof DevcontainerTargetError) throw error(400, cause.message);
+		if (cause instanceof DevcontainerBuildConflict) throw error(409, cause.message);
+		throw error(503, 'Could not start build. Check Dev Containers CLI availability and terminal capacity.');
+	}
 };
 
 export const DELETE: RequestHandler = async ({ request }) => {

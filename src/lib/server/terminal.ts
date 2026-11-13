@@ -20,6 +20,8 @@ export interface PersistentSessionExit {
 interface PersistentSessionOptions {
 	name?: string;
 	kind?: PersistentSessionKind;
+	/** Structured server-owned commands bypass shell parsing while keeping PTY lifecycle handling. */
+	executable?: { file: string; args: string[] };
 	maxOutputChars?: number;
 	onExit?: (exit: PersistentSessionExit) => void;
 }
@@ -114,21 +116,18 @@ export function createPersistentSession(
 	const maxOutputChars = options?.maxOutputChars ?? limits.output;
 	if (!Number.isSafeInteger(maxOutputChars) || maxOutputChars < 1 || maxOutputChars > 10_000_000)
 		throw new Error('Invalid terminal output limit');
-	const child = command
-		? pty.spawn('/bin/bash', ['-c', command], {
-				name: 'xterm-256color',
-				cols: 120,
-				rows: 30,
-				cwd,
-				env: buildFilteredEnv()
-			})
-		: pty.spawn(process.env.SHELL ?? '/bin/bash', [], {
-				name: 'xterm-256color',
-				cols: 120,
-				rows: 30,
-				cwd,
-				env: buildFilteredEnv()
-			});
+	const executable = options?.executable;
+	const child = pty.spawn(
+		executable?.file ?? (command ? '/bin/bash' : process.env.SHELL ?? '/bin/bash'),
+		executable?.args ?? (command ? ['-c', command] : []),
+		{
+			name: 'xterm-256color',
+			cols: 120,
+			rows: 30,
+			cwd,
+			env: buildFilteredEnv()
+		}
+	);
 	const session: PersistentSession = {
 		pty: child,
 		name: options?.name ?? 'Shell',
