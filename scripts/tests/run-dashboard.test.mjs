@@ -12,9 +12,17 @@
 
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+	chmodSync,
+	existsSync,
+	mkdtempSync,
+	mkdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
@@ -303,6 +311,7 @@ test('help needs no identity, password or daemon and ignores the environment', (
 	assert.equal(r.status, 0);
 	assert.equal(r.calls.length, 0);
 	assert.match(r.stdout, /--password-file/);
+	assert.match(r.stdout, /--env-file/);
 	assert.match(r.stdout, /process lists/);
 	const short = fixture(t).run(['-h']);
 	assert.equal(short.status, 0);
@@ -332,6 +341,87 @@ test('ignores the removed environment-variable interface', (t) => {
 	assert.equal(run.args.at(-1), 'ghcr.io/axelthas/devcontainer-dashboard:latest');
 	assert.ok(!run.args.includes('dev-bootstrap'));
 	assert.ok(!run.args.some((a) => a.includes('/.ssh')));
+});
+
+for (const [mode, launch] of [
+	['registry', registry],
+	['build', build]
+]) {
+	test(`${mode} mode: env files preserve paths, order and literal contents`, (t) => {
+		const f = fixture(t);
+		const directory = join(f.dir, 'env files');
+		mkdirSync(directory);
+		const first = join(directory, 'base.env');
+		const second = join(directory, 'override.env');
+		const marker = join(f.dir, 'must-not-exist');
+		const content = [
+			'# trusted Docker runtime configuration',
+			'',
+			'CUSTOM_VALUE=space and = equals',
+			'CUSTOM_SECRET=never-print-env-secret',
+			`COMMAND=$(touch "${marker}")`,
+			'LITERAL=${HOME}',
+			'DASHBOARD_PASSWORD=not-the-launcher-password',
+			'HOST_UID=9999',
+			'WORKSPACE_ROOT=/not-the-launcher-workspace',
+			''
+		].join('\n');
+		writeFileSync(first, content);
+		writeFileSync(second, 'CUSTOM_VALUE=override\n');
+		const r = launch(f, ['--env-file', first, '--env-file', second]);
+		assert.equal(r.status, 0, r.stderr);
+		const args = runCall(r).args;
+		const indexes = args.flatMap((value, index) => (value === '--env-file' ? [index] : []));
+		assert.deepEqual(
+			indexes.map((index) => args[index + 1]),
+			[first, second]
+		);
+		assert.ok(indexes.at(-1) < args.indexOf('--env'));
+		assert.ok(args.includes('DASHBOARD_PASSWORD'));
+		assert.ok(args.includes('HOST_UID'));
+		assert.ok(args.some((value) => value.startsWith('WORKSPACE_ROOT=')));
+		assert.equal(runCall(r).passwordChars, 14);
+		assert.equal(runCall(r).uid, '2345');
+		assert.equal(readFileSync(first, 'utf8'), content);
+		assert.ok(!existsSync(marker));
+		assert.doesNotMatch(r.stdout + r.stderr + JSON.stringify(r.calls), /never-print-env-secret/);
+		// Env files are container runtime inputs, never image build arguments.
+		assert.ok(!buildCall(r)?.args.includes('--env-file'));
+	});
+
+	test(`${mode} mode: resolves relative env files before checkout directory changes`, (t) => {
+		const f = fixture(t);
+		// The mock Git checkout root differs from the test runner's working directory.
+		const file = join(f.dir, 'relative.env');
+		writeFileSync(file, 'LOCAL_ENV_TEST=value\n');
+		const r = launch(f, ['--env-file', relative(process.cwd(), file)]);
+		assert.equal(r.status, 0, r.stderr);
+		const args = runCall(r).args;
+		assert.equal(args[args.indexOf('--env-file') + 1], file);
+	});
+
+	test(`${mode} mode: absent env file flag keeps existing arguments`, (t) => {
+		const r = launch(fixture(t));
+		assert.equal(r.status, 0, r.stderr);
+		assert.ok(!runCall(r).args.includes('--env-file'));
+	});
+}
+
+test('invalid env file inputs fail before password prompts and Docker calls', (t) => {
+	const f = fixture(t);
+	const unreadable = join(f.dir, 'unreadable.env');
+	writeFileSync(unreadable, 'CUSTOM_SECRET=not-readable\n');
+	chmodSync(unreadable, 0o000);
+	for (const path of [join(f.dir, 'missing.env'), f.dir, unreadable]) {
+		const r = f.run(['--env-file', path]);
+		assert.notEqual(r.status, 0);
+		assert.match(r.stderr, /readable regular file/);
+		assert.equal(r.calls.length, 0);
+	}
+	const missingValue = f.run(['--env-file']);
+	assert.notEqual(missingValue.status, 0);
+	assert.match(missingValue.stderr, /requires a value/);
+	assert.equal(missingValue.calls.length, 0);
 });
 
 test('password-file trims exactly one trailing newline', (t) => {
