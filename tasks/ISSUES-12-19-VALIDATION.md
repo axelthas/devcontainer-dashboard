@@ -20,17 +20,17 @@ Both issues stay open until operator validation is complete.
 
 Set these in the dashboard process/container environment. The launcher does not automatically forward exported variables; use explicit container environment or custom Compose configuration.
 
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| TERMINAL_MAX_SESSIONS | 32 | Running and retained exited identities |
-| TERMINAL_MAX_VIEWERS | 8 | Viewers per process |
-| TERMINAL_OUTPUT_CHARS | 500000 | Default shell replay cap |
-| TERMINAL_TOTAL_OUTPUT_CHARS | 32000000 | Global replay cap |
-| TERMINAL_IDLE_MS | 0 | Detached inactivity timeout; zero disables |
-| TERMINAL_LIFETIME_MS | 0 | Absolute process lifetime; zero disables |
-| AUTH_IDLE_MS | 43200000 | Twelve-hour idle authentication lifetime |
-| AUTH_ABSOLUTE_MS | 604800000 | Seven-day absolute authentication lifetime |
-| AUTH_MAX_SESSIONS | 256 | Least-recently-used token eviction at capacity |
+| Variable                    | Default   | Meaning                                        |
+| --------------------------- | --------- | ---------------------------------------------- |
+| TERMINAL_MAX_SESSIONS       | 32        | Running and retained exited identities         |
+| TERMINAL_MAX_VIEWERS        | 8         | Viewers per process                            |
+| TERMINAL_OUTPUT_CHARS       | 500000    | Default shell replay cap                       |
+| TERMINAL_TOTAL_OUTPUT_CHARS | 32000000  | Global replay cap                              |
+| TERMINAL_IDLE_MS            | 0         | Detached inactivity timeout; zero disables     |
+| TERMINAL_LIFETIME_MS        | 0         | Absolute process lifetime; zero disables       |
+| AUTH_IDLE_MS                | 43200000  | Twelve-hour idle authentication lifetime       |
+| AUTH_ABSOLUTE_MS            | 604800000 | Seven-day absolute authentication lifetime     |
+| AUTH_MAX_SESSIONS           | 256       | Least-recently-used token eviction at capacity |
 
 Caps count UTF-16 characters, not bytes. Builds/bootstrap request up to five million characters per run. Global replay eviction discards oldest-session output without killing the process. Exited terminal identities/output remain for five minutes. Fallback logs are capped at 32 entries and 20 million characters with seven-day retention, pruned on log operations. Disk-log cleanup runs during listing. Auth pruning runs during creation/validation. HTTP polling counts as auth activity; terminal heartbeats do not renew idle auth. Non-browser HTTP writes must send the exact trusted Origin.
 

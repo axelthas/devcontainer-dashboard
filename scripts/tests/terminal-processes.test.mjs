@@ -38,10 +38,18 @@ async function checkTree(t, command, grace) {
 	assert.equal(await running(child.pid), false);
 }
 
-test('cancellation completes the owned local process tree', { skip: process.platform !== 'linux' }, async (t) => {
-	await checkTree(t, 'sleep 300 & echo $!; wait', 500);
-});
+test(
+	'cancellation completes the owned local process tree',
+	{ skip: process.platform !== 'linux' },
+	async (t) => {
+		await checkTree(t, 'sleep 300 & echo $!; wait', 500);
+	}
+);
 
-test('cancellation escalates when the shell ignores SIGTERM', { skip: process.platform !== 'linux' }, async (t) => {
-	await checkTree(t, "trap '' TERM; sleep 300 & echo $!; wait", 100);
-});
+test(
+	'cancellation escalates when the shell ignores SIGTERM',
+	{ skip: process.platform !== 'linux' },
+	async (t) => {
+		await checkTree(t, "trap '' TERM; sleep 300 & echo $!; wait", 100);
+	}
+);

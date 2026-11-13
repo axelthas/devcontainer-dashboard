@@ -19,7 +19,8 @@ export function safeRedirectTarget(value: unknown): string {
 				(character) =>
 					character === '\\' || character.charCodeAt(0) <= 32 || character.charCodeAt(0) === 127
 			)
-		) return '/';
+		)
+			return '/';
 		try {
 			const next = decodeURIComponent(decoded);
 			if (next === decoded) break;
