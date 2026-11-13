@@ -21,6 +21,7 @@ Options:
   --origin URL             Exact external HTTP(S) origin.
   --password VALUE         Visible in process lists; prefer file or prompt.
   --password-file PATH     Read password, trim one trailing newline.
+  --env-file PATH          Extend container environment (Docker syntax; repeatable).
   --host-user NAME         All four identity values must be supplied together.
   --host-uid UID
   --host-gid GID
@@ -59,6 +60,7 @@ parse_arguments() {
   MODE=registry SHOW_HELP=0
   WORKSPACE='' SOCKET='' PORT='' BIND_ADDRESS='' ORIGIN=''
   PASSWORD='' PASSWORD_FILE='' HOST_USER='' HOST_UID='' HOST_GID='' HOST_HOME=''
+  ENV_FILES=()
   BOOTSTRAP=0 SSH_DIR=0 CREATE_WORKSPACE=1 NON_INTERACTIVE=0 GATEWAY=0
   GATEWAY_HOST='' GATEWAY_PORTS='' VSCODE_SSH_HOST=''
   IMAGE='' PLATFORM='' TEST_NAME='' HEALTH_TIMEOUT=''
@@ -66,7 +68,7 @@ parse_arguments() {
   while (( $# )); do
     case "$1" in
       --help|-h) SHOW_HELP=1; return ;;
-      --workspace|--socket|--port|--bind-address|--origin|--password|--password-file|--host-user|--host-uid|--host-gid|--host-home|--gateway-host|--gateway-ports|--vscode-ssh-host|--image|--platform|--name|--health-timeout|--tailscale-socket|--tailscale-ports|--tailscale-gateway-port)
+      --workspace|--socket|--port|--bind-address|--origin|--password|--password-file|--env-file|--host-user|--host-uid|--host-gid|--host-home|--gateway-host|--gateway-ports|--vscode-ssh-host|--image|--platform|--name|--health-timeout|--tailscale-socket|--tailscale-ports|--tailscale-gateway-port)
         [[ $# -ge 2 && -n "$2" ]] || fail "$1 requires a value"
         case "$1" in
           --workspace) WORKSPACE=$2 ;;
@@ -76,6 +78,7 @@ parse_arguments() {
           --origin) ORIGIN=$2 ;;
           --password) PASSWORD=$2 ;;
           --password-file) PASSWORD_FILE=$2 ;;
+          --env-file) ENV_FILES+=("$2") ;;
           --host-user) HOST_USER=$2 ;;
           --host-uid) HOST_UID=$2 ;;
           --host-gid) HOST_GID=$2 ;;
@@ -111,6 +114,18 @@ parse_arguments() {
     [[ -z "$PLATFORM" && -z "$TEST_NAME" && -z "$HEALTH_TIMEOUT" ]] ||
       fail '--platform, --name and --health-timeout require --build'
   fi
+}
+
+# Resolve client-side files before build mode changes directory. Never source them.
+validate_env_files() {
+  local index path directory
+  for index in "${!ENV_FILES[@]}"; do
+    path="${ENV_FILES[$index]}"
+    [[ -f "$path" && -r "$path" ]] || fail 'Each --env-file must be a readable regular file'
+    directory=$(cd -- "$(dirname -- "$path")" && pwd -P) ||
+      fail 'Cannot resolve --env-file directory'
+    ENV_FILES[$index]="$directory/$(basename -- "$path")"
+  done
 }
 
 # Accept exact origins, including bracketed IPv6, but reject paths and credentials.
@@ -285,8 +300,12 @@ prepare_checkout() {
 
 # Preserve argv boundaries and never put the password value in Docker's argument list.
 prepare_arguments() {
+  local path
   if [[ "$CREATE_WORKSPACE" == 1 ]]; then mkdir -p -- "$WORKSPACE"; fi
-  ARGS=(--env DASHBOARD_PASSWORD --env HOST_USER --env HOST_UID --env HOST_GID --env HOST_HOME
+  ARGS=()
+  for path in "${ENV_FILES[@]}"; do ARGS+=(--env-file "$path"); done
+  # Docker applies explicit --env entries after env files, preserving launcher inputs.
+  ARGS+=(--env DASHBOARD_PASSWORD --env HOST_USER --env HOST_UID --env HOST_GID --env HOST_HOME
     --env "WORKSPACE_ROOT=$WORKSPACE" --env "HOST_HOSTNAME=${HOSTNAME:-}"
     --mount "type=bind,source=$WORKSPACE,target=$WORKSPACE"
     --mount "type=bind,source=$SOCKET,target=/var/run/docker.sock")
@@ -392,6 +411,7 @@ wait_for_readiness() {
 main() {
   parse_arguments "$@"
   if [[ "$SHOW_HELP" == 1 ]]; then usage; return; fi
+  validate_env_files
   resolve_identity
   read_secrets
   validate_options
