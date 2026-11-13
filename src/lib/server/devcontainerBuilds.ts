@@ -1,4 +1,5 @@
-import { join } from 'node:path';
+import { realpathSync } from 'node:fs';
+import { devcontainerCommand } from './devcontainerRebuild.js';
 import { createPersistentSession, deletePersistentSession, isCancelledExit } from './terminal.js';
 import {
 	deleteRunLog,
@@ -20,8 +21,20 @@ export interface ActiveDevcontainerBuild {
 	status: 'running' | 'success' | 'failed';
 	startedAt: string;
 	exitCode?: number;
+	/** Canonical repository identity used to serialize starts and rebuilds. */
+	canonicalRepoPath?: string;
+	/** Hold the repository lock until explicit process-tree cancellation is verified. */
+	stopping?: boolean;
 	/** True when the output of a failed run is kept as a log */
 	hasLog?: boolean;
+}
+
+export class DevcontainerBuildConflict extends Error {
+	/** Expose an explicit conflict instead of starting a second replacement process. */
+	constructor() {
+		super('A devcontainer build or rebuild is already running for this workspace');
+		this.name = 'DevcontainerBuildConflict';
+	}
 }
 
 // Use globalThis so the Map survives Vite HMR reloads in dev mode.
@@ -31,13 +44,25 @@ const g = globalThis as typeof globalThis & {
 if (!g.__devcontainerBuilds) g.__devcontainerBuilds = new Map();
 const activeBuilds = g.__devcontainerBuilds;
 
+/** Start one persistent CLI process per canonical repository; spawning must be atomic with tracking. */
 export function startDevcontainerBuild(
 	id: string,
 	repoPath: string,
 	repoName: string,
-	configPath?: string
+	configPath?: string,
+	rebuildLabels?: Record<string, string>
 ): ActiveDevcontainerBuild {
 	cleanupOldBuilds();
+	const canonicalRepoPath = realpathSync(repoPath);
+	for (const existing of activeBuilds.values()) {
+		if (
+			existing.status === 'running' &&
+			(existing.canonicalRepoPath ?? realpathSync(existing.repoPath)) === canonicalRepoPath
+		) {
+			throw new DevcontainerBuildConflict();
+		}
+	}
+	const executable = devcontainerCommand(repoPath, configPath, rebuildLabels);
 
 	// Remove any prior completed build for the same repo to avoid stale entries on retry.
 	for (const [existingId, existing] of activeBuilds) {
@@ -51,30 +76,36 @@ export function startDevcontainerBuild(
 		repoPath,
 		repoName,
 		configPath,
+		canonicalRepoPath,
 		status: 'running',
 		startedAt: new Date().toISOString()
 	};
 	activeBuilds.set(id, build);
 
-	const command = configPath
-		? `devcontainer up --workspace-folder ${repoPath} --config ${join(repoPath, configPath)}`
-		: `devcontainer up --workspace-folder ${repoPath}`;
-	createPersistentSession(id, command, repoPath, {
-		name: repoName,
-		kind: 'devcontainer-build',
-		maxOutputChars: RUN_LOG_MAX_CHARS,
-		onExit: ({ exitCode, signal, output }) => {
-			// A build that is no longer tracked was cancelled, dismissed, or replaced.
-			if (activeBuilds.get(id) !== build) return;
-			if (isCancelledExit(exitCode, signal)) {
-				activeBuilds.delete(id);
-				return;
+	try {
+		createPersistentSession(id, undefined, repoPath, {
+			executable,
+			name: rebuildLabels ? `Rebuild ${repoName}` : repoName,
+			kind: 'devcontainer-build',
+			maxOutputChars: RUN_LOG_MAX_CHARS,
+			onExit: ({ exitCode, signal, output }) => {
+				// A build that is no longer tracked was cancelled, dismissed, or replaced.
+				if (activeBuilds.get(id) !== build) return;
+				if (build.stopping) return;
+				if (isCancelledExit(exitCode, signal)) {
+					activeBuilds.delete(id);
+					return;
+				}
+				build.exitCode = exitCode;
+				build.status = exitCode === 0 ? 'success' : 'failed';
+				if (build.status === 'failed') keepFailedBuildLog(build, output);
 			}
-			build.exitCode = exitCode;
-			build.status = exitCode === 0 ? 'success' : 'failed';
-			if (build.status === 'failed') keepFailedBuildLog(build, output);
-		}
-	});
+		});
+	} catch (cause) {
+		// Capacity and spawn errors must not leave an immortal running build/lock.
+		activeBuilds.delete(id);
+		throw cause;
+	}
 
 	return build;
 }
@@ -103,14 +134,16 @@ export function getActiveBuilds(): ActiveDevcontainerBuild[] {
 export function removeDevcontainerBuild(id: string): Promise<void> {
 	const build = activeBuilds.get(id);
 	if (!build) return Promise.resolve();
-	// Untrack the build first, so that its exit callback treats it as cancelled.
-	activeBuilds.delete(id);
+	// Retain a running lock until verified process-tree termination completes.
+	build.stopping = true;
 	const operation = deletePersistentSession(id)
 		.then(async () => {
+			if (activeBuilds.get(id) === build) activeBuilds.delete(id);
 			if (build.hasLog) await deleteRunLog(id);
 		})
 		.catch((error) => {
-			activeBuilds.set(id, build);
+			build.stopping = false;
+			if (!activeBuilds.has(id)) activeBuilds.set(id, build);
 			throw error;
 		});
 	void operation.catch((error) => console.error('Could not stop devcontainer build', error));
