@@ -43,7 +43,7 @@ Common flags:
 | `--origin URL`                                   | External HTTP(S) origin, forwarded only when set.                                                                                |
 | `--password VALUE`                               | Explicit password (visible in process lists; prefer the file or prompt).                                                         |
 | `--password-file PATH`                           | Read the password from a file, trimming one trailing newline.                                                                    |
-| `--env-file PATH`                                | Extend the container environment from a Docker env file; repeatable in both modes.                                                |
+| `--env-file PATH`                                | Extend the container environment from a Docker env file; repeatable in both modes.                                               |
 | `--host-user/--host-uid/--host-gid/--host-home`  | All-or-none Docker-host identity override.                                                                                       |
 | `--bootstrap` / `--no-bootstrap`                 | dev-bootstrap startup hook (default off).                                                                                        |
 | `--ssh-dir` / `--no-ssh-dir`                     | Read-only `HOST_HOME/.ssh` bind (default off).                                                                                   |
