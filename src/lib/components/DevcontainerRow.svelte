@@ -100,6 +100,8 @@
 			containerState={container.state}
 			{onRefresh}
 			{vscodeUri}
+			rebuildContainer={container}
+			onOpenBuild={onOpenTerminal}
 			onOpenTerminal={onOpenTerminal && terminalParams ? openTerminal : undefined}
 		/>
 	</div>

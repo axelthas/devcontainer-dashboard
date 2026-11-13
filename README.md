@@ -81,6 +81,58 @@ invoke the launcher inside a devcontainer.
   HTTPS origins for OpenCode, OpenChamber, noVNC, and other allowed services. This is
   opt-in, requires a native Linux Docker host, and grants broad access to tailscaled.
 
+## Rebuild an existing devcontainer
+
+Use **Restart** to restart the same container without rebuilding its image or applying
+changed devcontainer configuration.
+
+Use **Rebuild and restart** (the hammer button) in either the devcontainer grid or list
+when build inputs or configuration change:
+
+1. Save changes to the Dockerfile or devcontainer configuration.
+2. Select **Rebuild and restart** on the intended container.
+3. Read the replacement warning.
+4. Confirm the rebuild.
+5. Follow the output in the build terminal.
+
+The dashboard inspects the container's live `devcontainer.local_folder` and
+`devcontainer.config_file` labels. Both paths must exist inside the configured workspace
+root, including after resolving symlinks. Missing labels disable the action; invalid,
+missing, ambiguous, or unsupported path metadata is rejected before replacement.
+The exact labelled configuration is used, not another default in the repository.
+
+The action runs `devcontainer up --remove-existing-container` with literal workspace,
+configuration, and identity-label arguments. It uses the normal build cache. This is
+not a no-cache build or a rollback facility. The CLI runs with the dashboard's configured
+host identity and existing filtered child environment, including permitted values
+supplied through the launcher's `--env-file`.
+
+**Replacement interrupts services and container terminals and discards changes in the
+container writable layer.** The dashboard does not delete workspace files or volumes
+for this action. Configuration and lifecycle scripts can still change mounted data.
+Back up important data before rebuilding. Compose configurations can also affect
+related services; this action is not whole-project isolation.
+
+Only one build or rebuild can run for a canonical workspace at a time. Browser
+disconnect, reload, and view switching do not cancel the CLI process. Reattach through
+the build terminal; failed builds also use the existing workspace log workflow.
+The dashboard polls container discovery and uses the replacement container ID and
+service bindings when it appears. Reopen container terminals against the new container.
+An interrupted/failed rebuild can leave the original container removed; check output
+and retry only after resolving the cause.
+
+Run the focused source regressions with Node.js 22.13 or newer:
+
+```bash
+node --experimental-strip-types --test scripts/tests/devcontainer-rebuild.test.mjs
+```
+
+These tests use temporary files and mocked Docker/PTY boundaries. They do not replace
+a real Docker/devcontainer acceptance test. On a disposable workspace, test a changed
+Dockerfile/configuration with both running and stopped containers, reload while a build
+runs, inspect mounted fixture data after replacement, and verify the replacement ID and
+service ports. Do not use an operator's existing workspace as a test fixture.
+
 ## Develop the dashboard
 
 You need Node.js 22, Docker access at `/var/run/docker.sock`, and a C++ build toolchain
