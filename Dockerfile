@@ -1,5 +1,5 @@
-# node-pty requires glibc in both stages.
-FROM node:22-bookworm-slim AS builder
+# Keep native node-pty modules on the same Node major in both stages.
+FROM node:24-bookworm-slim AS builder
 RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
@@ -13,11 +13,10 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN if id ubuntu >/dev/null 2>&1; then userdel -r ubuntu; fi \
     && apt-get update && apt-get install -y --no-install-recommends \
        curl ca-certificates git openssh-client zsh python3 python3.12-venv \
-       python3-pip-whl locales util-linux passwd sudo \
+       python3-pip-whl locales util-linux passwd sudo which tar make g++ \
     && locale-gen en_US.UTF-8 && rm -rf /var/lib/apt/lists/*
 ENV LANG=en_US.UTF-8 LANGUAGE=en_US:en LC_ALL=en_US.UTF-8
-# The feature installer sources a sibling helper. Keep both files at one reviewed
-# revision and execute a file, not stdin, so BASH_SOURCE resolves that helper.
+# Keep the installer and its sibling helper at one reviewed revision.
 RUN set -eu; \
     feature_revision=b6877129e0a264b8e83a63e8b93de29077132e5b; \
     feature_dir="$(mktemp -d)"; \
@@ -28,7 +27,7 @@ RUN set -eu; \
       -o "$feature_dir/scripts/version-resolution.sh"; \
     bash "$feature_dir/install.sh"; \
     rm -rf "$feature_dir"
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
@@ -40,7 +39,20 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
     && rm -rf /var/lib/apt/lists/*
 ENV NPM_CONFIG_PREFIX=/opt/dashboard-tools
 ENV PATH="/opt/dashboard-tools/bin:${PATH}"
-RUN npm install -g npm@latest opencode-ai @devcontainers/cli
+ARG OPENCODE_VERSION=2.3.0
+ARG OPENCHAMBER_VERSION=2.7.1
+# Build a seed binary; runtime copies it once into the locked, user-owned volume.
+# The version is pinned, while the upstream installer itself is a network build input.
+RUN set -eu; \
+    node -e 'const [a,b]=process.versions.node.split(".").map(Number);if(a<24||(a===24&&b<14))process.exit(1)'; \
+    npm install -g npm@latest @devcontainers/cli "@openchamber/web@${OPENCHAMBER_VERSION}"; \
+    curl -fsSL https://opencode.ai/v2/install -o /tmp/install-opencode; \
+    HOME=/tmp/opencode-seed SHELL=/bin/bash bash /tmp/install-opencode --version "$OPENCODE_VERSION" --no-modify-path; \
+    /tmp/opencode-seed/.opencode/bin/opencode --version | grep -E '^2\.'; \
+    mkdir -p /opt/dashboard-ai; \
+    cp /tmp/opencode-seed/.opencode/bin/opencode /opt/dashboard-ai/opencode; \
+    ln -s /opt/dashboard-ai/opencode /opt/dashboard-tools/bin/opencode; \
+    rm -rf /tmp/opencode-seed /tmp/install-opencode
 RUN git clone --depth=1 https://github.com/ohmyzsh/ohmyzsh.git /opt/dashboard-shell \
     && git clone --depth=1 https://github.com/spaceship-prompt/spaceship-prompt.git /opt/dashboard-shell/custom/themes/spaceship-prompt \
     && ln -s /opt/dashboard-shell/custom/themes/spaceship-prompt/spaceship.zsh-theme /opt/dashboard-shell/custom/themes/spaceship.zsh-theme \
@@ -56,17 +68,22 @@ RUN git clone --depth=1 https://github.com/ohmyzsh/ohmyzsh.git /opt/dashboard-sh
       'HISTSIZE=10000' 'SAVEHIST=10000' \
       'setopt APPEND_HISTORY INC_APPEND_HISTORY SHARE_HISTORY' \
       > /opt/dashboard-shell/.zshrc \
-    && printf '%s\n' 'export PATH="/opt/dashboard-tools/bin:$PATH"' > /opt/dashboard-shell/.bashrc
+    && printf '%s\n' 'export PATH="$HOME/.opencode/bin:/opt/dashboard-tools/bin:$PATH"' > /opt/dashboard-shell/.bashrc
 WORKDIR /app
 COPY --from=builder /app/build /app/build
 COPY --from=builder /app/node_modules /app/node_modules
 COPY --from=builder /app/package.json /app/package.json
 COPY plugins/10-dev-bootstrap.sh /opt/dashboard/plugins/10-dev-bootstrap.sh
+COPY scripts/ai-state.sh /opt/dashboard-ai/state.sh
+COPY scripts/ai-entrypoint.sh /app/ai-entrypoint.sh
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
-RUN chmod +x /app/docker-entrypoint.sh /opt/dashboard/plugins/10-dev-bootstrap.sh \
-    && mkdir -p /data /dashboard-history
+RUN chmod +x /app/docker-entrypoint.sh /app/ai-entrypoint.sh /opt/dashboard-ai/state.sh /opt/dashboard/plugins/10-dev-bootstrap.sh \
+    && mkdir -p /data /dashboard-history /dashboard-ai
+# The launcher opts in after mounting its dedicated AI volume. Direct image
+# consumers retain the original dashboard-only startup contract.
+ENV LOCAL_AI_ENABLED=0
 USER root
-EXPOSE 3000
+EXPOSE 3000 3002
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
     CMD node -e "const r=require('node:http').get({host:'127.0.0.1',port:process.env.PORT||3000,path:'/healthz'},s=>{s.resume();process.exitCode=s.statusCode===200?0:1});r.setTimeout(3000,()=>r.destroy());r.on('error',()=>process.exitCode=1)"
-ENTRYPOINT ["/app/docker-entrypoint.sh"]
+ENTRYPOINT ["/app/ai-entrypoint.sh"]

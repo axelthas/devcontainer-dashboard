@@ -8,8 +8,9 @@ import {
 } from './lib/server/serviceGatewayRuntime.js';
 import docker from './lib/server/docker.js';
 import { allocateServePort, createServeConfigClient } from './lib/server/tailscaleServe.js';
-import { startTailscaleServices, tailscaleSettings } from './lib/server/tailscaleServiceRuntime.js';
+import { startTailscaleServices, tailscaleSettings, launchTailscaleService } from './lib/server/tailscaleServiceRuntime.js';
 import { installShutdown } from './lib/server/shutdown.js';
+import { startLocalAi, inspectLocalAi } from './lib/server/localAi.js';
 
 const PORT = parseInt(process.env.PORT ?? '3000', 10);
 assertAuthConfigured();
@@ -24,11 +25,19 @@ const tailscaleRuntime =
 				settings: tailscale,
 				client: tailscaleClient,
 				allocate: allocateServePort,
-				inspect: (id) => docker.getContainer(id).inspect(),
+				inspect: (id) => {
+					const local = inspectLocalAi(id);
+					return local ? Promise.resolve(local) : docker.getContainer(id).inspect();
+				},
 				authenticated: isCookieHeaderAuthenticated,
 				ports: resolveServicePorts()
 			})
 		: null;
+const localAi = await startLocalAi({
+	tailscale: Boolean(tailscale),
+	authenticated: isCookieHeaderAuthenticated,
+	ensureOrigin: launchTailscaleService
+});
 // @ts-expect-error: build output, types not available at source time
 const { handler } = await import('./handler.js');
 const serviceGateway = tailscale ? null : createRuntimeServiceGateway(`http://localhost:${PORT}`);
@@ -49,7 +58,10 @@ server.on('upgrade', (request, socket, head) => {
 	if (serviceGateway?.matches(request.url)) void serviceGateway.upgrade(request, socket, head);
 });
 attachTerminalServer(server);
-installShutdown(server, () => tailscaleRuntime?.close() ?? Promise.resolve());
+installShutdown(server, async () => {
+	await tailscaleRuntime?.close();
+	await localAi?.close();
+});
 server.listen(PORT, tailscale ? '127.0.0.1' : '0.0.0.0', () =>
 	console.log(`DevDashboard server running on port ${PORT}`)
 );
