@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
 	import { X, Plus, Terminal, ChevronDown, ChevronUp, Maximize2, Minimize2 } from 'lucide-svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 	import TerminalTab from './TerminalTab.svelte';
@@ -9,7 +10,6 @@
 		command?: string;
 		cwd?: string;
 	}
-
 	interface Props {
 		open: boolean;
 		sessions: TerminalSessionState[];
@@ -20,7 +20,6 @@
 		onCloseSession: (id: string) => Promise<void>;
 		onSetActive: (id: string) => void;
 	}
-
 	let {
 		open,
 		sessions,
@@ -31,13 +30,12 @@
 		onCloseSession,
 		onSetActive
 	}: Props = $props();
-
 	let height = $state(320);
 	let maximized = $state(false);
 	let dragging = $state(false);
+	let closeError = $state('');
+	let stopDrag = () => {};
 	const closingIds = new SvelteSet<string>();
-
-	const MIN_HEIGHT = 150;
 
 	function addGenericShell() {
 		const id = generateId();
@@ -45,70 +43,72 @@
 		onSetActive(id);
 		if (!open) onToggle();
 	}
-
 	async function closeSession(id: string) {
 		if (closingIds.has(id)) return;
 		closingIds.add(id);
+		closeError = '';
 		try {
 			await onCloseSession(id);
+		} catch {
+			closeError = 'Could not stop terminal. Retry when the connection is restored.';
 		} finally {
 			closingIds.delete(id);
 		}
 	}
-
-	function toggleMaximize() {
-		maximized = !maximized;
-	}
-
-	function onResizeStart(e: MouseEvent) {
+	function onResizeStart(event: MouseEvent) {
 		if (maximized) return;
-		e.preventDefault();
+		event.preventDefault();
+		stopDrag();
 		dragging = true;
-		const startY = e.clientY;
+		const startY = event.clientY;
 		const startHeight = height;
-
-		function onMouseMove(ev: MouseEvent) {
-			const delta = startY - ev.clientY;
-			const newHeight = Math.max(MIN_HEIGHT, startHeight + delta);
-			height = Math.min(newHeight, window.innerHeight - 50);
-		}
-
-		function onMouseUp() {
+		const move = (next: MouseEvent) => {
+			height = Math.min(
+				Math.max(150, startHeight + startY - next.clientY),
+				window.innerHeight - 50
+			);
+		};
+		stopDrag = () => {
 			dragging = false;
-			window.removeEventListener('mousemove', onMouseMove);
-			window.removeEventListener('mouseup', onMouseUp);
-		}
-
-		window.addEventListener('mousemove', onMouseMove);
-		window.addEventListener('mouseup', onMouseUp);
+			window.removeEventListener('mousemove', move);
+			window.removeEventListener('mouseup', stopDrag);
+		};
+		window.addEventListener('mousemove', move);
+		window.addEventListener('mouseup', stopDrag);
 	}
+	onDestroy(() => stopDrag());
 </script>
 
-<!-- Terminal drawer — fixed bottom -->
 <div
 	class="fixed right-0 bottom-0 left-0 z-40 flex flex-col border-t border-[#4c566a] bg-[#2e3440] {dragging
 		? ''
 		: 'transition-all duration-300'}"
-	style="height: {open ? (maximized ? '100vh' : `${height}px`) : '2.5rem'}"
+	style:height={open ? (maximized ? '100vh' : `${height}px`) : '2.5rem'}
 >
-	<!-- Resize handle -->
 	{#if open && !maximized}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
-			class="absolute top-0 right-0 left-0 z-50 h-1.5 cursor-ns-resize hover:bg-[#88c0d0]/30 active:bg-[#88c0d0]/50"
+			class="absolute top-0 right-0 left-0 z-50 h-1.5 cursor-ns-resize"
 			onmousedown={onResizeStart}
 		></div>
 	{/if}
-
-	<!-- Tab bar -->
-	<div class="flex h-10 shrink-0 items-center gap-1 overflow-x-auto border-b border-[#4c566a] px-2">
+	<div
+		class="flex h-10 shrink-0 items-center gap-1 overflow-x-auto border-b border-[#4c566a] px-2"
+		role="tablist"
+		aria-label="Terminals"
+	>
 		{#each sessions as session (session.id)}
 			<div
-				class="flex shrink-0 items-center rounded-t transition-colors {activeId === session.id
+				class="flex shrink-0 items-center rounded-t {activeId === session.id
 					? 'bg-[#3b4252] text-[#eceff4]'
-					: 'text-[#d8dee9]/60 hover:bg-[#3b4252]/60 hover:text-[#eceff4]'}"
+					: 'text-[#d8dee9]/60'}"
 			>
 				<button
+					data-terminal-tab={session.id}
+					id={`terminal-tab-${session.id}`}
+					role="tab"
+					aria-selected={activeId === session.id}
+					aria-controls={`terminal-pane-${session.id}`}
 					class="flex items-center gap-1.5 px-3 py-1 text-xs font-medium"
 					onclick={() => {
 						onSetActive(session.id);
@@ -116,79 +116,65 @@
 					}}
 					type="button"
 				>
-					<Terminal size={12} />
-					<span class="max-w-28 truncate">{session.name}</span>
+					<Terminal size={12} /><span class="max-w-28 truncate">{session.name}</span>
 				</button>
 				<button
-					class="pr-2 text-[#d8dee9]/40 transition-colors hover:text-[#bf616a] disabled:cursor-wait disabled:opacity-50"
+					class="pr-2 text-[#d8dee9]/40 disabled:opacity-50"
 					onclick={() => closeSession(session.id)}
 					disabled={closingIds.has(session.id)}
 					type="button"
-					aria-label="Close tab"
+					aria-label={`Stop ${session.name}`}><X size={11} /></button
 				>
-					<X size={11} />
-				</button>
 			</div>
 		{/each}
-
 		<button
 			onclick={addGenericShell}
-			class="shrink-0 rounded p-1 text-[#d8dee9]/40 transition-colors hover:bg-[#3b4252]/60 hover:text-[#eceff4]"
+			class="shrink-0 p-1 text-[#d8dee9]/60"
 			type="button"
-			aria-label="New shell"
+			aria-label="New shell"><Plus size={14} /></button
 		>
-			<Plus size={14} />
-		</button>
-
-		<!-- Spacer -->
 		<div class="flex-1"></div>
-
-		<!-- Maximize/Restore -->
 		{#if open}
 			<button
-				onclick={toggleMaximize}
-				class="shrink-0 rounded p-1 text-[#d8dee9]/60 transition-colors hover:bg-[#3b4252]/60 hover:text-[#eceff4]"
+				onclick={() => (maximized = !maximized)}
+				class="p-1 text-[#d8dee9]/60"
 				type="button"
 				aria-label={maximized ? 'Restore terminal' : 'Maximize terminal'}
+				>{#if maximized}<Minimize2 size={14} />{:else}<Maximize2 size={14} />{/if}</button
 			>
-				{#if maximized}
-					<Minimize2 size={14} />
-				{:else}
-					<Maximize2 size={14} />
-				{/if}
-			</button>
 		{/if}
-
-		<!-- Toggle drawer -->
 		<button
 			onclick={onToggle}
-			class="shrink-0 rounded p-1 text-[#d8dee9]/60 transition-colors hover:bg-[#3b4252]/60 hover:text-[#eceff4]"
+			class="p-1 text-[#d8dee9]/60"
 			type="button"
 			aria-label="Toggle terminal drawer"
+			aria-expanded={open}
+			>{#if open}<ChevronDown size={16} />{:else}<ChevronUp size={16} />{/if}</button
 		>
-			{#if open}
-				<ChevronDown size={16} />
-			{:else}
-				<ChevronUp size={16} />
-			{/if}
-		</button>
 	</div>
-
-	<!-- Terminal content area -->
-	{#if open}
-		<div class="relative flex-1 overflow-hidden p-2">
-			{#each sessions as session (session.id)}
-				<div class="absolute inset-2">
-					<TerminalTab
-						sessionId={session.id}
-						name={session.name}
-						command={session.command}
-						cwd={session.cwd ?? workspaceRoot}
-						active={activeId === session.id}
-						onExit={() => closeSession(session.id)}
-					/>
-				</div>
-			{/each}
-		</div>
-	{/if}
+	{#if closeError}<p role="alert" class="text-xs text-[#bf616a]">{closeError}</p>{/if}
+	<div class="relative min-h-0 flex-1 overflow-hidden" hidden={!open}>
+		{#each sessions as session (session.id)}
+			<div
+				id={`terminal-pane-${session.id}`}
+				data-terminal-pane={session.id}
+				role="tabpanel"
+				aria-labelledby={`terminal-tab-${session.id}`}
+				class="absolute inset-2"
+				hidden={!open || activeId !== session.id}
+				inert={!open || activeId !== session.id}
+			>
+				<TerminalTab
+					sessionId={session.id}
+					name={session.name}
+					command={session.command}
+					cwd={session.cwd ?? workspaceRoot}
+					active={activeId === session.id}
+					visible={open && activeId === session.id}
+					focusOnActivate={true}
+					onExit={() => closeSession(session.id)}
+				/>
+			</div>
+		{/each}
+	</div>
 </div>

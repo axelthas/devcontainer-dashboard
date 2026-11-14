@@ -654,6 +654,12 @@ test('dashboard policy refuses service-origin writes and reads while allowing lo
 		[
 			"import { AUTH_COOKIE_NAME, assertAuthConfigured, isSessionValid } from '$lib/server/auth';",
 			"const AUTH_COOKIE_NAME = 'session'; const assertAuthConfigured = () => {}; const isSessionValid = (token: string) => token === 'valid';"
+		],
+		[
+			"import { sameOrigin } from '$lib/server/requestPolicy';",
+			`import { sameOrigin } from ${JSON.stringify(
+				new URL('../../src/lib/server/requestPolicy.ts', import.meta.url).href
+			)};`
 		]
 	]);
 	const invoke = (method, headers, path = '/api/containers', valid = true) =>

@@ -1,122 +1,144 @@
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-/** Failed run logs are deleted after this period. */
+/** Logs expire after seven days; output caps count UTF-16 characters, not bytes. */
 export const RUN_LOG_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
-
-/** Builds and bootstrap runs keep at most this much output for their log. */
 export const RUN_LOG_MAX_CHARS = 5_000_000;
-
+export const RUN_LOG_FALLBACK_MAX_CHARS = 20_000_000;
+export const RUN_LOG_FALLBACK_MAX_COUNT = 32;
 export type RunLogKind = 'devcontainer-build' | 'bootstrap';
-
 export interface RunLogMetadata {
 	id: string;
 	kind: RunLogKind;
 	name: string;
-	/** Repository path for devcontainer builds; workspace path for bootstrap runs */
 	path: string;
 	configPath?: string;
 	startedAt: string;
 	endedAt: string;
 	exitCode: number;
 }
-
 export interface RunLog {
 	metadata: RunLogMetadata;
 	output: string;
 }
-
-const ID_PATTERN = /^[A-Za-z0-9-]{1,64}$/;
+const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 const ESC = 0x1b;
 const BEL = 0x07;
+const globalLogs = globalThis as typeof globalThis & { __runLogFallback?: Map<string, RunLog> };
+const memoryLogs = (globalLogs.__runLogFallback ??= new Map());
+const pending = new Set<Promise<void>>();
 
-// Logs that cannot be written to disk stay readable until the process restarts.
-const g = globalThis as typeof globalThis & {
-	__runLogFallback?: Map<string, RunLog>;
-};
-const memoryLogs = (g.__runLogFallback ??= new Map());
-
+/** Return the operator-owned persistent log directory. */
 export function runLogDir(): string {
 	return process.env.BUILD_LOG_DIR ?? '/data/build-logs';
 }
-
-function logFiles(id: string): { output: string; metadata: string } {
-	const dir = runLogDir();
-	return { output: join(dir, `${id}.log`), metadata: join(dir, `${id}.json`) };
+/** Derive safe file names only after validating the identity at each public entry point. */
+function logFiles(id: string) {
+	return { output: join(runLogDir(), `${id}.log`), metadata: join(runLogDir(), `${id}.json`) };
 }
-
-export async function saveRunLog(metadata: RunLogMetadata, output: string): Promise<void> {
-	if (!ID_PATTERN.test(metadata.id)) throw new Error('Invalid run log id');
-	const files = logFiles(metadata.id);
-	try {
-		await mkdir(runLogDir(), { recursive: true, mode: 0o700 });
-		await writeFile(files.output, output, { mode: 0o600 });
-		// Write the metadata last, so that a metadata file always has a complete log next to it.
-		await writeFile(files.metadata, JSON.stringify(metadata), { mode: 0o600 });
-	} catch (err) {
-		console.error(`Could not write the run log to ${runLogDir()}; keeping it in memory`, err);
-		memoryLogs.set(metadata.id, { metadata, output });
+/** Prune expired logs and evict oldest fallback entries to bound global memory. */
+function pruneMemory(now = Date.now()): void {
+	for (const [id, log] of memoryLogs)
+		if (
+			!Number.isFinite(Date.parse(log.metadata.endedAt)) ||
+			now - Date.parse(log.metadata.endedAt) > RUN_LOG_RETENTION_MS
+		)
+			memoryLogs.delete(id);
+	let size = [...memoryLogs.values()].reduce((sum, log) => sum + log.output.length, 0);
+	for (const [id, log] of [...memoryLogs].sort(
+		(a, b) => Date.parse(a[1].metadata.endedAt) - Date.parse(b[1].metadata.endedAt)
+	)) {
+		if (size <= RUN_LOG_FALLBACK_MAX_CHARS && memoryLogs.size <= RUN_LOG_FALLBACK_MAX_COUNT) break;
+		memoryLogs.delete(id);
+		size -= log.output.length;
 	}
 }
-
+/** Persist bounded output; preserve a bounded, expiring fallback on disk failure. */
+export function saveRunLog(metadata: RunLogMetadata, rawOutput: string): Promise<void> {
+	if (!ID_PATTERN.test(metadata.id)) return Promise.reject(new Error('Invalid run log id'));
+	const output = rawOutput.slice(-RUN_LOG_MAX_CHARS);
+	const operation = (async () => {
+		const files = logFiles(metadata.id);
+		try {
+			await mkdir(runLogDir(), { recursive: true, mode: 0o700 });
+			await writeFile(files.output, output, { mode: 0o600 });
+			await writeFile(files.metadata, JSON.stringify(metadata), { mode: 0o600 });
+			memoryLogs.delete(metadata.id);
+		} catch (error) {
+			console.error('Could not persist run log; using bounded memory fallback', error);
+			memoryLogs.set(metadata.id, { metadata, output });
+			pruneMemory();
+		}
+	})();
+	pending.add(operation);
+	void operation.finally(() => pending.delete(operation));
+	return operation;
+}
+/** Await exit-callback writes before graceful server termination. */
+export async function flushRunLogs(): Promise<void> {
+	await Promise.all([...pending]);
+}
+/** Read retained output; expired fallback output is never returned. */
 export async function readRunLog(id: string): Promise<RunLog | undefined> {
 	if (!ID_PATTERN.test(id)) return undefined;
-	const memoryLog = memoryLogs.get(id);
-	if (memoryLog) return memoryLog;
-
+	pruneMemory();
+	const memory = memoryLogs.get(id);
+	if (memory) return memory;
 	const files = logFiles(id);
 	try {
-		const [metadata, output] = await Promise.all([
-			readFile(files.metadata, 'utf-8'),
-			readFile(files.output, 'utf-8')
+		const [rawMetadata, output] = await Promise.all([
+			readFile(files.metadata, 'utf8'),
+			readFile(files.output, 'utf8')
 		]);
-		return { metadata: JSON.parse(metadata) as RunLogMetadata, output };
+		const metadata = JSON.parse(rawMetadata) as RunLogMetadata;
+		if (metadata.id !== id) return undefined;
+		return { metadata, output: output.slice(-RUN_LOG_MAX_CHARS) };
 	} catch {
 		return undefined;
 	}
 }
-
+/** Remove persisted and fallback output together. */
 export async function deleteRunLog(id: string): Promise<void> {
 	if (!ID_PATTERN.test(id)) return;
 	memoryLogs.delete(id);
 	const files = logFiles(id);
 	await Promise.all([rm(files.output, { force: true }), rm(files.metadata, { force: true })]);
 }
-
-/** Lists the persisted run logs and deletes the logs that are older than the retention period. */
+/** Include fallback entries even when the disk directory cannot be read. */
 export async function listRunLogs(now = Date.now()): Promise<RunLogMetadata[]> {
-	let entries: string[];
+	pruneMemory(now);
+	const logs = new Map([...memoryLogs].map(([id, log]) => [id, log.metadata]));
+	let entries: string[] = [];
 	try {
 		entries = await readdir(runLogDir());
 	} catch {
-		return [];
+		/* Fallback logs remain discoverable. */
 	}
-
-	const logs: RunLogMetadata[] = [];
 	for (const entry of entries) {
 		if (!entry.endsWith('.json')) continue;
-		const id = entry.slice(0, -'.json'.length);
+		const id = entry.slice(0, -5);
+		if (!ID_PATTERN.test(id) || logs.has(id)) continue;
 		try {
-			const raw = await readFile(join(runLogDir(), entry), 'utf-8');
-			const metadata = JSON.parse(raw) as RunLogMetadata;
+			const metadata = JSON.parse(await readFile(logFiles(id).metadata, 'utf8')) as RunLogMetadata;
 			if (metadata.id !== id) continue;
-			if (now - new Date(metadata.endedAt).getTime() > RUN_LOG_RETENTION_MS) {
+			if (
+				!Number.isFinite(Date.parse(metadata.endedAt)) ||
+				now - Date.parse(metadata.endedAt) > RUN_LOG_RETENTION_MS
+			) {
 				await deleteRunLog(id);
 				continue;
 			}
-			logs.push(metadata);
+			logs.set(id, metadata);
 		} catch {
-			// ignore unreadable metadata files
+			/* Ignore unreadable metadata. */
 		}
 	}
-	return logs;
+	return [...logs.values()];
 }
-
 function isCsiFinalByte(code: number): boolean {
 	return code >= 0x40 && code <= 0x7e;
 }
-
-/** Returns the index after the escape sequence that starts at `index`. */
+/** Skip terminal escape sequences for plain-text downloads. */
 function skipEscapeSequence(text: string, index: number): number {
 	const type = text[index + 1];
 	let i = index + 2;
@@ -134,11 +156,7 @@ function skipEscapeSequence(text: string, index: number): number {
 	}
 	return Math.min(index + 2, text.length);
 }
-
-/**
- * Converts terminal output to plain text for a downloaded log: removes escape sequences and
- * keeps only the final state of lines that progress output rewrote with carriage returns.
- */
+/** Remove ANSI sequences and retain the final carriage-return state of each line. */
 export function toPlainText(output: string): string {
 	let stripped = '';
 	let start = 0;
@@ -153,7 +171,8 @@ export function toPlainText(output: string): string {
 		start = i;
 	}
 	stripped += output.slice(start);
-
-	const lines = stripped.split(/\r?\n/);
-	return lines.map((line) => line.slice(line.lastIndexOf('\r') + 1)).join('\n');
+	return stripped
+		.split(/\r?\n/)
+		.map((line) => line.slice(line.lastIndexOf('\r') + 1))
+		.join('\n');
 }

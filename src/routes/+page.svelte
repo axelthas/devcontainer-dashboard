@@ -192,6 +192,9 @@
 	let terminalOpen = $state(false);
 	let terminalSessions = $state<TerminalSession[]>([]);
 	let activeTerminalId = $state<string | null>(null);
+	let terminalRevision = 0;
+	let terminalPoll = 0;
+	const closedTerminalIds = new SvelteSet<string>();
 
 	function openTerminalWith(id: string) {
 		terminalOpen = true;
@@ -199,10 +202,13 @@
 	}
 
 	function addTerminalSession(session: TerminalSession) {
+		terminalRevision++;
 		terminalSessions = [...terminalSessions, session];
 	}
 
 	function removeTerminalSessionLocally(id: string) {
+		terminalRevision++;
+		closedTerminalIds.add(id);
 		terminalSessions = terminalSessions.filter((s) => s.id !== id);
 		confirmedTerminalSessionIds.delete(id);
 		if (activeTerminalId === id) {
@@ -212,15 +218,13 @@
 	}
 
 	async function closeTerminalSession(id: string) {
-		try {
-			await fetch('/api/terminal/sessions', {
-				method: 'DELETE',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ id })
-			});
-		} finally {
-			removeTerminalSessionLocally(id);
-		}
+		const response = await fetch('/api/terminal/sessions', {
+			method: 'DELETE',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ id })
+		});
+		if (!response.ok) throw new Error('Could not stop terminal');
+		removeTerminalSessionLocally(id);
 	}
 
 	// Tracks which local tabs have been confirmed to exist server-side at least once, so a
@@ -228,9 +232,12 @@
 	const confirmedTerminalSessionIds = new SvelteSet<string>();
 
 	async function refreshTerminalSessions() {
-		const res = await fetch('/api/terminal/sessions');
+		const poll = ++terminalPoll;
+		const revision = terminalRevision;
+		const res = await fetch('/api/terminal/sessions', { cache: 'no-store' });
 		if (!res.ok) return;
 		const serverSessions: TerminalSession[] = await res.json();
+		if (poll !== terminalPoll || revision !== terminalRevision) return;
 		const serverIds = new SvelteSet(serverSessions.map((s) => s.id));
 		const localIds = new SvelteSet(terminalSessions.map((s) => s.id));
 
@@ -242,7 +249,7 @@
 			(s) => serverIds.has(s.id) || !confirmedTerminalSessionIds.has(s.id)
 		);
 		// Add tabs for sessions that exist server-side but aren't open locally yet
-		const added = serverSessions.filter((s) => !localIds.has(s.id));
+		const added = serverSessions.filter((s) => !localIds.has(s.id) && !closedTerminalIds.has(s.id));
 
 		if (kept.length !== terminalSessions.length || added.length > 0) {
 			terminalSessions = [...kept, ...added];

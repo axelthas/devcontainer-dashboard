@@ -1,123 +1,250 @@
 <script lang="ts">
-	import { SvelteURLSearchParams } from 'svelte/reactivity';
+	import { tick } from 'svelte';
 	import type { Terminal } from '@xterm/xterm';
 	import type { FitAddon } from '@xterm/addon-fit';
 	import { TERMINAL_FONT_FAMILY, TERMINAL_THEME } from '$lib/terminalTheme';
+	import { ensureTerminal } from '$lib/terminalCreation';
 
 	interface Props {
 		sessionId: string;
 		name?: string;
 		command?: string;
 		cwd?: string;
-		/** Session kind for new sessions; only shell sessions are listed in the terminal drawer */
 		kind?: 'shell' | 'bootstrap' | 'devcontainer-build';
 		active: boolean;
+		visible?: boolean;
+		focusOnActivate?: boolean;
 		fontSize?: number;
 		onExit?: (exitCode: number) => void;
 	}
+	type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'failed' | 'exited';
+	let {
+		sessionId,
+		name,
+		command,
+		cwd,
+		kind,
+		active,
+		visible = active,
+		focusOnActivate = false,
+		fontSize = 13,
+		onExit
+	}: Props = $props();
+	let ready = $state(false);
+	let state = $state<ConnectionState>('connecting');
+	let reason = $state('');
+	let terminal: Terminal | undefined;
+	let fitAddon: FitAddon | undefined;
+	let socket: WebSocket | undefined;
+	let retry = $state<() => void>(() => {});
+	let activationElement: Element | null = null;
 
-	let { sessionId, name, command, cwd, kind, active, fontSize = 13, onExit }: Props = $props();
-
-	let terminal: Terminal | null = null;
-	let fitAddon: FitAddon | null = null;
-	let socket: WebSocket | null = null;
-	let initialized = false;
-
+	/** Own every resource for one viewer. Disposing a viewer never stops its PTY. */
 	function terminalAttachment(node: HTMLDivElement) {
-		let destroyed = false;
+		let disposed = false;
+		let generation = 0;
+		let retries = 0;
+		let retryTimer: ReturnType<typeof setTimeout> | undefined;
+		let connectTimer: ReturnType<typeof setTimeout> | undefined;
+		let reportedExit = false;
+		const controller = new AbortController();
+		const subscriptions: { dispose(): void }[] = [];
+		const current = (version: number) => !disposed && version === generation;
 
-		async function init() {
-			const { Terminal: XTerm } = await import('@xterm/xterm');
-			const { FitAddon } = await import('@xterm/addon-fit');
-
-			if (destroyed) return;
-
-			terminal = new XTerm({
-				theme: TERMINAL_THEME,
-				fontFamily: TERMINAL_FONT_FAMILY,
-				fontSize,
-				cursorBlink: true,
-				scrollback: 5000
-			});
-
-			fitAddon = new FitAddon();
-			terminal.loadAddon(fitAddon);
-			terminal.open(node);
-
-			const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-			const params = new SvelteURLSearchParams({ sessionId });
-			if (name) params.set('name', name);
-			if (command) params.set('command', command);
-			if (cwd) params.set('cwd', cwd);
-			if (kind) params.set('kind', kind);
-			const wsUrl = `${proto}://${location.host}/api/terminal?${params}`;
-
-			socket = new WebSocket(wsUrl);
-
-			// Register onResize BEFORE any fit() call so the event is never dropped
-			terminal.onResize(({ cols, rows }) => {
-				if (socket?.readyState === WebSocket.OPEN) {
-					socket.send(JSON.stringify({ type: 'resize', cols, rows }));
-				}
-			});
-
-			terminal.onData((data) => {
-				if (socket?.readyState === WebSocket.OPEN) {
-					socket.send(JSON.stringify({ type: 'data', data }));
-				}
-			});
-
-			socket.onopen = () => {
-				fitAddon!.fit();
-				// Send initial size explicitly in case onResize didn't fire
-				const dims = fitAddon!.proposeDimensions();
-				if (dims) {
-					socket!.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }));
-				}
-				initialized = true;
-			};
-
-			socket.onmessage = (evt) => {
-				try {
-					const msg = JSON.parse(evt.data as string);
-					if (msg.type === 'data') terminal?.write(msg.data as string);
-					else if (msg.type === 'exit') onExit?.(msg.exitCode ?? 0);
-				} catch {
-					terminal?.write(evt.data as string);
-				}
-			};
-		}
-
-		init();
-
-		return () => {
-			destroyed = true;
+		/** Attach to an existing process only. This path cannot start a command. */
+		async function connect() {
+			const version = ++generation;
+			clearTimeout(retryTimer);
+			clearTimeout(connectTimer);
 			socket?.close();
+			state = 'connecting';
+			try {
+				const probe = await fetch(`/api/terminal/sessions?id=${encodeURIComponent(sessionId)}`, {
+					signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10_000)])
+				});
+				if (!current(version)) return;
+				if (!probe.ok) {
+					state = 'failed';
+					reason =
+						probe.status === 401
+							? 'Session expired. Sign in, then retry.'
+							: probe.status === 404
+								? 'Process no longer exists. Start a new terminal explicitly.'
+								: 'Could not check terminal. Retry the connection.';
+					return;
+				}
+				const ws = new WebSocket(
+					`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/terminal?${new URLSearchParams({ sessionId })}`
+				);
+				socket = ws;
+				connectTimer = setTimeout(() => {
+					if (current(version)) ws.close();
+				}, 10_000);
+				ws.onmessage = (event) => {
+					if (!current(version)) return;
+					try {
+						const message = JSON.parse(event.data);
+						if (message.type === 'ready') {
+							clearTimeout(connectTimer);
+							state = 'connected';
+							reason = '';
+							retries = 0;
+							terminal?.reset();
+							terminal?.write(message.output ?? '');
+							if (visible) fitAddon?.fit();
+							const dims = fitAddon?.proposeDimensions();
+							if (dims)
+								ws.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }));
+						} else if (message.type === 'data' && typeof message.data === 'string')
+							terminal?.write(message.data);
+						else if (message.type === 'exit') {
+							state = 'exited';
+							reason = `Process exited (${message.exitCode ?? 0}).`;
+							if (!reportedExit) {
+								reportedExit = true;
+								onExit?.(message.exitCode ?? 0);
+							}
+						} else if (message.type === 'missing') {
+							state = 'failed';
+							reason = 'Process no longer exists. Start a new terminal explicitly.';
+						}
+					} catch {
+						state = 'failed';
+						reason = 'Invalid terminal response.';
+						ws.close(1008);
+					}
+				};
+				ws.onerror = () => {
+					if (current(version)) reason = 'Terminal connection failed.';
+				};
+				ws.onclose = (event) => {
+					if (!current(version)) return;
+					clearTimeout(connectTimer);
+					if (state === 'exited' || state === 'failed') return;
+					if (event.code === 1008) {
+						state = 'failed';
+						reason = event.reason || 'Connection rejected. Sign in and retry.';
+						return;
+					}
+					scheduleReconnect();
+				};
+			} catch {
+				if (current(version)) scheduleReconnect();
+			}
+		}
+		/** Bound automatic recovery. Manual retry still attaches, never recreates. */
+		function scheduleReconnect() {
+			state = 'disconnected';
+			reason = 'Disconnected. The process can continue in the background.';
+			if (retries >= 5) {
+				state = 'failed';
+				return;
+			}
+			retryTimer = setTimeout(() => void connect(), Math.min(500 * 2 ** retries++, 8000));
+		}
+		async function init() {
+			try {
+				const [{ Terminal: XTerm }, { FitAddon }] = await Promise.all([
+					import('@xterm/xterm'),
+					import('@xterm/addon-fit')
+				]);
+				if (disposed) return;
+				terminal = new XTerm({
+					theme: TERMINAL_THEME,
+					fontFamily: TERMINAL_FONT_FAMILY,
+					fontSize,
+					cursorBlink: true,
+					scrollback: 5000
+				});
+				fitAddon = new FitAddon();
+				terminal.loadAddon(fitAddon);
+				terminal.open(node);
+				ready = true;
+				subscriptions.push(
+					terminal.onResize(({ cols, rows }) => {
+						if (state === 'connected' && socket?.readyState === WebSocket.OPEN)
+							socket.send(JSON.stringify({ type: 'resize', cols, rows }));
+					})
+				);
+				subscriptions.push(
+					terminal.onData((data) => {
+						if (state === 'connected' && active && visible && socket?.readyState === WebSocket.OPEN)
+							socket.send(JSON.stringify({ type: 'data', data }));
+					})
+				);
+				await ensureTerminal({ id: sessionId, name, command, cwd, kind }, controller.signal);
+				if (!disposed) await connect();
+			} catch (error) {
+				if (!disposed) {
+					state = 'failed';
+					reason = error instanceof Error ? error.message : 'Could not initialize terminal.';
+				}
+			}
+		}
+		retry = () => {
+			retries = 0;
+			if (terminal) void connect();
+			else void init();
+		};
+		void init();
+		return () => {
+			disposed = true;
+			generation++;
+			controller.abort();
+			clearTimeout(retryTimer);
+			clearTimeout(connectTimer);
+			socket?.close();
+			for (const subscription of subscriptions) subscription.dispose();
 			terminal?.dispose();
+			terminal = undefined;
+			fitAddon = undefined;
+			ready = false;
+			retry = () => {};
 		};
 	}
-
 	$effect(() => {
-		if (active && fitAddon && initialized) {
-			// Delay to let CSS transitions finish on initial open
-			setTimeout(() => fitAddon?.fit(), 350);
-		}
+		if (active && visible) activationElement = document.activeElement;
 	});
-
-	function resizeObserverAction(node: HTMLDivElement) {
-		const ro = new ResizeObserver(() => {
-			if (active && fitAddon && initialized) {
-				fitAddon.fit();
-			}
+	$effect(() => {
+		if (!active || !visible || !ready) return;
+		let cancelled = false;
+		let frame = 0;
+		void tick().then(() => {
+			if (cancelled) return;
+			frame = requestAnimationFrame(() => {
+				if (cancelled || !active || !visible) return;
+				fitAddon?.fit();
+				if (
+					focusOnActivate &&
+					(document.activeElement === activationElement || document.activeElement === document.body)
+				)
+					terminal?.focus();
+			});
 		});
-		ro.observe(node);
-		return () => ro.disconnect();
+		return () => {
+			cancelled = true;
+			cancelAnimationFrame(frame);
+		};
+	});
+	function observeSize(node: HTMLDivElement) {
+		const observer = new ResizeObserver(() => {
+			if (visible && ready) fitAddon?.fit();
+		});
+		observer.observe(node);
+		return () => observer.disconnect();
 	}
 </script>
 
-<div
-	{@attach terminalAttachment}
-	{@attach resizeObserverAction}
-	class="h-full w-full"
-	style="display: {active ? 'block' : 'none'}"
-></div>
+<div class="flex h-full w-full flex-col" hidden={!visible}>
+	{#if state !== 'connected'}
+		<div role="status" class="flex shrink-0 items-center gap-2 px-2 py-1 text-xs text-[#d8dee9]">
+			<span>{reason || 'Connecting...'}</span>
+			{#if state === 'failed' || state === 'disconnected'}<button
+					type="button"
+					onclick={retry}
+					class="underline">Retry connection</button
+				>{/if}
+		</div>
+	{/if}
+	<div {@attach terminalAttachment} {@attach observeSize} class="min-h-0 w-full flex-1"></div>
+</div>

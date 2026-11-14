@@ -34,7 +34,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			throw error(400, 'Resolved path escapes workspace root');
 		}
 	} else {
-		// No destDir provided — use a placeholder keyed on the run ID
+		// No destDir provided: use a placeholder keyed on the run ID.
 		normalizedDest = '_bootstrap-' + id.slice(0, 8);
 	}
 
@@ -53,7 +53,7 @@ export const DELETE: RequestHandler = async ({ request }) => {
 
 	if (typeof id !== 'string' || !id.trim()) throw error(400, 'id is required');
 
-	removeBootstrapRun(id.trim());
+	await removeBootstrapRun(id.trim());
 
 	return json({ success: true });
 };
