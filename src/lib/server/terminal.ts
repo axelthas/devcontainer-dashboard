@@ -118,7 +118,7 @@ export function createPersistentSession(
 		throw new Error('Invalid terminal output limit');
 	const executable = options?.executable;
 	const child = pty.spawn(
-		executable?.file ?? (command ? '/bin/bash' : process.env.SHELL ?? '/bin/bash'),
+		executable?.file ?? (command ? '/bin/bash' : (process.env.SHELL ?? '/bin/bash')),
 		executable?.args ?? (command ? ['-c', command] : []),
 		{
 			name: 'xterm-256color',

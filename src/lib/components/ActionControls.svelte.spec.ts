@@ -42,9 +42,12 @@ describe('Rebuild and restart', () => {
 		['grid', DevcontainerCard],
 		['list', DevcontainerRow]
 	] as const)('is available in the %s view', async (_name, Component) => {
-		mounted.push(mount(Component, {
-			target: target(), props: { container, onRefresh: async () => {} }
-		}));
+		mounted.push(
+			mount(Component, {
+				target: target(),
+				props: { container, onRefresh: async () => {} }
+			})
+		);
 		await expect.element(page.getByRole('button', { name: 'Rebuild and restart' })).toBeEnabled();
 	});
 
@@ -53,10 +56,17 @@ describe('Rebuild and restart', () => {
 		const fetch = vi.fn();
 		vi.stubGlobal('confirm', confirm);
 		vi.stubGlobal('fetch', fetch);
-		mounted.push(mount(ActionControls, {
-			target: target(),
-			props: { id: container.id, containerState: 'running', rebuildContainer: container, onRefresh: async () => {} }
-		}));
+		mounted.push(
+			mount(ActionControls, {
+				target: target(),
+				props: {
+					id: container.id,
+					containerState: 'running',
+					rebuildContainer: container,
+					onRefresh: async () => {}
+				}
+			})
+		);
 		await page.getByRole('button', { name: 'Rebuild and restart' }).click();
 		expect(fetch).not.toHaveBeenCalled();
 		expect(confirm).toHaveBeenCalledWith(expect.stringContaining('fixture'));
@@ -64,30 +74,69 @@ describe('Rebuild and restart', () => {
 	});
 
 	it('accepts the server-created session, shows progress and does not cancel it on unmount', async () => {
-		const fetch = vi.fn()
-			.mockResolvedValueOnce(Response.json({ id: 'build-1', repoPath: container.localWorkspacePath, repoName: 'fixture' }, { status: 202 }))
+		const fetch = vi
+			.fn()
+			.mockResolvedValueOnce(
+				Response.json(
+					{ id: 'build-1', repoPath: container.localWorkspacePath, repoName: 'fixture' },
+					{ status: 202 }
+				)
+			)
 			.mockResolvedValue(Response.json({ id: 'build-1', status: 'running' }));
 		const onOpenBuild = vi.fn();
-		vi.stubGlobal('confirm', vi.fn(() => true));
+		vi.stubGlobal(
+			'confirm',
+			vi.fn(() => true)
+		);
 		vi.stubGlobal('fetch', fetch);
-		mounted.push(mount(ActionControls, {
-			target: target(),
-			props: { id: container.id, containerState: 'running', rebuildContainer: container, onRefresh: async () => {}, onOpenBuild }
-		}));
+		mounted.push(
+			mount(ActionControls, {
+				target: target(),
+				props: {
+					id: container.id,
+					containerState: 'running',
+					rebuildContainer: container,
+					onRefresh: async () => {},
+					onOpenBuild
+				}
+			})
+		);
 		await page.getByRole('button', { name: 'Rebuild and restart' }).click();
 		await expect.element(page.getByRole('status')).toHaveTextContent('Rebuilding');
-		expect(onOpenBuild).toHaveBeenCalledWith('build-1', '', 'Rebuild fixture', container.localWorkspacePath);
+		expect(onOpenBuild).toHaveBeenCalledWith(
+			'build-1',
+			'',
+			'Rebuild fixture',
+			container.localWorkspacePath
+		);
 		await unmount(mounted.pop()!);
 		expect(fetch.mock.calls.every((call) => call[1]?.method !== 'DELETE')).toBe(true);
 	});
 
 	it('shows request errors and permits retry instead of looking successful', async () => {
-		vi.stubGlobal('confirm', vi.fn(() => true));
-		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ message: 'A rebuild is already running' }, { status: 409 })));
-		mounted.push(mount(ActionControls, {
-			target: target(),
-			props: { id: container.id, containerState: 'running', rebuildContainer: container, onRefresh: async () => {} }
-		}));
+		vi.stubGlobal(
+			'confirm',
+			vi.fn(() => true)
+		);
+		vi.stubGlobal(
+			'fetch',
+			vi
+				.fn()
+				.mockResolvedValue(
+					Response.json({ message: 'A rebuild is already running' }, { status: 409 })
+				)
+		);
+		mounted.push(
+			mount(ActionControls, {
+				target: target(),
+				props: {
+					id: container.id,
+					containerState: 'running',
+					rebuildContainer: container,
+					onRefresh: async () => {}
+				}
+			})
+		);
 		await page.getByRole('button', { name: 'Rebuild and restart' }).click();
 		await expect.element(page.getByRole('alert')).toHaveTextContent('A rebuild is already running');
 		await expect.element(page.getByRole('button', { name: 'Rebuild and restart' })).toBeEnabled();
@@ -95,31 +144,62 @@ describe('Rebuild and restart', () => {
 
 	it('refreshes discovery on completion and reports a failed build', async () => {
 		const onRefresh = vi.fn(async () => {});
-		vi.stubGlobal('confirm', vi.fn(() => true));
-		vi.stubGlobal('fetch', vi.fn()
-			.mockResolvedValueOnce(Response.json({ id: 'build-failed', repoName: 'fixture', repoPath: container.localWorkspacePath }, { status: 202 }))
-			.mockResolvedValueOnce(Response.json({ id: 'build-failed', status: 'failed' })));
-		mounted.push(mount(ActionControls, {
-			target: target(),
-			props: { id: container.id, containerState: 'exited', rebuildContainer: container, onRefresh }
-		}));
+		vi.stubGlobal(
+			'confirm',
+			vi.fn(() => true)
+		);
+		vi.stubGlobal(
+			'fetch',
+			vi
+				.fn()
+				.mockResolvedValueOnce(
+					Response.json(
+						{ id: 'build-failed', repoName: 'fixture', repoPath: container.localWorkspacePath },
+						{ status: 202 }
+					)
+				)
+				.mockResolvedValueOnce(Response.json({ id: 'build-failed', status: 'failed' }))
+		);
+		mounted.push(
+			mount(ActionControls, {
+				target: target(),
+				props: {
+					id: container.id,
+					containerState: 'exited',
+					rebuildContainer: container,
+					onRefresh
+				}
+			})
+		);
 		await page.getByRole('button', { name: 'Rebuild and restart' }).click();
 		await expect.element(page.getByRole('alert')).toHaveTextContent('Rebuild failed');
 		expect(onRefresh).toHaveBeenCalledOnce();
 	});
 
 	it('disables rebuilding when the exact configuration label is absent', async () => {
-		mounted.push(mount(ActionControls, {
-			target: target(),
-			props: { id: container.id, containerState: 'running', rebuildContainer: { ...container, devcontainerConfigFile: undefined }, onRefresh: async () => {} }
-		}));
+		mounted.push(
+			mount(ActionControls, {
+				target: target(),
+				props: {
+					id: container.id,
+					containerState: 'running',
+					rebuildContainer: { ...container, devcontainerConfigFile: undefined },
+					onRefresh: async () => {}
+				}
+			})
+		);
 		await expect.element(page.getByRole('button', { name: 'Rebuild and restart' })).toBeDisabled();
 	});
 
 	it('does not add rebuilding to unrelated Docker service controls', async () => {
-		mounted.push(mount(ActionControls, {
-			target: target(), props: { id: container.id, containerState: 'running', onRefresh: async () => {} }
-		}));
-		await expect.element(page.getByRole('button', { name: 'Rebuild and restart' })).not.toBeInTheDocument();
+		mounted.push(
+			mount(ActionControls, {
+				target: target(),
+				props: { id: container.id, containerState: 'running', onRefresh: async () => {} }
+			})
+		);
+		await expect
+			.element(page.getByRole('button', { name: 'Rebuild and restart' }))
+			.not.toBeInTheDocument();
 	});
 });

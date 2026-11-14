@@ -35,7 +35,9 @@ export async function resolveDevcontainerTarget(
 	const repo = resolve(repoPath);
 	const config = resolve(configPath);
 	if (!isWithin(root, repo) || !isWithin(repo, config)) {
-		throw new DevcontainerTargetError('Workspace and configuration must be inside the workspace root');
+		throw new DevcontainerTargetError(
+			'Workspace and configuration must be inside the workspace root'
+		);
 	}
 	try {
 		const [realRoot, realRepo, realConfig, repoInfo, configInfo] = await Promise.all([
@@ -46,10 +48,14 @@ export async function resolveDevcontainerTarget(
 			stat(config)
 		]);
 		if (!repoInfo.isDirectory() || !configInfo.isFile()) {
-			throw new DevcontainerTargetError('Workspace must be a directory and configuration must be a file');
+			throw new DevcontainerTargetError(
+				'Workspace must be a directory and configuration must be a file'
+			);
 		}
 		if (!isWithin(realRoot, realRepo) || !isWithin(realRepo, realConfig)) {
-			throw new DevcontainerTargetError('Workspace or configuration symlink escapes its allowed root');
+			throw new DevcontainerTargetError(
+				'Workspace or configuration symlink escapes its allowed root'
+			);
 		}
 		return { repoPath: repo, configPath: config, canonicalRepoPath: realRepo };
 	} catch (cause) {

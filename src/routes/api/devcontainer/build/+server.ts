@@ -5,7 +5,10 @@ import {
 	startDevcontainerBuild,
 	removeDevcontainerBuild
 } from '$lib/server/devcontainerBuilds';
-import { DevcontainerTargetError, resolveDevcontainerTarget } from '$lib/server/devcontainerRebuild';
+import {
+	DevcontainerTargetError,
+	resolveDevcontainerTarget
+} from '$lib/server/devcontainerRebuild';
 import { randomUUID } from 'node:crypto';
 import { normalize, join, relative } from 'node:path';
 import { access } from 'node:fs/promises';
@@ -26,7 +29,8 @@ export const POST: RequestHandler = async ({ request }) => {
 	}
 
 	const normalized = normalize(repoPath.trim());
-	let selectedConfig = typeof configPath === 'string' ? join(normalized, configPath.trim()) : undefined;
+	let selectedConfig =
+		typeof configPath === 'string' ? join(normalized, configPath.trim()) : undefined;
 	// Preserve CLI default discovery, but validate the selected default before acquiring a build lock.
 	if (!selectedConfig) {
 		for (const candidate of ['.devcontainer/devcontainer.json', '.devcontainer.json']) {
@@ -39,7 +43,8 @@ export const POST: RequestHandler = async ({ request }) => {
 			}
 		}
 	}
-	if (!selectedConfig) throw error(400, 'No default devcontainer configuration. Select a configuration.');
+	if (!selectedConfig)
+		throw error(400, 'No default devcontainer configuration. Select a configuration.');
 
 	try {
 		const target = await resolveDevcontainerTarget(WORKSPACE_ROOT, normalized, selectedConfig);
@@ -53,7 +58,10 @@ export const POST: RequestHandler = async ({ request }) => {
 	} catch (cause) {
 		if (cause instanceof DevcontainerTargetError) throw error(400, cause.message);
 		if (cause instanceof DevcontainerBuildConflict) throw error(409, cause.message);
-		throw error(503, 'Could not start build. Check Dev Containers CLI availability and terminal capacity.');
+		throw error(
+			503,
+			'Could not start build. Check Dev Containers CLI availability and terminal capacity.'
+		);
 	}
 };
 

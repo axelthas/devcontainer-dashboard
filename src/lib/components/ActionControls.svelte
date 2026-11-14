@@ -1,6 +1,15 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
-	import { Play, Square, RotateCw, Loader2, Trash2, Code, TerminalSquare, Hammer } from 'lucide-svelte';
+	import {
+		Play,
+		Square,
+		RotateCw,
+		Loader2,
+		Trash2,
+		Code,
+		TerminalSquare,
+		Hammer
+	} from 'lucide-svelte';
 	import type { ContainerData } from '$lib/types';
 
 	interface Props {
@@ -70,7 +79,10 @@
 			if (build.status !== 'running') {
 				rebuildSessionId = null;
 				loadingAction = null;
-				actionError = build.status === 'failed' ? 'Rebuild failed. Check the build terminal or workspace log.' : '';
+				actionError =
+					build.status === 'failed'
+						? 'Rebuild failed. Check the build terminal or workspace log.'
+						: '';
 				await onRefresh();
 				return;
 			}
@@ -90,7 +102,8 @@
 			!confirm(
 				`Rebuild and restart "${rebuildContainer.projectName}" (${id})?\n\nThis replaces the container, interrupts its services and terminals, and discards changes in its writable layer. Workspace files and volumes are not deleted, but lifecycle scripts can change mounted data. There is no automatic rollback.`
 			)
-		) return;
+		)
+			return;
 		loadingAction = 'rebuild';
 		actionError = '';
 		try {
@@ -159,7 +172,9 @@
 				disabled={!canRebuild || loadingAction !== null}
 				onclick={handleRebuild}
 				aria-label="Rebuild and restart"
-				title={canRebuild ? 'Rebuild and restart' : 'Rebuild unavailable: workspace or exact configuration label is missing'}
+				title={canRebuild
+					? 'Rebuild and restart'
+					: 'Rebuild unavailable: workspace or exact configuration label is missing'}
 			>
 				{#if loadingAction === 'rebuild'}
 					<Loader2 size={16} class="animate-spin" />
@@ -221,7 +236,9 @@
 		</button>
 	</div>
 	{#if loadingAction === 'rebuild'}
-		<p role="status" class="max-w-64 text-xs text-[#4c566a] dark:text-[#d8dee9]">Rebuilding. Output is available in the build terminal.</p>
+		<p role="status" class="max-w-64 text-xs text-[#4c566a] dark:text-[#d8dee9]">
+			Rebuilding. Output is available in the build terminal.
+		</p>
 	{/if}
 	{#if actionError}
 		<p role="alert" class="max-w-64 text-xs text-[#bf616a]">{actionError}</p>

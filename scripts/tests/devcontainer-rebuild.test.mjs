@@ -96,11 +96,15 @@ export default {
 			'$lib/server/devcontainerRebuild': './targets.mjs'
 		}
 	);
-	buildRoute = await sourceModule('src/routes/api/devcontainer/build/+server.ts', 'build-route.mjs', {
-		'@sveltejs/kit': './boundaries.mjs',
-		'$lib/server/devcontainerBuilds': './builds.mjs',
-		'$lib/server/devcontainerRebuild': './targets.mjs'
-	});
+	buildRoute = await sourceModule(
+		'src/routes/api/devcontainer/build/+server.ts',
+		'build-route.mjs',
+		{
+			'@sveltejs/kit': './boundaries.mjs',
+			'$lib/server/devcontainerBuilds': './builds.mjs',
+			'$lib/server/devcontainerRebuild': './targets.mjs'
+		}
+	);
 	await writeFile(
 		join(temporary, 'terminal-boundaries.mjs'),
 		`const s = globalThis.__dashboardRebuildTests;
@@ -131,9 +135,18 @@ export function sameOrigin() { return true; }
 beforeEach(() => {
 	globalThis.__devcontainerBuilds.clear();
 	Object.assign(state, {
-		spawns: [], stops: [], logs: [], deletedLogs: [], exits: new Map(), ptySpawns: [],
-		spawnError: undefined, stopPromise: undefined, inspectError: undefined,
-		inspections: [], lists: [], actions: [],
+		spawns: [],
+		stops: [],
+		logs: [],
+		deletedLogs: [],
+		exits: new Map(),
+		ptySpawns: [],
+		spawnError: undefined,
+		stopPromise: undefined,
+		inspectError: undefined,
+		inspections: [],
+		lists: [],
+		actions: [],
 		info: { Id: fullId, Config: { Labels: { ...labels } }, State: { Running: true } },
 		matches: [{ Id: fullId }]
 	});
@@ -153,9 +166,13 @@ after(async () => {
 
 /** Construct a request event without bypassing handler input validation. */
 function buildRequest(body) {
-	return { request: new Request('http://localhost/api/devcontainer/build', {
-		method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
-	}) };
+	return {
+		request: new Request('http://localhost/api/devcontainer/build', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(body)
+		})
+	};
 }
 
 test('resolves the selected named configuration, not another available configuration', async () => {
@@ -174,18 +191,33 @@ test('rejects either missing identity label', async () => {
 });
 
 test('rejects root itself, traversal, prefix collisions, relative paths and control characters', async () => {
-	for (const badRepo of [root, join(root, '../outside'), `${root}-other/repo`, 'relative', `${repo}\n`]) {
+	for (const badRepo of [
+		root,
+		join(root, '../outside'),
+		`${root}-other/repo`,
+		'relative',
+		`${repo}\n`
+	]) {
 		await assert.rejects(targets.resolveDevcontainerTarget(root, badRepo, config));
 	}
 });
 
 test('rejects missing and non-file configurations', async () => {
-	await assert.rejects(targets.resolveDevcontainerTarget(root, repo, join(repo, 'missing.json')), /missing/);
-	await assert.rejects(targets.resolveDevcontainerTarget(root, repo, dirname(config)), /must be a file/);
+	await assert.rejects(
+		targets.resolveDevcontainerTarget(root, repo, join(repo, 'missing.json')),
+		/missing/
+	);
+	await assert.rejects(
+		targets.resolveDevcontainerTarget(root, repo, dirname(config)),
+		/must be a file/
+	);
 });
 
 test('rejects a configuration outside the repository', async () => {
-	await assert.rejects(targets.resolveDevcontainerTarget(root, repo, join(root, 'other.json')), /inside/);
+	await assert.rejects(
+		targets.resolveDevcontainerTarget(root, repo, join(root, 'other.json')),
+		/inside/
+	);
 });
 
 test('rejects workspace symlink escapes', async () => {
@@ -195,7 +227,8 @@ test('rejects workspace symlink escapes', async () => {
 	const alias = join(root, 'escape');
 	await symlink(outside, alias);
 	await assert.rejects(
-		targets.resolveDevcontainerTarget(root, alias, join(alias, 'devcontainer.json')), /symlink escapes/
+		targets.resolveDevcontainerTarget(root, alias, join(alias, 'devcontainer.json')),
+		/symlink escapes/
 	);
 });
 
@@ -211,16 +244,30 @@ test('preserves literal argv, exact labels and cache-enabled recreation', () => 
 	const command = targets.devcontainerCommand(repo, config, labels);
 	assert.equal(command.file, 'devcontainer');
 	assert.deepEqual(command.args, [
-		'up', '--workspace-folder', repo, '--config', config,
-		'--id-label', `devcontainer.local_folder=${repo}`,
-		'--id-label', `devcontainer.config_file=${config}`, '--remove-existing-container'
+		'up',
+		'--workspace-folder',
+		repo,
+		'--config',
+		config,
+		'--id-label',
+		`devcontainer.local_folder=${repo}`,
+		'--id-label',
+		`devcontainer.config_file=${config}`,
+		'--remove-existing-container'
 	]);
 	assert.ok(!command.args.includes('--build-no-cache'));
 });
 
 test('ordinary build command does not request container removal', () => {
 	assert.deepEqual(targets.devcontainerCommand(repo, '.devcontainer/other/devcontainer.json'), {
-		file: 'devcontainer', args: ['up', '--workspace-folder', repo, '--config', join(repo, '.devcontainer/other/devcontainer.json')]
+		file: 'devcontainer',
+		args: [
+			'up',
+			'--workspace-folder',
+			repo,
+			'--config',
+			join(repo, '.devcontainer/other/devcontainer.json')
+		]
 	});
 });
 
@@ -232,7 +279,10 @@ test('rebuild argv cannot be constructed without exact configuration identity', 
 test('build uses structured persistent PTY options, not a shell command', () => {
 	builds.startDevcontainerBuild('build-1', repo, 'fixture', config, labels);
 	assert.equal(state.spawns[0].command, undefined);
-	assert.deepEqual(state.spawns[0].options.executable, targets.devcontainerCommand(repo, config, labels));
+	assert.deepEqual(
+		state.spawns[0].options.executable,
+		targets.devcontainerCommand(repo, config, labels)
+	);
 	assert.equal(state.spawns[0].options.kind, 'devcontainer-build');
 });
 
@@ -240,13 +290,19 @@ test('serializes builds and rebuilds for the whole canonical repository', async 
 	const alias = join(root, 'repo-alias');
 	await symlink(repo, alias);
 	builds.startDevcontainerBuild('first', repo, 'fixture', config, labels);
-	assert.throws(() => builds.startDevcontainerBuild('second', alias, 'alias'), builds.DevcontainerBuildConflict);
+	assert.throws(
+		() => builds.startDevcontainerBuild('second', alias, 'alias'),
+		builds.DevcontainerBuildConflict
+	);
 	assert.equal(state.spawns.length, 1);
 });
 
 test('spawn failure clears tracking and releases the lock for retry', () => {
 	state.spawnError = new Error('capacity reached');
-	assert.throws(() => builds.startDevcontainerBuild('failed-spawn', repo, 'fixture', config), /capacity/);
+	assert.throws(
+		() => builds.startDevcontainerBuild('failed-spawn', repo, 'fixture', config),
+		/capacity/
+	);
 	assert.deepEqual(builds.getActiveBuilds(), []);
 	state.spawnError = undefined;
 	assert.equal(builds.startDevcontainerBuild('retry', repo, 'fixture', config).status, 'running');
@@ -269,11 +325,16 @@ test('nonzero exit retains the existing failed-log workflow', () => {
 
 test('cancellation keeps its lock until process-tree termination is verified', async () => {
 	let finish;
-	state.stopPromise = new Promise((resolve) => { finish = resolve; });
+	state.stopPromise = new Promise((resolve) => {
+		finish = resolve;
+	});
 	builds.startDevcontainerBuild('cancel', repo, 'fixture', config);
 	const stopped = builds.removeDevcontainerBuild('cancel');
 	state.exits.get('cancel')({ exitCode: 143, signal: 15, output: '' });
-	assert.throws(() => builds.startDevcontainerBuild('too-early', repo, 'fixture', config), builds.DevcontainerBuildConflict);
+	assert.throws(
+		() => builds.startDevcontainerBuild('too-early', repo, 'fixture', config),
+		builds.DevcontainerBuildConflict
+	);
 	finish();
 	await stopped;
 	assert.deepEqual(builds.getActiveBuilds(), []);
@@ -291,13 +352,16 @@ test('rebuild POST accepts running and stopped containers with a unique identity
 		assert.ok(body.id);
 	}
 	assert.deepEqual(state.lists[0].filters.label, [
-		`devcontainer.local_folder=${repo}`, `devcontainer.config_file=${config}`
+		`devcontainer.local_folder=${repo}`,
+		`devcontainer.config_file=${config}`
 	]);
 });
 
 test('rebuild POST rejects missing labels before spawning or listing identities', async () => {
 	state.info.Config.Labels = {};
-	await assert.rejects(actions.POST({ params: { id: fullId, action: 'rebuild' } }), { status: 400 });
+	await assert.rejects(actions.POST({ params: { id: fullId, action: 'rebuild' } }), {
+		status: 400
+	});
 	assert.equal(state.spawns.length, 0);
 	assert.equal(state.lists.length, 0);
 });
@@ -305,14 +369,18 @@ test('rebuild POST rejects missing labels before spawning or listing identities'
 test('rebuild POST rejects stale, ambiguous and changed container identities', async () => {
 	for (const matches of [[], [{ Id: fullId }, { Id: 'b'.repeat(64) }], [{ Id: 'b'.repeat(64) }]]) {
 		state.matches = matches;
-		await assert.rejects(actions.POST({ params: { id: fullId, action: 'rebuild' } }), { status: 409 });
+		await assert.rejects(actions.POST({ params: { id: fullId, action: 'rebuild' } }), {
+			status: 409
+		});
 	}
 	assert.equal(state.spawns.length, 0);
 });
 
 test('rebuild POST reports failed inspection without starting work', async () => {
 	state.inspectError = new Error('not found');
-	await assert.rejects(actions.POST({ params: { id: fullId, action: 'rebuild' } }), { status: 404 });
+	await assert.rejects(actions.POST({ params: { id: fullId, action: 'rebuild' } }), {
+		status: 404
+	});
 	assert.equal(state.spawns.length, 0);
 });
 
@@ -346,9 +414,13 @@ test('status polling uses build identity without inspecting the removed containe
 });
 
 test('unknown/cancelled build status never reports success', async () => {
-	await assert.rejects(actions.GET({
-		params: { action: 'rebuild' }, url: new URL('http://localhost/status?sessionId=unknown')
-	}), { status: 404 });
+	await assert.rejects(
+		actions.GET({
+			params: { action: 'rebuild' },
+			url: new URL('http://localhost/status?sessionId=unknown')
+		}),
+		{ status: 404 }
+	);
 });
 
 test('existing Docker lifecycle actions retain their original operations', async () => {
@@ -356,11 +428,20 @@ test('existing Docker lifecycle actions retain their original operations', async
 		const response = await actions.POST({ params: { id: fullId, action } });
 		assert.equal(response.status, 200);
 	}
-	assert.deepEqual(state.actions, ['start', 'stop', 'restart', ['delete', { force: true, v: true }]]);
+	assert.deepEqual(state.actions, [
+		'start',
+		'stop',
+		'restart',
+		['delete', { force: true, v: true }]
+	]);
 });
 
 test('ordinary build endpoint shares rebuild validation and conflicts', async () => {
-	const body = { repoPath: repo, repoName: 'fixture', configPath: '.devcontainer/selected config/devcontainer.json' };
+	const body = {
+		repoPath: repo,
+		repoName: 'fixture',
+		configPath: '.devcontainer/selected config/devcontainer.json'
+	};
 	assert.equal((await buildRoute.POST(buildRequest(body))).status, 200);
 	await assert.rejects(buildRoute.POST(buildRequest(body)), { status: 409 });
 	assert.equal(state.spawns.length, 1);
@@ -387,7 +468,8 @@ test('structured terminal spawn preserves argv and filters only the existing exc
 		process.env.DDASH_TEST_LOCAL_ENV = 'fixture-value';
 		const command = targets.devcontainerCommand(repo, config, labels);
 		terminals.createPersistentSession('literal-argv', undefined, repo, {
-			executable: command, kind: 'devcontainer-build'
+			executable: command,
+			kind: 'devcontainer-build'
 		});
 		const spawn = state.ptySpawns[0];
 		assert.equal(spawn.file, 'devcontainer');

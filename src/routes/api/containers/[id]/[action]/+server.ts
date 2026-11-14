@@ -7,10 +7,7 @@ import {
 	getActiveBuilds,
 	startDevcontainerBuild
 } from '$lib/server/devcontainerBuilds';
-import {
-	DevcontainerTargetError,
-	resolveRebuildTarget
-} from '$lib/server/devcontainerRebuild';
+import { DevcontainerTargetError, resolveRebuildTarget } from '$lib/server/devcontainerRebuild';
 import type { RequestHandler } from './$types';
 
 const ALLOWED_ACTIONS = ['start', 'stop', 'restart', 'delete', 'rebuild'] as const;
@@ -37,7 +34,10 @@ async function rebuildContainer(id: string) {
 			filters: { label: Object.entries(identityLabels).map(([key, value]) => `${key}=${value}`) }
 		});
 		if (matches.length !== 1 || matches[0].Id !== info.Id) {
-			throw error(409, 'Container identity changed or matches multiple containers. Refresh before rebuilding.');
+			throw error(
+				409,
+				'Container identity changed or matches multiple containers. Refresh before rebuilding.'
+			);
 		}
 		const build = startDevcontainerBuild(
 			randomUUID(),
@@ -54,7 +54,10 @@ async function rebuildContainer(id: string) {
 		if (cause instanceof DevcontainerTargetError) throw error(400, cause.message);
 		if (cause instanceof DevcontainerBuildConflict) throw error(409, cause.message);
 		if (isHttpError(cause)) throw cause;
-		throw error(503, 'Could not start rebuild. Check Docker, Dev Containers CLI availability and terminal capacity.');
+		throw error(
+			503,
+			'Could not start rebuild. Check Docker, Dev Containers CLI availability and terminal capacity.'
+		);
 	}
 }
 
