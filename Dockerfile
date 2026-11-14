@@ -48,7 +48,11 @@ RUN set -eu; \
     npm install -g npm@latest @devcontainers/cli "@openchamber/web@${OPENCHAMBER_VERSION}"; \
     curl -fsSL https://opencode.ai/v2/install -o /tmp/install-opencode; \
     HOME=/tmp/opencode-seed SHELL=/bin/bash bash /tmp/install-opencode --version "$OPENCODE_VERSION" --no-modify-path; \
-    /tmp/opencode-seed/.opencode/bin/opencode --version | grep -E '^2\.'; \
+    installed_version="$(/tmp/opencode-seed/.opencode/bin/opencode --version)"; \
+    printf 'Installed OpenCode: %s\n' "$installed_version"; \
+    installed_version="${installed_version##* }"; \
+    installed_version="${installed_version#v}"; \
+    test "$installed_version" = "$OPENCODE_VERSION"; \
     mkdir -p /opt/dashboard-ai; \
     cp /tmp/opencode-seed/.opencode/bin/opencode /opt/dashboard-ai/opencode; \
     ln -s /opt/dashboard-ai/opencode /opt/dashboard-tools/bin/opencode; \
