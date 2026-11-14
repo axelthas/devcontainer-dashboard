@@ -18,7 +18,7 @@ case "$HOST_UID:$HOST_GID" in 0*|*:0*) fail "Identity IDs must not have leading 
 [ "$HOST_USER" != root ] || fail "Root operator identity is not supported"
 case "${HOST_HOME:-}" in /*) ;; *) fail "HOST_HOME must be an absolute Docker-host home path" ;; esac
 case "$HOST_HOME/" in
-    /|//|*/../*|*/./*|*//*|/app/*|/data/*|/dashboard-history/*|/opt/*|/etc/*|/usr/*|/var/*|/root/*|/bin/*|/sbin/*|/dev/*|/proc/*|/sys/*|/run/*|/tmp/*)
+    /|//|*/../*|*/./*|*//*|/app/*|/data/*|/dashboard-history/*|/dashboard-ai/*|/opt/*|/etc/*|/usr/*|/var/*|/root/*|/bin/*|/sbin/*|/dev/*|/proc/*|/sys/*|/run/*|/tmp/*)
         fail "HOST_HOME must be a dedicated non-system home path" ;;
 esac
 case "$HOST_HOME" in *[!a-zA-Z0-9_./\ -]*) fail "HOST_HOME contains unsupported characters" ;; esac
@@ -119,5 +119,8 @@ exec runuser -u "$HOST_USER" -- /bin/sh -c '
     for hook in /docker-entrypoint.d/*.sh; do
         if [ -f "$hook" ] && [ -x "$hook" ]; then "$hook"; fi
     done
+    if [ "${LOCAL_AI_ENABLED:-}" = 1 ]; then
+        exec /opt/dashboard-ai/state.sh node build/server.js
+    fi
     exec node build/server.js
 ' dashboard-runtime "$@"
