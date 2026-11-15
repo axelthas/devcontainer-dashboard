@@ -32,8 +32,20 @@ It installs OpenCode 2.3.0 and OpenChamber 2.7.1 on Node 24.14 or later.
 
 ## Access
 
-OpenChamber has its own password in all modes. Supply `OPENCHAMBER_UI_PASSWORD`
-through `--env-file`, or retrieve the generated password:
+OpenChamber has its own login in all modes. Set `OPENCODE_PASSWORD` in the file
+passed to `--env-file`, just as for the devcontainers:
+
+```dotenv
+OPENCODE_PASSWORD=your-password-here
+```
+
+The dashboard forwards that value as OpenChamber's UI password. It takes
+precedence over `OPENCHAMBER_UI_PASSWORD` (retained as a compatibility fallback)
+and any previously saved password. The internal OpenCode server and its clients
+continue to use a separate generated API credential.
+
+If neither environment variable is non-empty, the saved/generated UI password
+is used. Retrieve the active password with:
 
 ```bash
 docker exec ddash-ai-36 cat /dashboard-ai/ui-password

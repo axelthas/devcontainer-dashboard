@@ -233,10 +233,15 @@ test('runtime has one server, shared credentials, attach-only PTYs and failure w
 		const previous = {
 			enabled: process.env.AI_ENABLED,
 			workspace: process.env.WORKSPACE_ROOT,
+			codePassword: process.env.OPENCODE_PASSWORD,
+			chamberPassword: process.env.OPENCHAMBER_UI_PASSWORD,
 			fetch: globalThis.fetch
 		};
 		process.env.AI_ENABLED = '1';
 		process.env.WORKSPACE_ROOT = root;
+		process.env.OPENCODE_PASSWORD = 'fixture-operator-password';
+		process.env.OPENCHAMBER_UI_PASSWORD = 'fixture-legacy-password';
+		await writeFile(join(root, 'ui-password'), 'fixture-previous-password');
 		globalThis.fetch = async (url) =>
 			new Response(url.endsWith('/api/session') ? '{"data":{"id":"ses_runtime"}}' : '{}');
 		let handle;
@@ -258,6 +263,9 @@ test('runtime has one server, shared credentials, attach-only PTYs and failure w
 				chamber.options.env.OPENCODE_SERVER_PASSWORD
 			);
 			assert.equal(code.options.env.DASHBOARD_PASSWORD, undefined);
+			assert.equal(chamber.options.env.OPENCHAMBER_UI_PASSWORD, 'fixture-operator-password');
+			assert.equal(await readFile(join(root, 'ui-password'), 'utf8'), 'fixture-operator-password');
+			assert.notEqual(code.options.env.OPENCODE_PASSWORD, 'fixture-operator-password');
 			const request = { launch: 'runtime-window', path: root, tool: 'opencode' };
 			assert.deepEqual(await runtime.openAi(request), await runtime.openAi(request));
 			assert.equal(calls.terminals.length, 1);
@@ -285,6 +293,10 @@ test('runtime has one server, shared credentials, attach-only PTYs and failure w
 			else process.env.AI_ENABLED = previous.enabled;
 			if (previous.workspace === undefined) delete process.env.WORKSPACE_ROOT;
 			else process.env.WORKSPACE_ROOT = previous.workspace;
+			if (previous.codePassword === undefined) delete process.env.OPENCODE_PASSWORD;
+			else process.env.OPENCODE_PASSWORD = previous.codePassword;
+			if (previous.chamberPassword === undefined) delete process.env.OPENCHAMBER_UI_PASSWORD;
+			else process.env.OPENCHAMBER_UI_PASSWORD = previous.chamberPassword;
 		}
 	});
 });
