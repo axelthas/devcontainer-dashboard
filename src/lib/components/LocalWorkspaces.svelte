@@ -596,7 +596,7 @@
 								{@const matchedContainer = findContainerForRepo(repo.path)}
 								{@const repoExpandable = repo.buildSession?.status === 'running'}
 								<div
-									class="flex min-h-[2.5rem] flex-wrap items-center gap-y-2 border-b border-[#d8dee9]/60 px-8 py-1.5 last:border-b-0 dark:border-[#4c566a]/60"
+									class="flex min-h-[2.5rem] flex-wrap items-center gap-y-2 border-b border-[#d8dee9]/60 py-1.5 pr-5 pl-8 last:border-b-0 dark:border-[#4c566a]/60"
 								>
 									<!-- Repo name: takes available space -->
 									<div class="flex w-[200px] min-w-0 shrink-0 items-center gap-2">
@@ -738,14 +738,10 @@
 										</div>
 									{/if}
 
-									<!-- Action column: right-aligned -->
+									<!-- Action column: devcontainer actions, then Open with pinned to the right edge -->
 									<div class="ml-auto flex shrink-0 items-center justify-end gap-2">
-										<div
-											class="flex items-center rounded-xl border border-[#d8dee9] bg-[#eceff4] p-1 shadow-sm dark:border-[#434c5e] dark:bg-[#2e3440]"
-										>
-											<OpenWithMenu path={repo.path} {vscodeSshHost} {onOpenTerminal} />
-											{#if repo.hasDevcontainer}
-												<div class="mx-0.5 h-4 w-px shrink-0 bg-[#d8dee9] dark:bg-[#434c5e]"></div>
+										{#if repo.hasDevcontainer}
+											<div class="flex items-center gap-1">
 												{#if matchedContainer && matchedContainer.state === 'running'}
 													<button
 														onclick={() => onScrollToContainer?.(matchedContainer.id)}
@@ -878,14 +874,13 @@
 														Build &amp; Start
 													</button>
 												{/if}
-											{/if}
-										</div>
-										{#if !repo.hasDevcontainer}
-											<span
-												class="text-xs whitespace-nowrap text-[#4c566a] italic dark:text-[#d8dee9]/40"
-												>No config</span
-											>
+											</div>
 										{/if}
+										<div
+											class="flex items-center rounded-xl border border-[#d8dee9] bg-[#eceff4] p-1 shadow-sm dark:border-[#434c5e] dark:bg-[#2e3440]"
+										>
+											<OpenWithMenu path={repo.path} {vscodeSshHost} {onOpenTerminal} />
+										</div>
 									</div>
 								</div>
 								{#if repoExpandable && repo.buildSession && expandedRepos.has(repo.path)}
