@@ -18,7 +18,7 @@ case "$HOST_UID:$HOST_GID" in 0*|*:0*) fail "Identity IDs must not have leading 
 [ "$HOST_USER" != root ] || fail "Root operator identity is not supported"
 case "${HOST_HOME:-}" in /*) ;; *) fail "HOST_HOME must be an absolute Docker-host home path" ;; esac
 case "$HOST_HOME/" in
-    /|//|*/../*|*/./*|*//*|/app/*|/data/*|/dashboard-history/*|/opt/*|/etc/*|/usr/*|/var/*|/root/*|/bin/*|/sbin/*|/dev/*|/proc/*|/sys/*|/run/*|/tmp/*)
+    /|//|*/../*|*/./*|*//*|/app/*|/data/*|/dashboard-history/*|/dashboard-ai/*|/opt/*|/etc/*|/usr/*|/var/*|/root/*|/bin/*|/sbin/*|/dev/*|/proc/*|/sys/*|/run/*|/tmp/*)
         fail "HOST_HOME must be a dedicated non-system home path" ;;
 esac
 case "$HOST_HOME" in *[!a-zA-Z0-9_./\ -]*) fail "HOST_HOME contains unsupported characters" ;; esac
@@ -79,6 +79,16 @@ if [ ! -e "$HOST_HOME" ]; then mkdir -p "$HOST_HOME"; fi
 # Reserved for dashboard-owned named volumes, never HOME or host workspaces.
 mkdir -p /data /dashboard-history
 chown -hR -P "$HOST_UID:$HOST_GID" /data /dashboard-history
+if [ "${AI_ENABLED:-}" = 1 ]; then
+    [ ! -L /dashboard-ai ] && [ "$(findmnt -n -o TARGET -T /dashboard-ai)" = /dashboard-ai ] \
+        || fail "Mount a dedicated named volume at /dashboard-ai"
+    AI_OWNER=$(stat -c '%u' /dashboard-ai)
+    [ "$AI_OWNER" = 0 ] || [ "$AI_OWNER" = "$HOST_UID" ] \
+        || fail "AI volume belongs to another UID. Migrate ownership explicitly while stopped."
+    # Change only the mount root. Do not traverse user-owned links as root.
+    chown "$HOST_UID:$HOST_GID" /dashboard-ai
+    chmod 700 /dashboard-ai
+fi
 chown "$HOST_UID:$HOST_GID" "$HOST_HOME"
 printf '%s ALL=(root) NOPASSWD:ALL\n' "$HOST_USER" > /etc/sudoers.d/dashboard-operator
 chmod 0440 /etc/sudoers.d/dashboard-operator
@@ -119,5 +129,8 @@ exec runuser -u "$HOST_USER" -- /bin/sh -c '
     for hook in /docker-entrypoint.d/*.sh; do
         if [ -f "$hook" ] && [ -x "$hook" ]; then "$hook"; fi
     done
+    if [ "${AI_ENABLED:-}" = 1 ]; then
+        exec /opt/dashboard-ai/state.sh node build/server.js
+    fi
     exec node build/server.js
 ' dashboard-runtime "$@"
