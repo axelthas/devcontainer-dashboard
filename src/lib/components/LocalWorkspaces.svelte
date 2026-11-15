@@ -26,6 +26,8 @@
 	import BootstrapStatus from './BootstrapStatus.svelte';
 	import LogViewer from './LogViewer.svelte';
 	import ServiceButton from './ServiceButton.svelte';
+	import AiButtons from './AiButtons.svelte';
+	import { resolve } from '$app/paths';
 	import TerminalTab from './TerminalTab.svelte';
 
 	interface Props {
@@ -409,6 +411,9 @@
 	<div class="mb-4 flex items-center gap-2 border-b border-[#d8dee9] pb-2 dark:border-[#4c566a]">
 		<FolderGit2 size={20} class="text-[#a3be8c] dark:text-[#a3be8c]" />
 		<h2 class="text-xl font-extrabold text-[#2e3440] dark:text-[#eceff4]">Local Workspaces</h2>
+		<a href={resolve('/ai')} class="text-sm text-[#5e81ac] underline dark:text-[#88c0d0]"
+			>AI folders</a
+		>
 		<span class="ml-1 text-sm font-medium text-[#4c566a] dark:text-[#d8dee9]/60"
 			>({workspaceRoot})</span
 		>
@@ -439,7 +444,7 @@
 			{#each workspaces as ws (ws.id)}
 				<!-- Task Workspace header -->
 				<div
-					class="flex w-full cursor-pointer items-center justify-between border-b border-[#d8dee9] px-5 py-3 transition-colors last:border-b-0 hover:bg-[#e5e9f0] dark:border-[#4c566a] dark:hover:bg-[#434c5e]"
+					class="flex w-full cursor-pointer flex-wrap items-center justify-between gap-3 border-b border-[#d8dee9] px-5 py-3 transition-colors last:border-b-0 hover:bg-[#e5e9f0] dark:border-[#4c566a] dark:hover:bg-[#434c5e]"
 					onclick={() => toggleExpand(ws.id)}
 					onkeydown={(e) => {
 						if (e.key === 'Enter' || e.key === ' ') toggleExpand(ws.id);
@@ -484,7 +489,8 @@
 							</span>
 						{/if}
 					</div>
-					<div class="flex items-center gap-2">
+					<div class="flex flex-wrap items-center gap-2">
+						<AiButtons path={ws.path} />
 						{#if ws.solutionMetadata}
 							{#if rerunSessions.has(ws.id)}
 								<button
@@ -626,7 +632,7 @@
 									? `vscode://vscode-remote/ssh-remote+${vscodeSshHost}${repo.path}?windowId=_blank`
 									: `vscode://file${repo.path}?windowId=_blank`}
 								<div
-									class="flex min-h-[2.5rem] items-center border-b border-[#d8dee9]/60 px-8 py-1.5 last:border-b-0 dark:border-[#4c566a]/60"
+									class="flex min-h-[2.5rem] flex-wrap items-center gap-y-2 border-b border-[#d8dee9]/60 px-8 py-1.5 last:border-b-0 dark:border-[#4c566a]/60"
 								>
 									<!-- Repo name: takes available space -->
 									<div class="flex w-[200px] min-w-0 shrink-0 items-center gap-2">
@@ -749,6 +755,9 @@
 									</div>
 
 									<!-- Service buttons (when container exists) -->
+									<div class="mx-3 flex flex-wrap gap-1.5">
+										<AiButtons path={repo.path} />
+									</div>
 									{#if matchedContainer && Object.keys(matchedContainer.ports).length > 0}
 										<div class="mx-3 flex flex-wrap gap-1.5">
 											{#each Object.entries(matchedContainer.ports) as [containerPort, hostPort] (containerPort)}
