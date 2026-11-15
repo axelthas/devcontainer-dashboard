@@ -8,11 +8,25 @@
 - A **Local AI** link on the dashboard and a one-level folder picker at `/ai`.
   Any readable directory under the mounted workspace root is eligible. Git and
   devcontainer metadata are not required. Canonical paths reject escaping symlinks.
-- **Open in OpenCode** starts its TUI in the existing dashboard terminal.
-- **New OpenChamber session** creates an empty v2 session with
-  `location.directory` set to the selected folder, then opens its supported
-  `?session=...` link. It does not submit a prompt or start an agent task.
+- Each workspace and repository row has **OpenCode TUI** and **OpenChamber**
+  buttons, independent of its devcontainer. The folder browser has the same
+  buttons for every directory, including the current directory.
+- Both buttons open a separate service-style browser window/tab, with a compact
+  directory/application header and Dashboard link. The browser chooses tab versus window.
+- **OpenCode TUI** attaches a dashboard PTY to the one owned server with explicit
+  `--server` and `--session` arguments. The browser receives only the PTY identity.
+- Both actions create an empty v2 session with
+  `location.directory` set to the selected folder. OpenChamber opens its supported
+  `?session=...` link. Neither action submits a prompt or starts an agent task.
   Existing conversations remain in the applications' session lists.
+- Session-creation commands also pass `--server`. OpenChamber receives that same
+  loopback endpoint with `OPENCODE_SKIP_START=true`; it cannot auto-start a fallback
+  through this launch configuration. Repeated runtime initialization is a no-op.
+- Viewer reloads reuse the same launch identity, conversation and PTY. Concurrent
+  requests share one promise. Failed/uncertain launches are retained, not retried
+  as new work. The bounded ledger allows 256 launches per dashboard lifetime.
+- Old windows retain the original runtime identity and refuse to create work after
+  a dashboard restart. Open a new window, then select the saved conversation.
 - An authenticated, dedicated OpenChamber origin. Root-relative assets, streaming
   responses and WebSockets do not depend on a fragile path-prefix rewrite.
   A direct-open link remains available if upstream frame restrictions prevent embedding.
@@ -35,8 +49,10 @@ Open `http://127.0.0.1:3101`, log in, and select **Local AI**. Wait for its
 service status to become `ready`. The dashboard health check does not imply
 that the separate AI services are ready.
 
-1. Select `plain folder`. OpenCode must start with that working directory.
-2. Create an OpenChamber session. Confirm its folder is `plain folder`.
+1. Use the workspace-row and repository-row buttons. Each must open a new service
+   window without expanding/collapsing the row or replacing the dashboard.
+2. Use the folder-row buttons for `plain folder`. Confirm both applications select
+   that directory. The TUI uses an explicit session whose location is that folder.
 3. Configure a provider in OpenCode. Do not put provider secrets into Git.
 4. Create a recognizable conversation. Confirm both applications see the same
    backend sessions.
@@ -61,6 +77,24 @@ bash scripts/run-dashboard.sh --build \
 Also test Unicode, quotes and spaces in folder names, an escaping symlink,
 logged-out requests, WebSocket reconnect, service failure, and an expired
 dashboard session while streaming.
+
+### Single-backend acceptance
+
+1. Record the OpenCode **server** PID with
+   `docker exec ddash-ai-test ps -eo pid,ppid,args`.
+2. Open several TUI and OpenChamber windows for different folders. There must
+   still be exactly one `opencode serve` process. Additional TUI clients and
+   short-lived `opencode api ... --server ...` clients are expected.
+3. Reload a TUI window. Its existing PTY and conversation must remain; no new
+   TUI client or server should appear. Reload OpenChamber and check its session ID.
+4. Close a window. The backend and saved conversation must remain.
+5. In this disposable test instance, terminate only the recorded backend PID.
+   New launches must fail. No automatic replacement backend may appear.
+6. Restart the dashboard. An old viewer must refuse to launch new work. Use the
+   dashboard buttons to open new windows and select the saved conversations.
+
+These guarantees cover dashboard-managed launches. An operator can still start
+another server manually from a shell; this trusted operator tool is not a sandbox.
 
 ## Persistence and lifecycle
 
@@ -131,7 +165,19 @@ npm run test:production
 npm run test:e2e
 ```
 
-Executed during preparation:
+Directory-window revision checks:
+
+- 12 local AI tests passed, including the actual runtime with mocked child-process,
+  PTY and readiness boundaries. They check singleton startup, the shared endpoint,
+  explicit API/TUI arguments, duplicate launches, backend failure and stale runtime
+  rejection. They do not run real OpenCode or OpenChamber processes.
+- 100 existing deployment tests passed.
+- All three changed Svelte components compiled with Svelte 5.55.2 without warnings.
+- Changed files were formatted with Prettier and its Svelte/Tailwind plugins.
+  This used default Tailwind sorting, not the repository stylesheet, whose
+  dependencies are unavailable here. It is not a full project lint pass.
+
+Earlier implementation checks:
 
 - Eight focused Node tests passed: v2 session arguments/response shape, folder
   validation, credential and cookie isolation, Origin enforcement, redirect and
