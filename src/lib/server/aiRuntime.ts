@@ -228,7 +228,8 @@ export function startAi() {
 			);
 			if (closing) return;
 			await writeFile(join(storage, 'server-url'), endpoint, { mode: 0o600 });
-			let uiPassword = process.env.OPENCHAMBER_UI_PASSWORD;
+			// Match devcontainer launch configuration. Keep the internal API credential separate.
+			let uiPassword = process.env.OPENCODE_PASSWORD || process.env.OPENCHAMBER_UI_PASSWORD;
 			if (!uiPassword) {
 				try {
 					uiPassword = await readFile(join(storage, 'ui-password'), 'utf8');
