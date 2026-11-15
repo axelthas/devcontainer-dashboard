@@ -15,6 +15,7 @@ export const load: PageServerLoad = async ({ url }) => {
 		return {
 			folders: await aiFolders(root, url.searchParams.get('path') ?? root),
 			status: aiStatus(),
+			vscodeSshHost: process.env.VSCODE_SSH_HOST ?? '',
 			viewer: tool === 'opencode' || tool === 'openchamber' ? { tool, launch: launch! } : null
 		};
 	} catch {

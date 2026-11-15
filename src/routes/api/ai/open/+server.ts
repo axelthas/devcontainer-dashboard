@@ -1,4 +1,4 @@
-/** Authenticated POST creates or resumes a directory-scoped window. GET never starts work. */
+/** Authenticated POST opens a directory-scoped UI/PTY, never an OpenCode conversation. */
 import { error, json } from '@sveltejs/kit';
 import { openAi } from '$lib/server/aiRuntime';
 import { validAiId } from '$lib/server/aiSessions';
@@ -20,9 +20,6 @@ export const POST: RequestHandler = async ({ request }) => {
 			headers: { 'Cache-Control': 'no-store' }
 		});
 	} catch {
-		error(
-			503,
-			'Cannot open AI. Check AI status and container logs. An interrupted launch needs a new window.'
-		);
+		error(503, 'Cannot open AI. Check AI status and container logs.');
 	}
 };

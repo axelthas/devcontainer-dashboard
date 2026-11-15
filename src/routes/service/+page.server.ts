@@ -51,10 +51,21 @@ export const load: PageServerLoad = async ({ url }) => {
 	if (params.get('local') === 'openchamber') {
 		try {
 			const { aiWebOrigin } = await import('$lib/server/aiRuntime.js');
+			const { aiDirectory } = await import('$lib/server/aiPaths.js');
 			const session = params.get('session');
-			if (!session || !/^[a-zA-Z0-9_-]{1,128}$/.test(session)) throw new Error('Invalid session');
+			let search: URLSearchParams;
+			if (session) {
+				if (!/^[a-zA-Z0-9_-]{1,128}$/.test(session)) throw new Error('Invalid session');
+				search = new URLSearchParams({ session });
+			} else {
+				const directory = await aiDirectory(
+					process.env.WORKSPACE_ROOT ?? '/workspaces',
+					params.get('directory') ?? ''
+				);
+				search = new URLSearchParams({ directory, new: '1' });
+			}
 			const origin = await aiWebOrigin(url, launchTailscaleService);
-			const target = `${origin}/?${new URLSearchParams({ session })}`;
+			const target = `${origin}/?${search}`;
 			return {
 				...base,
 				label: 'OpenChamber',
