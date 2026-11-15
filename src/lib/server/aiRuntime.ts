@@ -5,7 +5,7 @@ import { randomBytes } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { aiDirectory } from './aiPaths.js';
-import { aiSessionStore, createAiSession, type AiRequest } from './aiSessions.js';
+import { validAiId, type AiRequest } from './aiSessions.js';
 import { terminateTerminalTree } from './terminalProcesses.js';
 
 type State = 'starting' | 'ready' | 'failed' | 'stopped';
@@ -14,7 +14,7 @@ type Runtime = {
 	state: State;
 	message: string;
 	chamberPort: number;
-	open: (request: AiRequest) => Promise<{ session: string; terminalId?: string }>;
+	open: (request: AiRequest) => Promise<{ path: string; terminalId?: string }>;
 	close: () => Promise<void>;
 };
 const shared = globalThis as typeof globalThis & { __dashboardAi?: Runtime };
@@ -133,40 +133,44 @@ export async function waitForAi(
 export function startAi() {
 	if (process.env.AI_ENABLED !== '1' || shared.__dashboardAi) return null;
 	const children: ChildProcess[] = [];
-	const sessions = aiSessionStore(join(storage, 'windows'));
 	let closing = false;
 	let endpoint = '';
 	let password = '';
-	const launches = new Map<string, Promise<{ session: string; terminalId?: string }>>();
+	const launches = new Map<
+		string,
+		{ key: string; result: Promise<{ path: string; terminalId?: string }> }
+	>();
 	const runtime: Runtime = {
 		id: randomBytes(32).toString('hex'),
 		state: 'starting',
 		message: '',
 		chamberPort: 0,
 		async open(request) {
+			if (!validAiId(request.launch)) throw new Error('Invalid AI window identity.');
 			if (runtime.state !== 'ready')
 				throw new Error('AI services are not ready. Check container logs.');
 			const path = await aiDirectory(workspace(), request.path);
 			const key = JSON.stringify({ ...request, path });
-			const existing = launches.get(key);
-			if (existing) return existing;
+			const existing = launches.get(request.launch);
+			if (existing) {
+				if (existing.key !== key) throw new Error('AI window identity already used.');
+				return existing.result;
+			}
 			if (launches.size >= 512)
 				throw new Error('AI window capacity reached. Restart the dashboard.');
 			const operation = (async () => {
-				const session = await sessions({ ...request, path }, () =>
-					createAiSession(endpoint, password, path)
-				);
 				if (runtime.state !== 'ready') throw new Error('AI services stopped during launch.');
-				if (request.tool === 'openchamber') return { session };
+				if (request.tool === 'openchamber') return { path };
 				const { createPersistentSession } = await import('./terminal.js');
+				if (runtime.state !== 'ready') throw new Error('AI services stopped during launch.');
 				const terminalId = `ai-${request.launch}`;
 				createPersistentSession(terminalId, undefined, path, {
 					name: `OpenCode: ${path.split('/').pop()}`,
-					executable: { file: '/opt/dashboard-tools/bin/opencode', args: ['--session', session] }
+					executable: { file: '/opt/dashboard-tools/bin/opencode', args: [path] }
 				});
-				return { session, terminalId };
+				return { path, terminalId };
 			})();
-			launches.set(key, operation);
+			launches.set(request.launch, { key, result: operation });
 			return operation;
 		},
 		async close() {
