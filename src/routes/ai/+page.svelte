@@ -2,9 +2,11 @@
 	import { onMount } from 'svelte';
 	import { invalidateAll } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import AiButtons from '$lib/components/AiButtons.svelte';
+	import OpenWithMenu from '$lib/components/OpenWithMenu.svelte';
 	import AiViewerHeader from '$lib/components/AiViewerHeader.svelte';
 	import TerminalTab from '$lib/components/TerminalTab.svelte';
+	import TerminalManager from '$lib/components/TerminalManager.svelte';
+	import type { TerminalSession } from '$lib/types';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -12,6 +14,29 @@
 	let message = $state('');
 	let busy = $state(false);
 	let dark = $state(true);
+	let terminalOpen = $state(false);
+	let terminalSessions = $state<TerminalSession[]>([]);
+	let activeTerminalId = $state<string | null>(null);
+
+	/** Reuse the dashboard terminal drawer for ordinary folder shells. */
+	function openTerminal(id: string, command: string, name: string, cwd: string) {
+		terminalSessions = [...terminalSessions, { id, command, name, cwd }];
+		activeTerminalId = id;
+		terminalOpen = true;
+	}
+
+	/** Explicit drawer close stops only the selected shell, not either AI service. */
+	async function closeTerminal(id: string) {
+		const response = await fetch('/api/terminal/sessions', {
+			method: 'DELETE',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ id })
+		});
+		if (!response.ok) throw new Error('Cannot stop terminal.');
+		terminalSessions = terminalSessions.filter((session) => session.id !== id);
+		if (activeTerminalId === id) activeTerminalId = terminalSessions.at(-1)?.id ?? null;
+		if (!terminalSessions.length) terminalOpen = false;
+	}
 
 	onMount(() => {
 		dark = localStorage.getItem('devcontainer-dashboard-theme') !== 'light';
@@ -32,7 +57,7 @@
 		};
 	});
 
-	/** POST once on mount. The durable window mapping returns the same conversation on reload. */
+	/** Open a directory-only window; reloads reattach to the same live PTY, not a new conversation. */
 	async function openViewer(signal?: AbortSignal) {
 		if (!data.viewer || busy) return;
 		busy = true;
@@ -48,15 +73,15 @@
 				throw new Error(
 					response.status === 401
 						? 'Sign in to the dashboard, then reload this window.'
-						: 'Cannot open AI. Check AI status and container logs. An interrupted launch needs a new window.'
+						: 'Cannot open AI. Check AI status and container logs.'
 				);
-			const result: { session: string; terminalId?: string } = await response.json();
+			const result: { path: string; terminalId?: string } = await response.json();
 			if (signal?.aborted) return;
 			if (data.viewer.tool === 'opencode' && result.terminalId) terminalId = result.terminalId;
-			else if (data.viewer.tool === 'openchamber' && result.session) {
+			else if (data.viewer.tool === 'openchamber' && result.path) {
 				const query = new URLSearchParams({
 					local: 'openchamber',
-					session: result.session,
+					directory: result.path,
 					label: 'OpenChamber',
 					project: data.folders.path.split('/').pop() ?? '',
 					container: 'Dashboard',
@@ -127,18 +152,23 @@
 				</p>
 				{#if data.status.message}<p>{data.status.message}</p>{/if}
 				<p class="text-sm">
-					One OpenCode server serves both interfaces. Each new window creates an empty conversation
-					in its selected directory. Saved conversations remain available in both applications.
+					One OpenCode server serves both interfaces. Opening a folder does not create a
+					conversation. A conversation is created only when you send its first message.
 				</p>
 				<p class="text-sm">
-					OpenChamber has its own login. Set OPENCHAMBER_UI_PASSWORD through --env-file, or read the
+					OpenChamber has its own login. Set OPENCODE_PASSWORD through --env-file, or read the
 					generated password with <code
 						>docker exec &lt;container&gt; cat /dashboard-ai/ui-password</code
 					>.
 				</p>
 				<div class="flex flex-wrap items-center gap-3 rounded border border-[#81a1c1]/40 p-3">
 					<span class="min-w-0 flex-1 font-mono text-sm break-all">{data.folders.path}</span>
-					<AiButtons path={data.folders.path} disabled={data.status.state !== 'ready'} />
+					<OpenWithMenu
+						path={data.folders.path}
+						vscodeSshHost={data.vscodeSshHost}
+						aiDisabled={data.status.state !== 'ready'}
+						onOpenTerminal={openTerminal}
+					/>
 				</div>
 				<nav aria-label="Workspace directories" class="space-y-2">
 					{#if data.folders.parent}
@@ -155,11 +185,28 @@
 								class="min-w-0 flex-1 break-all"
 								href={resolve(`/ai?path=${encodeURIComponent(folder.path)}`)}>{folder.name}/</a
 							>
-							<AiButtons path={folder.path} disabled={data.status.state !== 'ready'} />
+							<OpenWithMenu
+								path={folder.path}
+								vscodeSshHost={data.vscodeSshHost}
+								aiDisabled={data.status.state !== 'ready'}
+								onOpenTerminal={openTerminal}
+							/>
 						</div>
 					{/each}
 				</nav>
 			</section>
 		{/if}
 	</main>
+	{#if !data.viewer && terminalSessions.length}
+		<TerminalManager
+			open={terminalOpen}
+			sessions={terminalSessions}
+			activeId={activeTerminalId}
+			workspaceRoot={data.folders.path}
+			onToggle={() => (terminalOpen = !terminalOpen)}
+			onAddSession={(session) => (terminalSessions = [...terminalSessions, session])}
+			onCloseSession={closeTerminal}
+			onSetActive={(id) => (activeTerminalId = id)}
+		/>
+	{/if}
 </div>
