@@ -1,14 +1,18 @@
-/** Focused AI contracts. These use real files/HTTP but do not run Docker or AI binaries. */
+/** Focused AI contracts with real files/Bash and mocked AI/process boundaries. */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, symlink, writeFile, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
-import http from 'node:http';
 import { spawn, spawnSync } from 'node:child_process';
 import { aiDirectory, aiFolders } from '../../src/lib/server/aiPaths.ts';
-import { aiSessionStore, createAiSession, aiSessionId } from '../../src/lib/server/aiSessions.ts';
+import { validAiId } from '../../src/lib/server/aiSessions.ts';
+import {
+	dashboardDraftDirectory,
+	initializeDashboardDraft
+} from '../../integrations/openchamber/dashboard-launch.ts';
+import { patchSource } from '../patch-openchamber.mjs';
 
 /** Allocate an isolated filesystem fixture and clean it even after assertion failures. */
 async function temporary(work) {
@@ -46,69 +50,51 @@ test('directories include ordinary folders, spaces, Unicode and safe links; esca
 	});
 });
 
-test('real HTTP sends the v2 location and Basic credential, and validates the response envelope', async () => {
-	const path = "/workspace/not git/' $(touch nope); Ísland";
-	const server = http.createServer(async (req, res) => {
-		let body = '';
-		for await (const part of req) body += part;
-		assert.equal(req.method, 'POST');
-		assert.equal(req.url, '/api/session');
+test('window identities are bounded and cannot contain paths or shell syntax', () => {
+	assert.equal(validAiId('window_1-test'), true);
+	for (const value of ['', '../window', 'a'.repeat(49), 'window; touch nope', null])
+		assert.equal(validAiId(value), false);
+});
+
+test('OpenChamber starts a route-scoped unsent draft and decodes folder paths only once', () => {
+	const path = '/workspace/space here/percent%2F/Ísland ';
+	const params = new URLSearchParams({ directory: path, new: '1' });
+	const calls = [];
+	assert.equal(dashboardDraftDirectory(params), path);
+	assert.equal(
+		initializeDashboardDraft(params, (options) => calls.push(options)),
+		true
+	);
+	assert.deepEqual(calls, [
+		{
+			automatic: true,
+			target: 'project',
+			directoryOverride: path,
+			preserveDirectoryOverride: true,
+			routeScoped: true
+		}
+	]);
+	for (const query of [
+		'directory=%2Fworkspace',
+		'new=1',
+		'new=1&directory=relative',
+		'new=1&directory=%2Fbad%00path'
+	]) {
 		assert.equal(
-			req.headers.authorization,
-			`Basic ${Buffer.from('opencode:secret').toString('base64')}`
+			initializeDashboardDraft(new URLSearchParams(query), () =>
+				assert.fail('Invalid launch initialized a draft')
+			),
+			false
 		);
-		assert.equal(JSON.parse(body).location.directory, path);
-		res.setHeader('Content-Type', 'application/json');
-		res.end('{"data":{"id":"ses_fixture"}}');
-	});
-	await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-	try {
-		assert.equal(
-			await createAiSession(`http://127.0.0.1:${server.address().port}`, 'secret', path),
-			'ses_fixture'
-		);
-		assert.throws(() => aiSessionId({ id: 'v1' }));
-		assert.throws(() => aiSessionId({ data: { id: '../unsafe' } }));
-	} finally {
-		await new Promise((resolve) => server.close(resolve));
 	}
 });
 
-test('concurrent opens, reloads and a new runtime reuse one durable conversation', async () => {
-	await temporary(async (root) => {
-		let count = 0;
-		const create = async () => {
-			count++;
-			return 'ses_saved';
-		};
-		const request = { launch: 'window1', tool: 'opencode', path: '/workspace/space here' };
-		const store = aiSessionStore(root);
-		assert.deepEqual(await Promise.all([store(request, create), store(request, create)]), [
-			'ses_saved',
-			'ses_saved'
-		]);
-		assert.equal(await aiSessionStore(root)(request, create), 'ses_saved');
-		await assert.rejects(store({ ...request, path: '/other' }, create));
-		assert.equal(count, 1);
-	});
-});
-
-test('an uncertain launch is not retried as a new session after restart', async () => {
-	await temporary(async (root) => {
-		const request = { launch: 'interrupted', tool: 'openchamber', path: '/workspace' };
-		await assert.rejects(
-			aiSessionStore(root)(request, async () => {
-				throw new Error('response lost');
-			})
-		);
-		await assert.rejects(
-			aiSessionStore(root)(request, async () => 'ses_duplicate'),
-			/interrupted/
-		);
-		await assert.rejects(
-			aiSessionStore(root)({ ...request, launch: '../escape' }, async () => 'ses_bad')
-		);
-	});
+test('OpenChamber source integration refuses unreviewed upstream files', () => {
+	assert.throws(
+		() => patchSource('packages/ui/src/App.tsx', 'changed upstream code'),
+		/Unsupported/
+	);
+	assert.throws(() => patchSource('../unexpected.ts', ''), /Unsupported/);
 });
 
 test('state script retains data and credentials across home recreation and normalizes versions', async () => {
@@ -242,8 +228,12 @@ test('runtime has one server, shared credentials, attach-only PTYs and failure w
 		process.env.OPENCODE_PASSWORD = 'fixture-operator-password';
 		process.env.OPENCHAMBER_UI_PASSWORD = 'fixture-legacy-password';
 		await writeFile(join(root, 'ui-password'), 'fixture-previous-password');
-		globalThis.fetch = async (url) =>
-			new Response(url.endsWith('/api/session') ? '{"data":{"id":"ses_runtime"}}' : '{}');
+		const requests = [];
+		globalThis.fetch = async (url, options) => {
+			requests.push({ url, options });
+			assert.notEqual(options?.method, 'POST', 'Opening a window must not create a conversation');
+			return new Response('{}');
+		};
 		let handle;
 		try {
 			handle = runtime.startAi();
@@ -269,9 +259,19 @@ test('runtime has one server, shared credentials, attach-only PTYs and failure w
 			const request = { launch: 'runtime-window', path: root, tool: 'opencode' };
 			assert.deepEqual(await runtime.openAi(request), await runtime.openAi(request));
 			assert.equal(calls.terminals.length, 1);
-			assert.deepEqual(calls.terminals[0].options.executable.args, ['--session', 'ses_runtime']);
+			assert.deepEqual(calls.terminals[0].options.executable.args, [root]);
 			assert.equal(calls.terminals[0].cwd, root);
 			assert.equal(calls.terminals[0].command, undefined);
+			assert.deepEqual(
+				await runtime.openAi({ ...request, launch: 'chamber-window', tool: 'openchamber' }),
+				{ path: root }
+			);
+			await assert.rejects(runtime.openAi({ ...request, tool: 'openchamber' }), /already used/);
+			await assert.rejects(readFile(join(root, 'windows/runtime-window.json')), { code: 'ENOENT' });
+			assert.equal(
+				requests.some((request) => request.url.includes('/api/session')),
+				false
+			);
 			await assert.rejects(
 				runtime.waitForAi(
 					{ pid: 1, exitCode: 1, signalCode: null },

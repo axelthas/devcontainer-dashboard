@@ -15,20 +15,54 @@ It installs OpenCode 2.3.0 and OpenChamber 2.7.1 on Node 24.14 or later.
 - The `opencode` PATH wrapper always supplies `--server`. It reads the endpoint
   and password from private files, so existing terminal shells also find the
   current endpoint after startup. The runtime launches the real binary directly.
-- Workspace headers, repository rows and the `/ai` folder browser have OpenCode
-  and OpenChamber buttons. The click handler opens a new tab/window before
-  starting any asynchronous work. The browser decides tab versus window.
-- An authenticated POST creates a v2 session with `location.directory`.
-  OpenChamber opens its supported `?session=` link in the existing `/service`
-  viewer. The TUI attaches to that session through the existing terminal system.
-- Each window has a persisted session mapping. Reloading does not create another
-  conversation or PTY. After a dashboard restart, the same window resumes the
-  conversation in a new PTY. Running commands do not survive replacement.
-- A failed or interrupted session-creation request is not automatically retried
-  as new work. Open a new window; any conversation created before an uncertain
-  response remains in OpenCode's session list.
+- Workspace headers, repository rows and the `/ai` folder browser use one
+  **Open with** menu for VS Code, Terminal, OpenCode TUI and OpenChamber.
+  Repository menus replace the old VS Code/terminal icons inside their action
+  box. Devcontainer service and lifecycle controls remain separate.
+- Terminal keeps the existing dashboard drawer behavior. AI actions open a
+  new window synchronously from the menu action, before asynchronous work.
+- Opening either AI interface does not call the session API. The TUI starts in
+  the selected directory with an explicit shared-server connection and no
+  `--session`, title, prompt or continue arguments. Its normal first-send flow
+  creates the conversation.
+- OpenChamber opens a directory-scoped unsent draft through the pinned frontend
+  integration below. The existing first-send flow creates the session.
+- A window reload reattaches to its running PTY. After dashboard restart it opens
+  a fresh TUI in the selected folder. Saved conversations remain in the apps'
+  history; running commands do not survive replacement.
+- Old window-to-session mapping files and existing conversations are left
+  untouched. They are no longer used for new launches. Existing OpenChamber
+  session links still open their saved session; no automatic cleanup deletes
+  previously created empty conversations.
 - Runtime failures stop both children and remove the endpoint file. Restart the
   dashboard to retry. There is no automatic process-replacement loop.
+
+## OpenChamber directory-draft integration
+
+The official 2.7.1 web router has no directory-only draft URL. Simply dropping
+the session parameter restores the last session, which can be in another folder.
+
+The image builds the frontend from OpenChamber source revision
+`c075210f9a67d45701281c3cdd150e9db9f480af` with Bun 1.4.4. The official npm
+server still runs; its supported `OPENCHAMBER_DIST_DIR` selects the patched
+frontend. Only this build stage is new; there is still one OpenChamber process
+and one OpenCode server.
+
+`scripts/patch-openchamber.mjs` verifies SHA-256 hashes of all four upstream
+files before writing any changes. Upstream drift fails the build. The patch:
+
+- Recognizes `?directory=...&new=1` through a small dashboard-only helper.
+- Suppresses startup restoration completely, including its delayed fallback.
+- Calls the existing `openNewSessionDraft` action with a pinned directory.
+- Updates only in-window directory state, not shared `lastDirectory`, desktop
+  directory settings or the saved draft target.
+- Leaves ordinary navigation and first-send materialization unchanged.
+- Keeps the draft URL until a conversation is actually selected/created.
+
+No minified assets are rewritten. A version upgrade requires reviewing the
+source pin, hashes and integration. This adds a frontend dependency build and
+therefore increases image build time. The full image build and two-window
+acceptance checks below have not been run in this sandbox.
 
 ## Access
 
@@ -80,8 +114,8 @@ The launcher mounts `/dashboard-ai` from a dedicated named volume:
 - Explicit reuse: `--ai-state-volume NAME`, after stopping the old instance.
 
 The volume retains the user-writable OpenCode binary, XDG data/state/config/cache,
-OpenCode database and sidecars, OpenChamber data/config, UI password and window
-mappings. An existing v2 binary is retained, including user upgrades; a new
+OpenCode database and sidecars, OpenChamber data/config and UI password.
+An existing v2 binary is retained, including user upgrades; a new
 volume gets the pinned image binary. The entrypoint changes only the mount root's
 owner. A different UID requires an explicit migration while stopped.
 
@@ -105,22 +139,27 @@ bash scripts/run-dashboard.sh --build \
   --workspace "$HOME/ddash-ai-fixture" \
   --name ddash-ai-36 \
   --port 3101 --ai-port 3102 \
+  --origin http://127.0.0.1:3101 \
   --ai-state-volume ddash-ai-36-state
 ```
 
 1. Open `http://127.0.0.1:3101` and log in.
 2. Open **AI folders**. Wait for `ready`. Dashboard health alone does not indicate AI readiness.
 3. Read the OpenChamber password with the command above.
-4. Open both buttons for `plain folder`. Confirm the selected directory in each interface.
+4. Use **Open with** for `plain folder`. Confirm all four actions use that directory.
 5. Repeat from an actual workspace header and repository row.
-6. Configure a provider. Create recognizable conversations in both interfaces.
+6. Open and close both AI interfaces without sending. Confirm neither creates
+   a session. Type an unsent draft and close it; there must still be no named
+   OpenCode conversation. Then configure a provider and send a first message.
+   Confirm exactly one conversation is created in the selected directory.
 7. Confirm each interface can reopen the other's conversation.
 8. Open several TUI windows and run plain `opencode` in a dashboard terminal.
 9. Inspect processes with `docker exec ddash-ai-36 ps -eo pid,ppid,args`.
    Expect exactly one `opencode serve`; additional TUI clients are expected.
 10. Reload a TUI window. Confirm its conversation and existing PTY remain.
 11. Run `docker restart ddash-ai-36`. Log in again and reload the TUI.
-    Confirm its saved conversation resumes.
+    Confirm the TUI opens without creating a session. Reopen the saved conversation
+    from its normal history.
 12. Stop the instance with `docker stop ddash-ai-36`.
 13. Rebuild with a new container name, the same workspace path and the same volume:
 
@@ -129,6 +168,7 @@ bash scripts/run-dashboard.sh --build \
   --workspace "$HOME/ddash-ai-fixture" \
   --name ddash-ai-36-rebuilt \
   --port 3101 --ai-port 3102 \
+  --origin http://127.0.0.1:3101 \
   --ai-state-volume ddash-ai-36-state
 ```
 
@@ -140,17 +180,26 @@ bash scripts/run-dashboard.sh --build \
 17. Test Tailscale using your existing Tailscale flags. OpenChamber must open in
     `/service` on its allocated HTTPS origin. Test login, iframe rendering, SSE,
     WebSockets, logout and reconnect. No extra AI Docker port should be published.
+18. Open OpenChamber for two different directories in separate windows.
+    Confirm each retains its own unsent draft directory and first-send destination.
+19. Test menu keyboard navigation, Escape, outside-click dismissal and a clipped
+    repository row. Only selecting an AI action may open a new window.
 
 ## Validation performed here
 
-- Seven focused tests pass: canonical paths/symlinks, real HTTP session encoding,
-  durable session mapping, interrupted creation, real Bash/flock storage setup,
-  explicit-server wrapper arguments and the actual supervisor with mocked
-  child-process/PTY boundaries.
+- Seven focused tests pass: canonical paths/symlinks, window IDs, real Bash/flock
+  storage setup, explicit-server wrapper arguments, draft route decoding and
+  initialization, unknown-source rejection and the actual supervisor with
+  mocked child-process/PTY boundaries. Launches issue no session API requests.
 - All 100 deployment regressions pass.
 - All 33 Tailscale regressions pass.
+- Four additional framing-policy tests pass with mocked processes: HTTPS, local
+  HTTP, empty ORIGIN and absent ORIGIN. Env-file frame overrides never win.
 - `bash -n` passes for both new scripts, the launcher and the entrypoint.
-- All three changed Svelte components compile with Svelte 5.55.2 without warnings.
+- The changed menu, workspace rows and AI page compile with Svelte 5.55.2
+  without warnings. Browser menu regressions were added but not run here.
+- The source integration applies successfully to the actual pinned OpenChamber
+  archive; all four patched modules and the helper pass TS syntax transpilation.
 - The Svelte autofixer checked the new components and the workspace-row
   integration excerpt. No correctness issues were reported.
 - Changed TS/Svelte/JSON files were formatted with Prettier. Tailwind sorting
