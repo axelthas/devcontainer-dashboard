@@ -1,4 +1,20 @@
-# Keep native modules on the same Node major in both stages.
+# Build the pinned OpenChamber frontend with a small, hash-checked draft-launch patch.
+# Its server remains the official npm package. No minified assets are rewritten.
+FROM oven/bun:1.4.4 AS openchamber-ui
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates tar \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /source
+RUN curl -fsSL https://codeload.github.com/openchamber/openchamber/tar.gz/c075210f9a67d45701281c3cdd150e9db9f480af \
+    | tar -xz --strip-components=1
+COPY scripts/patch-openchamber.mjs /dashboard/scripts/patch-openchamber.mjs
+COPY integrations/openchamber/dashboard-launch.ts /dashboard/integrations/openchamber/dashboard-launch.ts
+RUN bun /dashboard/scripts/patch-openchamber.mjs /source \
+    && bun install --frozen-lockfile --ignore-scripts \
+    && bun run --cwd packages/sdk build \
+    && bun run build:web
+
+# Keep native modules on the same Node major in both dashboard stages.
 FROM node:24-bookworm-slim AS builder
 RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ \
     && rm -rf /var/lib/apt/lists/*
@@ -44,6 +60,7 @@ ARG OPENCODE_VERSION=2.3.0
 ARG OPENCHAMBER_VERSION=2.7.1
 # Seed a user-writable persistent installation at runtime, as dev-bootstrap does.
 RUN set -eu; \
+    test "$OPENCHAMBER_VERSION" = 2.7.1; \
     node -e 'const [a,b]=process.versions.node.split(".").map(Number);if(a<24||(a===24&&b<14))process.exit(1)'; \
     npm install -g npm@latest @devcontainers/cli "@openchamber/web@${OPENCHAMBER_VERSION}"; \
     curl -fsSL https://opencode.ai/v2/install -o /tmp/install-opencode; \
@@ -75,6 +92,8 @@ WORKDIR /app
 COPY --from=builder /app/build /app/build
 COPY --from=builder /app/node_modules /app/node_modules
 COPY --from=builder /app/package.json /app/package.json
+COPY --from=openchamber-ui /source/packages/web/dist /opt/openchamber-dist
+ENV OPENCHAMBER_DIST_DIR=/opt/openchamber-dist
 COPY plugins/10-dev-bootstrap.sh /opt/dashboard/plugins/10-dev-bootstrap.sh
 COPY scripts/ai-state.sh /opt/dashboard-ai/state.sh
 COPY scripts/opencode.sh /opt/dashboard-tools/bin/opencode
