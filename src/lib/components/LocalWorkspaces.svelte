@@ -26,6 +26,7 @@
 	import BootstrapStatus from './BootstrapStatus.svelte';
 	import LogViewer from './LogViewer.svelte';
 	import ServiceButton from './ServiceButton.svelte';
+	import LocalAiButtons from './LocalAiButtons.svelte';
 	import TerminalTab from './TerminalTab.svelte';
 
 	interface Props {
@@ -439,7 +440,7 @@
 			{#each workspaces as ws (ws.id)}
 				<!-- Task Workspace header -->
 				<div
-					class="flex w-full cursor-pointer items-center justify-between border-b border-[#d8dee9] px-5 py-3 transition-colors last:border-b-0 hover:bg-[#e5e9f0] dark:border-[#4c566a] dark:hover:bg-[#434c5e]"
+					class="flex w-full cursor-pointer flex-wrap items-center justify-between gap-3 border-b border-[#d8dee9] px-5 py-3 transition-colors last:border-b-0 hover:bg-[#e5e9f0] dark:border-[#4c566a] dark:hover:bg-[#434c5e]"
 					onclick={() => toggleExpand(ws.id)}
 					onkeydown={(e) => {
 						if (e.key === 'Enter' || e.key === ' ') toggleExpand(ws.id);
@@ -484,7 +485,8 @@
 							</span>
 						{/if}
 					</div>
-					<div class="flex items-center gap-2">
+					<div class="flex flex-wrap items-center gap-2">
+						<LocalAiButtons path={ws.path} />
 						{#if ws.solutionMetadata}
 							{#if rerunSessions.has(ws.id)}
 								<button
@@ -626,7 +628,7 @@
 									? `vscode://vscode-remote/ssh-remote+${vscodeSshHost}${repo.path}?windowId=_blank`
 									: `vscode://file${repo.path}?windowId=_blank`}
 								<div
-									class="flex min-h-[2.5rem] items-center border-b border-[#d8dee9]/60 px-8 py-1.5 last:border-b-0 dark:border-[#4c566a]/60"
+									class="flex min-h-[2.5rem] flex-wrap items-center gap-y-2 border-b border-[#d8dee9]/60 px-8 py-1.5 last:border-b-0 dark:border-[#4c566a]/60"
 								>
 									<!-- Repo name: takes available space -->
 									<div class="flex w-[200px] min-w-0 shrink-0 items-center gap-2">
@@ -748,6 +750,10 @@
 										{/if}
 									</div>
 
+									<!-- Local AI uses the dashboard backend, not the repository's devcontainer. -->
+									<div class="mx-3 flex flex-wrap gap-1.5">
+										<LocalAiButtons path={repo.path} />
+									</div>
 									<!-- Service buttons (when container exists) -->
 									{#if matchedContainer && Object.keys(matchedContainer.ports).length > 0}
 										<div class="mx-3 flex flex-wrap gap-1.5">
