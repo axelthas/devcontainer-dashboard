@@ -8,7 +8,6 @@
 		Play,
 		Loader,
 		RefreshCw,
-		Trash2,
 		Loader2,
 		RotateCcw,
 		Package,
@@ -25,6 +24,7 @@
 	import LogViewer from './LogViewer.svelte';
 	import ServiceButton from './ServiceButton.svelte';
 	import OpenWithMenu from './OpenWithMenu.svelte';
+	import WorkspaceMoreMenu from './WorkspaceMoreMenu.svelte';
 	import { resolve } from '$app/paths';
 	import TerminalTab from './TerminalTab.svelte';
 
@@ -442,7 +442,7 @@
 			{#each workspaces as ws (ws.id)}
 				<!-- Task Workspace header -->
 				<div
-					class="flex w-full cursor-pointer flex-wrap items-center justify-between gap-3 border-b border-[#d8dee9] px-5 py-3 transition-colors last:border-b-0 hover:bg-[#e5e9f0] dark:border-[#4c566a] dark:hover:bg-[#434c5e]"
+					class="flex w-full cursor-pointer flex-wrap items-center justify-between gap-3 border-b border-[#d8dee9] px-5 py-2 transition-colors last:border-b-0 hover:bg-[#e5e9f0] dark:border-[#4c566a] dark:hover:bg-[#434c5e]"
 					onclick={() => toggleExpand(ws.id)}
 					onkeydown={(e) => {
 						if (e.key === 'Enter' || e.key === ' ') toggleExpand(ws.id);
@@ -457,6 +457,9 @@
 							<ChevronRight size={16} class="text-[#4c566a] dark:text-[#d8dee9]/60" />
 						{/if}
 						<span class="font-semibold text-[#2e3440] dark:text-[#eceff4]">{ws.name}</span>
+						<span class="text-sm whitespace-nowrap text-[#4c566a] dark:text-[#d8dee9]/60"
+							>· {ws.repos.length} {ws.repos.length === 1 ? 'repo' : 'repos'}</span
+						>
 
 						{#if ws.buildSession?.status === 'running'}
 							<span
@@ -487,58 +490,20 @@
 							</span>
 						{/if}
 					</div>
-					<div class="flex flex-wrap items-center gap-2">
-						<div
-							class="flex items-center rounded-xl border border-[#d8dee9] bg-[#eceff4] p-1 shadow-sm dark:border-[#434c5e] dark:bg-[#2e3440]"
-						>
-							<OpenWithMenu path={ws.path} {vscodeSshHost} {onOpenTerminal} />
-						</div>
-						{#if ws.solutionMetadata}
-							{#if rerunSessions.has(ws.id)}
-								<button
-									disabled
-									class="flex cursor-not-allowed items-center gap-1.5 rounded-lg border border-[#b48ead]/30 bg-[#b48ead]/15 px-2.5 py-1 text-xs font-medium text-[#b48ead] opacity-75"
-									type="button"
-								>
-									<Loader2 size={12} class="animate-spin" />
-									Running…
-								</button>
-							{:else}
-								<button
-									onclick={(e) => {
-										e.stopPropagation();
-										rerunBootstrap(ws);
-									}}
-									class="flex items-center gap-1.5 rounded-lg border border-[#b48ead]/30 bg-[#b48ead]/15 px-2.5 py-1 text-xs font-medium text-[#b48ead] transition-colors hover:bg-[#b48ead]/25"
-									type="button"
-								>
-									<RotateCcw size={12} />
-									Rerun Bootstrap
-								</button>
-							{/if}
-						{/if}
-						<span
-							class="rounded-full bg-[#d8dee9] px-2 py-0.5 text-xs font-medium text-[#4c566a] dark:bg-[#4c566a] dark:text-[#d8dee9]"
-						>
-							{ws.repos.length}
-							{ws.repos.length === 1 ? 'Repo' : 'Repos'}
-						</span>
-						<button
-							onclick={(e) => {
-								e.stopPropagation();
-								deleteWorkspace(ws);
-							}}
-							disabled={deletingWorkspaces.has(ws.id)}
-							class="rounded-lg p-1.5 text-[#4c566a] transition-colors hover:bg-[#e5e9f0] hover:text-[#bf616a] disabled:cursor-not-allowed disabled:opacity-50 dark:text-[#d8dee9]/60 dark:hover:bg-[#3b4252] dark:hover:text-[#bf616a]"
-							title="Delete workspace"
-							type="button"
-						>
-							{#if deletingWorkspaces.has(ws.id)}
-								<Loader2 size={14} class="animate-spin" />
-							{:else}
-								<Trash2 size={14} />
-							{/if}
-						</button>
+					<!-- One compact group: frequent Open with first, rare/destructive actions under ⋯ -->
+					<div
+						class="flex items-center rounded-xl border border-[#d8dee9] bg-[#eceff4] p-1 shadow-sm dark:border-[#434c5e] dark:bg-[#2e3440]"
+					>
+						<OpenWithMenu path={ws.path} {vscodeSshHost} {onOpenTerminal} />
+						<div class="mx-0.5 h-4 w-px shrink-0 bg-[#d8dee9] dark:bg-[#434c5e]"></div>
+						<WorkspaceMoreMenu
+							name={ws.name}
+							canRerun={Boolean(ws.solutionMetadata)}
+							rerunning={rerunSessions.has(ws.id)}
+							deleting={deletingWorkspaces.has(ws.id)}
+							onRerun={() => rerunBootstrap(ws)}
+							onDelete={() => deleteWorkspace(ws)}
+						/>
 					</div>
 				</div>
 
