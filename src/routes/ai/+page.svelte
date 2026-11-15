@@ -3,6 +3,7 @@
 	import { invalidateAll } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import AiButtons from '$lib/components/AiButtons.svelte';
+	import AiViewerHeader from '$lib/components/AiViewerHeader.svelte';
 	import TerminalTab from '$lib/components/TerminalTab.svelte';
 	import type { PageData } from './$types';
 
@@ -14,6 +15,10 @@
 
 	onMount(() => {
 		dark = localStorage.getItem('devcontainer-dashboard-theme') !== 'light';
+		const syncTheme = (event: StorageEvent) => {
+			if (event.key === 'devcontainer-dashboard-theme') dark = event.newValue !== 'light';
+		};
+		window.addEventListener('storage', syncTheme);
 		const controller = new AbortController();
 		if (data.viewer) void openViewer(controller.signal);
 		const timer =
@@ -23,6 +28,7 @@
 		return () => {
 			controller.abort();
 			clearInterval(timer);
+			window.removeEventListener('storage', syncTheme);
 		};
 	});
 
@@ -82,22 +88,15 @@
 		class="flex min-h-dvh flex-col bg-[#eceff4] text-[#2e3440] dark:bg-[#2e3440] dark:text-[#eceff4]"
 		class:h-dvh={Boolean(data.viewer)}
 	>
-		<header
-			class="flex shrink-0 flex-wrap items-center gap-4 border-b border-[#d8dee9] bg-[#e5e9f0] px-5 py-3 dark:border-[#434c5e] dark:bg-[#3b4252]"
-		>
-			<strong
-				>{data.viewer?.tool === 'opencode'
-					? 'OpenCode TUI'
-					: data.viewer
-						? 'OpenChamber'
-						: 'AI folders'}</strong
-			>
-			<span class="min-w-0 flex-1 truncate font-mono text-sm" title={data.folders.path}
-				>{data.folders.path}</span
-			>
-			<a class="text-[#5e81ac] underline dark:text-[#88c0d0]" href={resolve('/ai')}>AI status</a>
-			<a class="text-[#5e81ac] underline dark:text-[#88c0d0]" href={resolve('/')}>Dashboard</a>
-		</header>
+		<AiViewerHeader
+			path={data.folders.path}
+			label={data.viewer?.tool === 'opencode'
+				? 'OpenCode TUI'
+				: data.viewer
+					? 'OpenChamber'
+					: 'AI folders'}
+			{dark}
+		/>
 		{#if terminalId}
 			<div class="min-h-0 flex-1 bg-[#2e3440] p-2">
 				<TerminalTab sessionId={terminalId} active={true} focusOnActivate={true} />
