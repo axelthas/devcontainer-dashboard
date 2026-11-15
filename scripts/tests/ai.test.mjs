@@ -237,7 +237,7 @@ test('runtime has one server, shared credentials, attach-only PTYs and failure w
 		};
 		process.env.AI_ENABLED = '1';
 		process.env.WORKSPACE_ROOT = root;
-		globalThis.fetch = async (url, options) =>
+		globalThis.fetch = async (url) =>
 			new Response(url.endsWith('/api/session') ? '{"data":{"id":"ses_runtime"}}' : '{}');
 		let handle;
 		try {
