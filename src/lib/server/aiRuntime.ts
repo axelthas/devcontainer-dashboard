@@ -263,10 +263,8 @@ export function startAi() {
 					OPENCODE_SERVER_PASSWORD: password,
 					OPENCHAMBER_UI_PASSWORD: uiPassword,
 					OPENCHAMBER_RELAY_HOST: 'off',
-					OPENCHAMBER_FRAME_ANCESTORS: [
-						process.env.ORIGIN ?? 'http://127.0.0.1:* http://localhost:*',
-						process.env.OPENCHAMBER_FRAME_ANCESTORS ?? ''
-					].join(' ')
+					// The dashboard origin is authoritative, including over env-file overrides.
+					OPENCHAMBER_FRAME_ANCESTORS: process.env.ORIGIN ?? ''
 				}
 			);
 			await waitForAi(chamber, `http://127.0.0.1:${runtime.chamberPort}/`, {}, () => closing);

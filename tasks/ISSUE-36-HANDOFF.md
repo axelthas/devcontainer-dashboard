@@ -62,9 +62,11 @@ Serve gateway maps one server-generated identity to the owned OpenChamber
 loopback listener. Its normal cookie, Origin and WebSocket policies still apply.
 OpenChamber's login is additional protection.
 
-`OPENCHAMBER_FRAME_ANCESTORS` includes `ORIGIN`, or local HTTP loopback origins
-when ORIGIN is absent. Extra operator-supplied frame ancestors are appended.
-For LAN access, set the dashboard's exact `--origin`.
+The dashboard always sets OpenChamber's `OPENCHAMBER_FRAME_ANCESTORS` to exactly
+`ORIGIN`. It does not append env-file values or use
+`DDAS_OPENCHAMBER_FRAME_ANCESTORS`. If `ORIGIN` is absent or empty, the setting is
+empty; there is no loopback wildcard fallback. Set the dashboard's exact
+`--origin` for embedded access, including localhost.
 For an HTTPS reverse proxy, set `OPENCHAMBER_PUBLIC_ORIGIN=https://host:port`
 through the env file and route that separate origin to container port 3002.
 The viewer does not rewrite root-relative assets or strip frame protections.
