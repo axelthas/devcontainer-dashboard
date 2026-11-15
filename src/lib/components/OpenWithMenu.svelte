@@ -10,11 +10,14 @@
 		onOpenTerminal: (id: string, command: string, name: string, cwd: string) => void;
 	}
 	let { path, vscodeSshHost = '', aiDisabled = false, onOpenTerminal }: Props = $props();
+	const uid = $props.id();
+	const menuId = `open-with-${uid}`;
 	let menu: HTMLDivElement;
 	let trigger: HTMLButtonElement;
 	let expanded = $state(false);
 	let left = $state(0);
 	let top = $state(0);
+	let focusLast = false;
 	const name = $derived(path.split('/').filter(Boolean).pop() ?? path);
 	const vscodeHref = $derived(
 		vscodeSshHost
@@ -22,19 +25,29 @@
 			: `vscode://file${path}?windowId=_blank`
 	);
 
-	/** The native popover escapes clipped rows and handles outside-click dismissal. */
-	function show(event: Event, last = false) {
-		event.stopPropagation();
-		if (expanded) {
-			close();
-			return;
-		}
+	/** Position the native popover before it opens; it escapes clipped rows. */
+	function place() {
 		const box = trigger.getBoundingClientRect();
 		left = Math.max(8, Math.min(box.left, window.innerWidth - 184));
 		top = box.bottom + 4 + 172 > window.innerHeight ? Math.max(8, box.top - 176) : box.bottom + 4;
-		menu.showPopover();
+	}
+
+	/** Track the native state and move focus into the visible menu. */
+	function toggled() {
+		expanded = menu.matches(':popover-open');
+		if (!expanded) return;
 		const items = menu.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)');
-		items[last ? items.length - 1 : 0]?.focus();
+		items[focusLast ? items.length - 1 : 0]?.focus();
+		focusLast = false;
+	}
+
+	/** Arrow keys open the closed menu at its first or last item. */
+	function openFromKey(event: KeyboardEvent) {
+		event.stopPropagation();
+		if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+		event.preventDefault();
+		focusLast = event.key === 'ArrowUp';
+		if (!menu.matches(':popover-open')) menu.showPopover();
 	}
 
 	/** Dismiss before dispatch without moving focus away from a newly opened window. */
@@ -93,14 +106,9 @@
 	aria-haspopup="menu"
 	aria-expanded={expanded}
 	title={`Open ${path} with…`}
-	onclick={show}
-	onkeydown={(event) => {
-		event.stopPropagation();
-		if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-			event.preventDefault();
-			show(event, event.key === 'ArrowUp');
-		}
-	}}
+	popovertarget={menuId}
+	onclick={(event) => event.stopPropagation()}
+	onkeydown={openFromKey}
 	class="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold whitespace-nowrap text-[#4c566a] hover:bg-[#e5e9f0] dark:text-[#d8dee9] dark:hover:bg-[#434c5e]"
 >
 	Open with <ChevronDown size={13} />
@@ -108,12 +116,14 @@
 
 <div
 	bind:this={menu}
+	id={menuId}
 	popover="auto"
 	role="menu"
 	tabindex="-1"
 	aria-label={`Open ${name} with`}
 	onclick={(event) => event.stopPropagation()}
-	ontoggle={() => (expanded = menu.matches(':popover-open'))}
+	onbeforetoggle={place}
+	ontoggle={toggled}
 	onkeydown={navigate}
 	style:left={`${left}px`}
 	style:top={`${top}px`}

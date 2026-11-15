@@ -50,6 +50,15 @@ describe('Open with', () => {
 			.toHaveAttribute('aria-expanded', 'false');
 	});
 
+	it('closes on a second trigger click instead of reopening', async () => {
+		fixture();
+		const trigger = page.getByRole('button', { name: 'Open with: plain folder' });
+		await trigger.click();
+		await expect.element(trigger).toHaveAttribute('aria-expanded', 'true');
+		await trigger.click();
+		await expect.element(trigger).toHaveAttribute('aria-expanded', 'false');
+	});
+
 	it('keeps the existing terminal callback and VS Code SSH target', async () => {
 		const { target, onOpenTerminal } = fixture();
 		await page.getByRole('button', { name: 'Open with: plain folder' }).click();
