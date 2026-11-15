@@ -14,8 +14,6 @@
 		Package,
 		ArrowUpRight,
 		TriangleAlert,
-		Code,
-		TerminalSquare,
 		FileText,
 		X
 	} from 'lucide-svelte';
@@ -26,7 +24,7 @@
 	import BootstrapStatus from './BootstrapStatus.svelte';
 	import LogViewer from './LogViewer.svelte';
 	import ServiceButton from './ServiceButton.svelte';
-	import AiButtons from './AiButtons.svelte';
+	import OpenWithMenu from './OpenWithMenu.svelte';
 	import { resolve } from '$app/paths';
 	import TerminalTab from './TerminalTab.svelte';
 
@@ -490,7 +488,11 @@
 						{/if}
 					</div>
 					<div class="flex flex-wrap items-center gap-2">
-						<AiButtons path={ws.path} />
+						<div
+							class="flex items-center rounded-xl border border-[#d8dee9] bg-[#eceff4] p-1 shadow-sm dark:border-[#434c5e] dark:bg-[#2e3440]"
+						>
+							<OpenWithMenu path={ws.path} {vscodeSshHost} {onOpenTerminal} />
+						</div>
 						{#if ws.solutionMetadata}
 							{#if rerunSessions.has(ws.id)}
 								<button
@@ -628,9 +630,6 @@
 							{#each ws.repos as repo (repo.path)}
 								{@const matchedContainer = findContainerForRepo(repo.path)}
 								{@const repoExpandable = repo.buildSession?.status === 'running'}
-								{@const folderUri = vscodeSshHost
-									? `vscode://vscode-remote/ssh-remote+${vscodeSshHost}${repo.path}?windowId=_blank`
-									: `vscode://file${repo.path}?windowId=_blank`}
 								<div
 									class="flex min-h-[2.5rem] flex-wrap items-center gap-y-2 border-b border-[#d8dee9]/60 px-8 py-1.5 last:border-b-0 dark:border-[#4c566a]/60"
 								>
@@ -755,9 +754,6 @@
 									</div>
 
 									<!-- Service buttons (when container exists) -->
-									<div class="mx-3 flex flex-wrap gap-1.5">
-										<AiButtons path={repo.path} />
-									</div>
 									{#if matchedContainer && Object.keys(matchedContainer.ports).length > 0}
 										<div class="mx-3 flex flex-wrap gap-1.5">
 											{#each Object.entries(matchedContainer.ports) as [containerPort, hostPort] (containerPort)}
@@ -782,24 +778,7 @@
 										<div
 											class="flex items-center rounded-xl border border-[#d8dee9] bg-[#eceff4] p-1 shadow-sm dark:border-[#434c5e] dark:bg-[#2e3440]"
 										>
-											<!-- VS Code: open folder via SSH or local file URI -->
-											<a
-												href={folderUri}
-												rel="external"
-												title="Open folder in VS Code"
-												class="rounded-lg p-1.5 text-[#4c566a] transition-colors hover:bg-[#e5e9f0] hover:text-[#5e81ac] dark:text-[#d8dee9]/60 dark:hover:bg-[#3b4252] dark:hover:text-[#81a1c1]"
-											>
-												<Code size={14} />
-											</a>
-											<!-- Terminal: open shell at repo path -->
-											<button
-												onclick={() => onOpenTerminal(generateId(), '', repo.name, repo.path)}
-												title="Open terminal in folder"
-												type="button"
-												class="rounded-lg p-1.5 text-[#4c566a] transition-colors hover:bg-[#e5e9f0] hover:text-[#88c0d0] dark:text-[#d8dee9]/60 dark:hover:bg-[#3b4252] dark:hover:text-[#88c0d0]"
-											>
-												<TerminalSquare size={14} />
-											</button>
+											<OpenWithMenu path={repo.path} {vscodeSshHost} {onOpenTerminal} />
 											{#if repo.hasDevcontainer}
 												<div class="mx-0.5 h-4 w-px shrink-0 bg-[#d8dee9] dark:bg-[#434c5e]"></div>
 												{#if matchedContainer && matchedContainer.state === 'running'}
