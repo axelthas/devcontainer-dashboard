@@ -100,7 +100,10 @@ test('a reversed old response cannot overwrite newer state even if it ignores ab
 		},
 		(v) => applied.push(v)
 	);
-	const second = reads.run(() => next.promise, (v) => applied.push(v));
+	const second = reads.run(
+		() => next.promise,
+		(v) => applied.push(v)
+	);
 	assert.equal(oldSignal.aborted, true);
 	next.resolve('new');
 	assert.equal(await second, true);
@@ -112,8 +115,14 @@ test('a reversed old response cannot overwrite newer state even if it ignores ab
 test('obsolete rejection cannot replace a newer success with an error', async () => {
 	const reads = latestRequest();
 	const old = deferred();
-	const first = reads.run(() => old.promise, () => assert.fail('obsolete apply'));
-	await reads.run(async () => 'new', (value) => assert.equal(value, 'new'));
+	const first = reads.run(
+		() => old.promise,
+		() => assert.fail('obsolete apply')
+	);
+	await reads.run(
+		async () => 'new',
+		(value) => assert.equal(value, 'new')
+	);
 	old.reject(new Error('old failure'));
 	assert.equal(await first, false);
 });
@@ -121,19 +130,31 @@ test('obsolete rejection cannot replace a newer success with an error', async ()
 test('current failures propagate and a later retry can succeed', async () => {
 	const reads = latestRequest();
 	await assert.rejects(
-		reads.run(async () => {
-			throw new Error('failed');
-		}, () => {}),
+		reads.run(
+			async () => {
+				throw new Error('failed');
+			},
+			() => {}
+		),
 		/failed/
 	);
-	assert.equal(await reads.run(async () => 42, (value) => assert.equal(value, 42)), true);
+	assert.equal(
+		await reads.run(
+			async () => 42,
+			(value) => assert.equal(value, 42)
+		),
+		true
+	);
 });
 
 test('cleanup prevents late application or unhandled failure after unmount', async () => {
 	for (const reject of [false, true]) {
 		const reads = latestRequest();
 		const pending = deferred();
-		const result = reads.run(() => pending.promise, () => assert.fail('applied after cleanup'));
+		const result = reads.run(
+			() => pending.promise,
+			() => assert.fail('applied after cleanup')
+		);
 		reads.cancel();
 		if (reject) pending.reject(new Error('late failure'));
 		else pending.resolve('late result');
