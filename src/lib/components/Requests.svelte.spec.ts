@@ -149,7 +149,9 @@ describe('request feedback', () => {
 				bootstrap_version: '1'
 			}
 		});
-		await page.getByRole('button', { name: 'More actions: Fixture workspace' }).click();
+		await page
+			.getByRole('button', { name: 'More actions: Fixture workspace', exact: true })
+			.click();
 		await page.getByRole('menuitem', { name: 'Rerun bootstrap' }).click();
 		await expect.element(page.getByText('Rerunning bootstrap…')).toBeVisible();
 		const cancel = page.getByRole('button', { name: 'Cancel', exact: true });
