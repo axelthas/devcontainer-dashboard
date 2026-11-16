@@ -133,6 +133,36 @@ Dockerfile/configuration with both running and stopped containers, reload while 
 runs, inspect mounted fixture data after replacement, and verify the replacement ID and
 service ports. Do not use an operator's existing workspace as a test fixture.
 
+## Compare terminal engines
+
+The terminal drawer and the OpenCode TUI window can display the same terminal with
+four engines. This is an evaluation feature ([#42](https://github.com/axelthas/devcontainer-dashboard/issues/42)).
+xterm.js stays the default.
+
+| Engine                  | Core and renderer                                     |
+| ----------------------- | ----------------------------------------------------- |
+| xterm.js                | xterm.js 6, DOM renderer                              |
+| Wraith (xterm API)      | xterm.js 6 parser, Wraith WebGPU renderer or DOM      |
+| Wraith native (Ghostty) | libghostty-vt in a worker, WebGPU renderer            |
+| wterm                   | Vercel Labs Zig/WASM core, DOM renderer               |
+
+To choose the engine for new terminals:
+
+1. Open **Open with** on a workspace or folder.
+2. Select an engine under **Terminal engine**. The menu stays open.
+3. Select **Terminal** or **OpenCode TUI**.
+
+The **New** selector in the terminal drawer sets the same default.
+
+To switch an open terminal, use **This terminal** in the drawer, or **Engine** in the
+OpenCode TUI window. Switching replaces only the browser viewer. The process keeps
+running; the new viewer reattaches and replays retained output. The tab shows the
+selected engine. The text next to the selector shows the core and renderer that
+actually started, including a Wraith DOM fallback.
+
+Wraith native requires WebGPU in a secure context (HTTPS or localhost). If an engine
+cannot start, the terminal shows the reason and a **Use xterm.js** action.
+
 ## Develop the dashboard
 
 You need Node.js 22, Docker access at `/var/run/docker.sock`, and a C++ build toolchain
