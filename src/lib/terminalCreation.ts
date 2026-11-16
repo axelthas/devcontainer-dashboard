@@ -34,7 +34,9 @@ async function attemptStart(start: TerminalStart, attempt: CreationAttempt): Pro
 		throw new Error(
 			'Terminal start outcome is unknown. Start a new terminal explicitly; the previous command will not be rerun.'
 		);
-	if (attempt.outcome === 'confirmed' || (start.command === undefined && start.name === undefined))
+	if (start.command === undefined && start.name === undefined)
+		throw new Error('Session no longer exists. Start a new run explicitly.');
+	if (attempt.outcome === 'confirmed')
 		throw new Error('Session no longer exists. Start a new terminal explicitly.');
 
 	// After dispatch, a lost response cannot prove that the command did not run.

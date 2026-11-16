@@ -8,7 +8,8 @@ it('deduplicates explicit creation across concurrent viewers', async () => {
 	const fetcher = vi
 		.fn()
 		.mockResolvedValueOnce(new Response(null, { status: 404 }))
-		.mockResolvedValueOnce(new Response('{}', { status: 201 }));
+		.mockResolvedValueOnce(new Response('{}', { status: 201 }))
+		.mockResolvedValue(new Response('{"status":"running"}', { status: 200 }));
 	vi.stubGlobal('fetch', fetcher);
 	await Promise.all([
 		ensureTerminal({ id: 'creation-test', name: 'Shell' }),
@@ -16,7 +17,8 @@ it('deduplicates explicit creation across concurrent viewers', async () => {
 	]);
 	expect(fetcher).toHaveBeenCalledTimes(2);
 	await ensureTerminal({ id: 'creation-test', name: 'Shell' });
-	expect(fetcher).toHaveBeenCalledTimes(2);
+	expect(fetcher).toHaveBeenCalledTimes(3);
+	expect(fetcher.mock.calls.filter(([, options]) => options?.method === 'POST')).toHaveLength(1);
 });
 
 it('does not recreate a missing server-owned run', async () => {
