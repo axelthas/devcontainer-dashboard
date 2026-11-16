@@ -44,6 +44,8 @@
 		let disposed = false;
 		let generation = 0;
 		let retries = 0;
+		let preparing = false;
+		let processReady = false;
 		let retryTimer: ReturnType<typeof setTimeout> | undefined;
 		let connectTimer: ReturnType<typeof setTimeout> | undefined;
 		let reportedExit = false;
@@ -142,6 +144,27 @@
 			}
 			retryTimer = setTimeout(() => void connect(), Math.min(500 * 2 ** retries++, 8000));
 		}
+		/** Recover an explicit start separately from attach-only socket recovery. */
+		async function prepareConnection() {
+			if (disposed || preparing) return;
+			preparing = true;
+			state = 'connecting';
+			reason = '';
+			try {
+				await ensureTerminal({ id: sessionId, name, command, cwd, kind }, controller.signal);
+				if (disposed) return;
+				processReady = true;
+				await connect();
+			} catch (error) {
+				if (!disposed) {
+					state = 'failed';
+					reason = error instanceof Error ? error.message : 'Could not start terminal.';
+				}
+			} finally {
+				preparing = false;
+			}
+		}
+		/** Initialize one xterm viewer; startup recovery reuses this instance. */
 		async function init() {
 			try {
 				const [{ Terminal: XTerm }, { FitAddon }] = await Promise.all([
@@ -172,8 +195,7 @@
 							socket.send(JSON.stringify({ type: 'data', data }));
 					})
 				);
-				await ensureTerminal({ id: sessionId, name, command, cwd, kind }, controller.signal);
-				if (!disposed) await connect();
+				await prepareConnection();
 			} catch (error) {
 				if (!disposed) {
 					state = 'failed';
@@ -183,8 +205,9 @@
 		}
 		retry = () => {
 			retries = 0;
-			if (terminal) void connect();
-			else void init();
+			if (!terminal) void init();
+			else if (!processReady) void prepareConnection();
+			else void connect();
 		};
 		void init();
 		return () => {
