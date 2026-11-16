@@ -65,7 +65,7 @@ host instance works in a different clone, copy this file over before branching.
 4. Password: hidden `/dev/tty` prompt when interactive and unset, plus `--password`
    and `--password-file PATH` (CI; avoids argv/env exposure). Non-interactive runs
    must supply one of the two.
-5. Bootstrap plugin scripts: `plugins/10-dev-bootstrap.sh` in the repo, and the
+5. Bootstrap plugin scripts: `plugins/tern-dev-bootstrap.sh` in the repo, and the
    container dir renamed to `/opt/dashboard/plugins/`.
 
 ## 2. Current state (for orientation)
@@ -84,8 +84,8 @@ host instance works in a different clone, copy this file over before branching.
 - `scripts/run-dashboard-compose.sh` + root `docker-compose.yml` — Compose variant
   (to be deleted). Compose is also the only path that forwards `VSCODE_SSH_HOST`
   and `SERVICE_PROXY_*` for registry-image deployments.
-- `scripts/10-dev-bootstrap.sh` — bootstrap "plugin" hook; Dockerfile copies it to
-  `/opt/dashboard/hooks/10-dev-bootstrap.sh`; entrypoint selects bundled hooks via
+- `scripts/tern-dev-bootstrap.sh` — bootstrap "plugin" hook; Dockerfile copies it to
+  `/opt/dashboard/hooks/tern-dev-bootstrap.sh`; entrypoint selects bundled hooks via
   glob `/opt/dashboard/hooks/*-<name>.sh`; operator hooks live separately at
   `/docker-entrypoint.d/*.sh`.
 - Duplicated across the three launchers: `resolve_identity` (~18 lines, byte-equal,
@@ -198,8 +198,8 @@ Everything else (`DASHBOARD_PASSWORD`, `WORKSPACE_ROOT`, `DOCKER_SOCKET`,
 
 ## 5. Plugins relocation
 
-- `git mv scripts/10-dev-bootstrap.sh plugins/10-dev-bootstrap.sh`
-- `Dockerfile`: `COPY plugins/10-dev-bootstrap.sh /opt/dashboard/plugins/10-dev-bootstrap.sh`
+- `git mv scripts/tern-dev-bootstrap.sh plugins/tern-dev-bootstrap.sh`
+- `Dockerfile`: `COPY plugins/tern-dev-bootstrap.sh /opt/dashboard/plugins/tern-dev-bootstrap.sh`
   (and the chmod line).
 - `docker-entrypoint.sh`: bundled-hook glob and error message
   `/opt/dashboard/hooks/…` → `/opt/dashboard/plugins/…`. Operator-supplied
@@ -307,7 +307,7 @@ Optional gateway live validation follows PR #22's operator steps (Tailscale +
   plain `mv` + `git add` replaced the planned `git mv`); stacked PR
   [axelthas/devcontainer-dashboard#25](https://github.com/axelthas/devcontainer-dashboard/pull/25)
   opened with `--base fix/https-service-embedding`.
-- 2026-11-04: commit 1 — `plugins/10-dev-bootstrap.sh`, Dockerfile copies to
+- 2026-11-04: commit 1 — `plugins/tern-dev-bootstrap.sh`, Dockerfile copies to
   `/opt/dashboard/plugins/`, entrypoint glob updated, deployment fixture rewrite
   and bootstrap-hook test path updated.
 - 2026-11-04: commit 2 — `scripts/run-dashboard.sh` rewritten as the single

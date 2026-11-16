@@ -54,7 +54,7 @@ Common flags:
 | `--image REF`                                    | Registry mode only: image reference.                                                                                             |
 | `--platform`, `--name`, `--health-timeout`       | Build mode only. Cross-mode flags fail with clear errors.                                                                        |
 
-`10-dev-bootstrap.sh` lives in `plugins/` in the repository. The Dockerfile copies
+`tern-dev-bootstrap.sh` lives in `plugins/` in the repository. The Dockerfile copies
 it to `/opt/dashboard/plugins/`, and the entrypoint selects bundled hooks from
 that directory; operator-supplied hooks stay under `/docker-entrypoint.d/`. The
 hook command interface is unchanged: `docker run image dev-bootstrap`.

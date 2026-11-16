@@ -195,7 +195,7 @@ test('hooks run after privilege dropping and preserve existing shell files', asy
 test('Dockerfile keeps the dashboard tools prefix and healthcheck contract', () => {
 	assert.match(read('Dockerfile'), /NPM_CONFIG_PREFIX=\/opt\/dashboard-tools/);
 	assert.match(read('Dockerfile'), /HEALTHCHECK[\s\S]*\/healthz/);
-	assert.match(read('Dockerfile'), /plugins\/10-dev-bootstrap\.sh/);
+	assert.match(read('Dockerfile'), /plugins\/tern-dev-bootstrap\.sh/);
 });
 
 // Run the actual Dockerfile instruction with fake downloads and a harmless installer.

@@ -94,11 +94,11 @@ COPY --from=builder /app/node_modules /app/node_modules
 COPY --from=builder /app/package.json /app/package.json
 COPY --from=openchamber-ui /source/packages/web/dist /opt/openchamber-dist
 ENV OPENCHAMBER_DIST_DIR=/opt/openchamber-dist
-COPY plugins/10-dev-bootstrap.sh /opt/dashboard/plugins/10-dev-bootstrap.sh
+COPY plugins/tern-dev-bootstrap.sh /opt/dashboard/plugins/tern-dev-bootstrap.sh
 COPY scripts/ai-state.sh /opt/dashboard-ai/state.sh
 COPY scripts/opencode.sh /opt/dashboard-tools/bin/opencode
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
-RUN chmod +x /app/docker-entrypoint.sh /opt/dashboard/plugins/10-dev-bootstrap.sh \
+RUN chmod +x /app/docker-entrypoint.sh /opt/dashboard/plugins/tern-dev-bootstrap.sh \
        /opt/dashboard-ai/state.sh /opt/dashboard-tools/bin/opencode \
     && mkdir -p /data /dashboard-history /dashboard-ai
 ENV AI_ENABLED=0
