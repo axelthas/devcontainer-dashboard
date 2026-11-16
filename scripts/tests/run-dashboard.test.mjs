@@ -189,7 +189,7 @@ function build(f, args = [], overrides = {}, interactive = false, input = '\n') 
 const runCall = (r) => r.calls.find((c) => c.args[0] === 'run');
 const buildCall = (r) => r.calls.find((c) => c.args[0] === 'buildx' && c.args[1] === 'build');
 
-test('registry mode: pulls the default image and runs attached with stable volumes', (t) => {
+test('registry mode: pulls the default image and runs detached with stable volumes', (t) => {
 	const f = fixture(t);
 	const r = registry(f);
 	assert.equal(r.status, 0, r.stderr);
@@ -200,7 +200,13 @@ test('registry mode: pulls the default image and runs attached with stable volum
 		'ghcr.io/axelthas/devcontainer-dashboard:latest'
 	]);
 	const run = runCall(r);
-	assert.ok(run.args.includes('--rm'));
+	assert.ok(run.args.includes('--detach'));
+	assert.ok(!run.args.includes('--rm'));
+	assert.equal(run.args[run.args.indexOf('--restart') + 1], 'always');
+	assert.match(r.stdout, /docker logs -f devcontainer-dashboard/);
+	assert.match(r.stdout, /docker stop devcontainer-dashboard/);
+	assert.match(r.stdout, /docker start devcontainer-dashboard/);
+	assert.match(r.stdout, /docker update --restart=no devcontainer-dashboard/);
 	assert.ok(run.args.includes('127.0.0.1:3000:3000'));
 	assert.ok(run.args.includes('dashboard_data:/data'));
 	assert.ok(run.args.includes('ddash_zsh_data:/dashboard-history'));
@@ -667,6 +673,9 @@ test('build mode: unique default name, default workspace and loopback publicatio
 	const run = runCall(r);
 	const name = run.args[run.args.indexOf('--name') + 1];
 	assert.match(name, /^ddash-local-abcdef123456-\d+-\d+$/);
+	assert.equal(run.args[run.args.indexOf('--restart') + 1], 'always');
+	assert.ok(!run.args.includes('--rm'));
+	assert.ok(r.stdout.includes(`docker update --restart=no ${name}`));
 	assert.ok(
 		run.args.includes(
 			'type=bind,source=/home/operator/ddash-production-workspace,target=/home/operator/ddash-production-workspace'
