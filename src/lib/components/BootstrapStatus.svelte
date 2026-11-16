@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
+	import { errorMessage, latestRequest, requestJson } from '$lib/requests';
+	import RequestError from './RequestError.svelte';
 	import {
 		Settings,
 		GitBranch,
@@ -32,6 +35,15 @@
 	let updateFailed = $state(false);
 	let versionHighlight = $state(false);
 	let previousVersion = $state<string | null>(null);
+	let statusError = $state('');
+	let checkoutError = $state('');
+	const statusReads = latestRequest();
+	let statusRevision = 0;
+	let disposed = false;
+	onDestroy(() => {
+		disposed = true;
+		statusReads.cancel();
+	});
 
 	$effect(() => {
 		fetchBootstrapInfo();
@@ -49,39 +61,43 @@
 	});
 
 	async function fetchBootstrapInfo() {
+		const revision = ++statusRevision;
 		loading = true;
 		try {
-			const [infoRes, providerRes] = await Promise.all([
-				fetch('/api/bootstrap'),
-				fetch('/api/bootstrap/providers')
-			]);
-			if (infoRes.ok) info = await infoRes.json();
-			if (providerRes.ok) {
-				const providers = await providerRes.json();
-				if (providers.length > 0) provider = providers[0];
-			}
+			await statusReads.run(
+				(signal) =>
+					Promise.all([
+						requestJson<BootstrapToolInfo>('/api/bootstrap', { signal }),
+						requestJson<BootstrapProvider[]>('/api/bootstrap/providers', { signal })
+					]),
+				([nextInfo, providers]) => {
+					info = nextInfo;
+					provider = providers[0] ?? null;
+					statusError = '';
+				}
+			);
+		} catch (cause) {
+			if (!disposed) statusError = `Bootstrap status unavailable. ${errorMessage(cause)}`;
 		} finally {
-			loading = false;
+			if (!disposed && revision === statusRevision) loading = false;
 		}
 	}
 
 	async function pullBranch() {
 		pulling = true;
 		pullMessage = null;
+		checkoutError = '';
 		try {
-			const res = await fetch('/api/bootstrap/pull', { method: 'POST' });
-			const data = await res.json();
-			if (res.ok) {
-				pullMessage = data.output || 'Pull complete';
-				await fetchBootstrapInfo();
-			} else {
-				pullMessage = `Error: ${data.message || 'Pull failed'}`;
-			}
-		} catch {
-			pullMessage = 'Error: Network request failed';
+			const data = await requestJson<{ output?: string }>('/api/bootstrap/pull', {
+				method: 'POST'
+			});
+			if (disposed) return;
+			pullMessage = data.output || 'Pull complete';
+			await fetchBootstrapInfo();
+		} catch (cause) {
+			if (!disposed) checkoutError = errorMessage(cause);
 		} finally {
-			pulling = false;
-			setTimeout(() => (pullMessage = null), 5000);
+			if (!disposed) pulling = false;
 		}
 	}
 
@@ -91,18 +107,21 @@
 			return;
 		}
 		checkingOut = true;
+		checkoutError = '';
 		try {
-			const res = await fetch('/api/bootstrap/checkout', {
+			await requestJson('/api/bootstrap/checkout', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ branch })
 			});
-			if (res.ok) {
-				await fetchBootstrapInfo();
-			}
+			if (!disposed) await fetchBootstrapInfo();
+		} catch (cause) {
+			if (!disposed) checkoutError = errorMessage(cause);
 		} finally {
-			checkingOut = false;
-			branchPickerOpen = false;
+			if (!disposed) {
+				checkingOut = false;
+				branchPickerOpen = false;
+			}
 		}
 	}
 
@@ -133,6 +152,9 @@
 	}
 </script>
 
+{#if loading && !info}<p role="status" class="text-xs">Loading bootstrap status...</p>{/if}
+<RequestError message={statusError} onRetry={() => void fetchBootstrapInfo()} />
+<RequestError message={checkoutError} />
 {#if info?.installed}
 	<div
 		class="rounded-xl border border-[#d8dee9] bg-white px-4 py-3 shadow-sm dark:border-[#4c566a] dark:bg-[#3b4252]"
@@ -319,7 +341,7 @@
 			</div>
 		{/if}
 	</div>
-{:else if !loading && !info?.installed && onBootstrap}
+{:else if !loading && !statusError && !info?.installed && onBootstrap}
 	<div
 		class="rounded-xl border border-dashed border-[#d8dee9] bg-[#eceff4]/50 px-4 py-3 dark:border-[#4c566a] dark:bg-[#2e3440]/50"
 	>
