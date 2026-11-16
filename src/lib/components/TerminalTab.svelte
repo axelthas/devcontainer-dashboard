@@ -4,6 +4,7 @@
 	import type { FitAddon } from '@xterm/addon-fit';
 	import { TERMINAL_FONT_FAMILY, TERMINAL_THEME } from '$lib/terminalTheme';
 	import { ensureTerminal } from '$lib/terminalCreation';
+	import { validTerminalDimensions } from '$lib/terminalSizing';
 
 	interface Props {
 		sessionId: string;
@@ -36,14 +37,45 @@
 	let terminal: Terminal | undefined;
 	let fitAddon: FitAddon | undefined;
 	let socket: WebSocket | undefined;
+	let terminalNode: HTMLDivElement | undefined;
 	let retry = $state<() => void>(() => {});
 	let activationElement: Element | null = null;
 
+	/** Restored viewers attach while hidden, but must not resize a shared PTY until measurable. */
+	function canMeasureTerminal() {
+		if (!visible || !terminalNode?.isConnected) return false;
+		const bounds = terminalNode.getBoundingClientRect();
+		return bounds.width > 0 && bounds.height > 0;
+	}
+	/** Never send invalid or hidden-pane geometry to the attach-only transport. */
+	function sendResize(dimensions: unknown) {
+		if (
+			!canMeasureTerminal() ||
+			!validTerminalDimensions(dimensions) ||
+			state !== 'connected' ||
+			socket?.readyState !== WebSocket.OPEN
+		)
+			return;
+		socket.send(JSON.stringify({ type: 'resize', ...dimensions }));
+	}
+	/** Fit after layout, then send even unchanged geometry when a new viewer attaches. */
+	function fitVisibleTerminal() {
+		if (!ready || !terminal || !canMeasureTerminal()) return;
+		const dimensions = fitAddon?.proposeDimensions();
+		if (!validTerminalDimensions(dimensions)) return;
+		if (terminal.cols !== dimensions.cols || terminal.rows !== dimensions.rows)
+			terminal.resize(dimensions.cols, dimensions.rows);
+		else sendResize(dimensions);
+	}
+
 	/** Own every resource for one viewer. Disposing a viewer never stops its PTY. */
 	function terminalAttachment(node: HTMLDivElement) {
+		terminalNode = node;
 		let disposed = false;
 		let generation = 0;
 		let retries = 0;
+		let preparing = false;
+		let processReady = false;
 		let retryTimer: ReturnType<typeof setTimeout> | undefined;
 		let connectTimer: ReturnType<typeof setTimeout> | undefined;
 		let reportedExit = false;
@@ -91,10 +123,7 @@
 							retries = 0;
 							terminal?.reset();
 							terminal?.write(message.output ?? '');
-							if (visible) fitAddon?.fit();
-							const dims = fitAddon?.proposeDimensions();
-							if (dims)
-								ws.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }));
+							fitVisibleTerminal();
 						} else if (message.type === 'data' && typeof message.data === 'string')
 							terminal?.write(message.data);
 						else if (message.type === 'exit') {
@@ -142,6 +171,27 @@
 			}
 			retryTimer = setTimeout(() => void connect(), Math.min(500 * 2 ** retries++, 8000));
 		}
+		/** Recover an explicit start separately from attach-only socket recovery. */
+		async function prepareConnection() {
+			if (disposed || preparing) return;
+			preparing = true;
+			state = 'connecting';
+			reason = '';
+			try {
+				await ensureTerminal({ id: sessionId, name, command, cwd, kind }, controller.signal);
+				if (disposed) return;
+				processReady = true;
+				await connect();
+			} catch (error) {
+				if (!disposed) {
+					state = 'failed';
+					reason = error instanceof Error ? error.message : 'Could not start terminal.';
+				}
+			} finally {
+				preparing = false;
+			}
+		}
+		/** Initialize one xterm viewer; startup recovery reuses this instance. */
 		async function init() {
 			try {
 				const [{ Terminal: XTerm }, { FitAddon }] = await Promise.all([
@@ -162,8 +212,7 @@
 				ready = true;
 				subscriptions.push(
 					terminal.onResize(({ cols, rows }) => {
-						if (state === 'connected' && socket?.readyState === WebSocket.OPEN)
-							socket.send(JSON.stringify({ type: 'resize', cols, rows }));
+						sendResize({ cols, rows });
 					})
 				);
 				subscriptions.push(
@@ -172,8 +221,7 @@
 							socket.send(JSON.stringify({ type: 'data', data }));
 					})
 				);
-				await ensureTerminal({ id: sessionId, name, command, cwd, kind }, controller.signal);
-				if (!disposed) await connect();
+				await prepareConnection();
 			} catch (error) {
 				if (!disposed) {
 					state = 'failed';
@@ -183,8 +231,9 @@
 		}
 		retry = () => {
 			retries = 0;
-			if (terminal) void connect();
-			else void init();
+			if (!terminal) void init();
+			else if (!processReady) void prepareConnection();
+			else void connect();
 		};
 		void init();
 		return () => {
@@ -198,6 +247,7 @@
 			terminal?.dispose();
 			terminal = undefined;
 			fitAddon = undefined;
+			terminalNode = undefined;
 			ready = false;
 			retry = () => {};
 		};
@@ -213,7 +263,7 @@
 			if (cancelled) return;
 			frame = requestAnimationFrame(() => {
 				if (cancelled || !active || !visible) return;
-				fitAddon?.fit();
+				fitVisibleTerminal();
 				if (
 					focusOnActivate &&
 					(document.activeElement === activationElement || document.activeElement === document.body)
@@ -228,7 +278,7 @@
 	});
 	function observeSize(node: HTMLDivElement) {
 		const observer = new ResizeObserver(() => {
-			if (visible && ready) fitAddon?.fit();
+			fitVisibleTerminal();
 		});
 		observer.observe(node);
 		return () => observer.disconnect();
