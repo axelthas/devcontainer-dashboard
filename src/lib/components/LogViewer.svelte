@@ -2,6 +2,8 @@
 	import { Download, X } from 'lucide-svelte';
 	import type { Terminal } from '@xterm/xterm';
 	import { TERMINAL_FONT_FAMILY, TERMINAL_THEME } from '$lib/terminalTheme';
+	import { errorMessage, requestText, RequestError as RequestFailure } from '$lib/requests';
+	import RequestError from './RequestError.svelte';
 
 	interface Props {
 		logId: string;
@@ -12,6 +14,14 @@
 	let { logId, title, onClose }: Props = $props();
 
 	let loadError = $state<string | null>(null);
+	let loading = $state(true);
+	let attempt = $state(0);
+
+	function retry() {
+		loadError = null;
+		loading = true;
+		attempt++;
+	}
 
 	const logUrl = $derived(`/api/run-logs/${encodeURIComponent(logId)}`);
 
@@ -30,43 +40,49 @@
 		let terminal: Terminal | null = null;
 		let resizeObserver: ResizeObserver | null = null;
 		const url = logUrl;
+		const controller = new AbortController();
 
 		async function init() {
-			const [{ Terminal: XTerm }, { FitAddon }, res] = await Promise.all([
-				import('@xterm/xterm'),
-				import('@xterm/addon-fit'),
-				fetch(url)
-			]);
-			if (destroyed) return;
-			if (!res.ok) {
-				loadError = 'This log is no longer available.';
-				return;
+			try {
+				const [{ Terminal: XTerm }, { FitAddon }, output] = await Promise.all([
+					import('@xterm/xterm'),
+					import('@xterm/addon-fit'),
+					requestText(url, { signal: controller.signal })
+				]);
+				if (destroyed) return;
+
+				terminal = new XTerm({
+					theme: TERMINAL_THEME,
+					fontFamily: TERMINAL_FONT_FAMILY,
+					fontSize: 12,
+					disableStdin: true,
+					cursorBlink: false,
+					scrollback: 100_000
+				});
+				const fitAddon = new FitAddon();
+				terminal.loadAddon(fitAddon);
+				terminal.open(node);
+				fitAddon.fit();
+				terminal.write(output);
+
+				resizeObserver = new ResizeObserver(() => fitAddon.fit());
+				resizeObserver.observe(node);
+			} catch (cause) {
+				if (!destroyed)
+					loadError =
+						cause instanceof RequestFailure && cause.status === 404
+							? 'This log is no longer available.'
+							: errorMessage(cause);
+			} finally {
+				if (!destroyed) loading = false;
 			}
-			const output = await res.text();
-			if (destroyed) return;
-
-			terminal = new XTerm({
-				theme: TERMINAL_THEME,
-				fontFamily: TERMINAL_FONT_FAMILY,
-				fontSize: 12,
-				disableStdin: true,
-				cursorBlink: false,
-				scrollback: 100_000
-			});
-			const fitAddon = new FitAddon();
-			terminal.loadAddon(fitAddon);
-			terminal.open(node);
-			fitAddon.fit();
-			terminal.write(output);
-
-			resizeObserver = new ResizeObserver(() => fitAddon.fit());
-			resizeObserver.observe(node);
 		}
 
 		init();
 
 		return () => {
 			destroyed = true;
+			controller.abort();
 			resizeObserver?.disconnect();
 			terminal?.dispose();
 		};
@@ -98,18 +114,22 @@
 		</div>
 
 		{#if loadError}
-			<p class="mb-5 text-sm text-[#bf616a]">{loadError}</p>
+			<RequestError message={loadError} onRetry={retry} />
 		{:else}
-			<div
-				class="mb-5 h-[32rem] overflow-hidden rounded-lg border border-[#4c566a] bg-[#2e3440] p-2"
-			>
-				<div {@attach logAttachment} class="h-full w-full"></div>
-			</div>
+			{#if loading}<p role="status" class="text-sm text-[#d8dee9]">Loading log...</p>{/if}
+			{#key attempt}
+				<div
+					class="mb-5 h-[32rem] overflow-hidden rounded-lg border border-[#4c566a] bg-[#2e3440] p-2"
+				>
+					<div {@attach logAttachment} class="h-full w-full"></div>
+				</div>
+			{/key}
 		{/if}
 
 		<div class="flex items-center justify-end">
 			<button
 				onclick={downloadLog}
+				disabled={loading || Boolean(loadError)}
 				class="flex items-center gap-2 rounded-xl bg-[#4c566a] px-5 py-2.5 text-sm font-semibold text-[#eceff4] transition-colors hover:bg-[#5e6c7e]"
 				type="button"
 			>

@@ -1,5 +1,8 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
 	import { ChevronRight, ChevronDown, Play, Square, RotateCw, Loader2 } from 'lucide-svelte';
+	import { errorMessage, requestJson } from '$lib/requests';
+	import RequestError from './RequestError.svelte';
 	import type { ContainerData } from '$lib/types';
 	import SandboxRow from './SandboxRow.svelte';
 
@@ -23,28 +26,53 @@
 
 	let expanded = $state(false);
 	let loadingAction = $state<string | null>(null);
+	let actionError = $state('');
+	let actionSummary = $state('');
+	let disposed = false;
+	onDestroy(() => {
+		disposed = true;
+	});
 
 	const runningCount = $derived(containers.filter((c) => c.state === 'running').length);
 	const totalCount = $derived(containers.length);
 	const anyRunning = $derived(runningCount > 0);
 
 	async function handleGroupAction(action: 'start' | 'stop' | 'restart') {
+		if (loadingAction) return;
 		loadingAction = action;
+		actionError = '';
+		actionSummary = '';
 		try {
 			const targets = containers.filter((c) =>
 				action === 'start' ? c.state !== 'running' : c.state === 'running'
 			);
-			await Promise.all(
-				targets.map((c) => fetch(`/api/containers/${c.id}/${action}`, { method: 'POST' }))
+			const results = await Promise.allSettled(
+				targets.map((c) => requestJson(`/api/containers/${c.id}/${action}`, { method: 'POST' }))
 			);
-			await onRefresh();
+			if (disposed) return;
+			const failures = results.flatMap((result, index) =>
+				result.status === 'rejected'
+					? [`${targets[index].name.replace(/^\//, '')}: ${errorMessage(result.reason)}`]
+					: []
+			);
+			actionSummary = `${action}: ${targets.length - failures.length} of ${targets.length} succeeded.`;
+			actionError = failures.join(' ');
+			try {
+				await onRefresh();
+			} catch (cause) {
+				if (!disposed) actionError += ` Status may be outdated. ${errorMessage(cause)}`;
+			}
+		} catch (cause) {
+			if (!disposed) actionError = errorMessage(cause);
 		} finally {
-			loadingAction = null;
+			if (!disposed) loadingAction = null;
 		}
 	}
 </script>
 
 <div>
+	{#if actionSummary}<p role="status" class="px-5 text-xs">{actionSummary}</p>{/if}
+	<div class="px-5"><RequestError message={actionError} /></div>
 	<!-- Summary row -->
 	<div
 		class="flex items-center justify-between gap-4 px-5 py-3 transition-colors
