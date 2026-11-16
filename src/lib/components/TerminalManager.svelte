@@ -1,14 +1,26 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
 	import { X, Plus, Terminal, ChevronDown, ChevronUp, Maximize2, Minimize2 } from 'lucide-svelte';
-	import { SvelteSet } from 'svelte/reactivity';
+	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import TerminalTab from './TerminalTab.svelte';
+	import TerminalEngineSelect from './TerminalEngineSelect.svelte';
 	import { generateId } from '$lib/index';
 	import type { TerminalSession } from '$lib/types';
+	import {
+		TERMINAL_ENGINES,
+		type TerminalEngineId,
+		type TerminalViewIdentity
+	} from '$lib/terminalView';
+	import {
+		defaultTerminalEngine,
+		setDefaultTerminalEngine
+	} from '$lib/terminalEnginePreference.svelte';
 
 	interface TerminalSessionState extends TerminalSession {
 		command?: string;
 		cwd?: string;
+		/** Engine requested when the terminal was opened; the default applies otherwise. */
+		engine?: TerminalEngineId;
 	}
 	interface Props {
 		open: boolean;
@@ -36,10 +48,41 @@
 	let closeError = $state('');
 	let stopDrag = () => {};
 	const closingIds = new SvelteSet<string>();
+	/** Engine pinned per terminal, so a later default change never remounts an open terminal. */
+	const engines = new SvelteMap<string, TerminalEngineId>();
+	/** Engine, core, and renderer that each viewer actually initialized. */
+	const identities = new SvelteMap<string, TerminalViewIdentity>();
+	const activeSession = $derived(sessions.find((session) => session.id === activeId));
+	const activeIdentity = $derived(activeId ? identities.get(activeId) : undefined);
+
+	/** Use the pinned engine, then the requested engine, then the current default. */
+	function engineFor(session: TerminalSessionState): TerminalEngineId {
+		return engines.get(session.id) ?? session.engine ?? defaultTerminalEngine();
+	}
+	/** Replace only the active terminal's viewer; its process keeps running. */
+	function setActiveEngine(engine: TerminalEngineId) {
+		if (activeId) engines.set(activeId, engine);
+	}
+	/** Track what each viewer reports; a disposed viewer reports undefined. */
+	function setIdentity(id: string, identity: TerminalViewIdentity | undefined) {
+		if (identity) identities.set(id, identity);
+		else identities.delete(id);
+	}
+	$effect(() => {
+		const ids = new Set(sessions.map((session) => session.id));
+		for (const session of sessions)
+			if (!engines.has(session.id))
+				engines.set(session.id, session.engine ?? defaultTerminalEngine());
+		for (const id of [...engines.keys()])
+			if (!ids.has(id)) {
+				engines.delete(id);
+				identities.delete(id);
+			}
+	});
 
 	function addGenericShell() {
 		const id = generateId();
-		onAddSession({ id, name: 'Shell', cwd: workspaceRoot });
+		onAddSession({ id, name: 'Shell', cwd: workspaceRoot, engine: defaultTerminalEngine() });
 		onSetActive(id);
 		if (!open) onToggle();
 	}
@@ -117,6 +160,11 @@
 					type="button"
 				>
 					<Terminal size={12} /><span class="max-w-28 truncate">{session.name}</span>
+					<span
+						class="rounded bg-[#4c566a]/60 px-1 text-[10px] leading-4 text-[#d8dee9]"
+						title={TERMINAL_ENGINES[engineFor(session)].label}
+						>{TERMINAL_ENGINES[engineFor(session)].short}</span
+					>
 				</button>
 				<button
 					class="pr-2 text-[#d8dee9]/40 disabled:opacity-50"
@@ -133,7 +181,28 @@
 			type="button"
 			aria-label="New shell"><Plus size={14} /></button
 		>
+		<TerminalEngineSelect
+			label="New"
+			value={defaultTerminalEngine()}
+			help="Engine for terminals and OpenCode TUI windows opened from now on."
+			onSelect={setDefaultTerminalEngine}
+		/>
 		<div class="flex-1"></div>
+		{#if open && activeSession}
+			{#if activeIdentity}
+				<span
+					class="max-w-56 shrink truncate text-[11px] text-[#d8dee9]/50"
+					title={`${activeIdentity.core} · ${activeIdentity.renderer}`}
+					>{activeIdentity.core} · {activeIdentity.renderer}</span
+				>
+			{/if}
+			<TerminalEngineSelect
+				label="This terminal"
+				value={engineFor(activeSession)}
+				help="Switch how this terminal is displayed. Its process keeps running."
+				onSelect={setActiveEngine}
+			/>
+		{/if}
 		{#if open}
 			<button
 				onclick={() => (maximized = !maximized)}
@@ -169,10 +238,13 @@
 					name={session.name}
 					command={session.command}
 					cwd={session.cwd ?? workspaceRoot}
+					engine={engineFor(session)}
 					active={activeId === session.id}
 					visible={open && activeId === session.id}
 					focusOnActivate={true}
 					onExit={() => closeSession(session.id)}
+					onIdentity={(identity) => setIdentity(session.id, identity)}
+					onUseFallback={() => engines.set(session.id, 'xterm')}
 				/>
 			</div>
 		{/each}
