@@ -23,6 +23,8 @@
 	import LocalWorkspaces from '$lib/components/LocalWorkspaces.svelte';
 	import BootstrapModal from '$lib/components/BootstrapModal.svelte';
 	import TerminalManager from '$lib/components/TerminalManager.svelte';
+	import RequestError from '$lib/components/RequestError.svelte';
+	import { errorMessage, latestRequest, requestJson } from '$lib/requests';
 
 	interface Props {
 		data: {
@@ -103,32 +105,59 @@
 		localStorage.setItem(SHOW_STOPPED_KEY, String(showStopped));
 	});
 
-	// Poll every 5 seconds
-	$effect(() => {
-		const interval = setInterval(async () => {
-			await refreshContainers();
-			await refreshTerminalSessions();
-		}, 5000);
-		return () => clearInterval(interval);
-	});
+	const containerReads = latestRequest();
+	const workspaceReads = latestRequest();
+	const terminalReads = latestRequest();
+	let containerError = $state('');
+	let workspaceError = $state('');
+	let terminalError = $state('');
 
-	// Pick up terminal sessions that are already running server-side (e.g. opened from another
-	// browser, or still running from before a reload) so the drawer can reattach to them.
+	// Schedule after completion, not at a fixed rate that can overlap slow requests.
 	$effect(() => {
-		refreshTerminalSessions();
+		let stopped = false;
+		let timer: ReturnType<typeof setTimeout>;
+		async function poll() {
+			await Promise.allSettled([refreshContainers(), refreshTerminalSessions()]);
+			if (!stopped && workspaceError) await refreshWorkspaces().catch(() => {});
+			if (!stopped) timer = setTimeout(poll, 5000);
+		}
+		untrack(() => void poll());
+		return () => {
+			stopped = true;
+			clearTimeout(timer);
+			containerReads.cancel();
+			workspaceReads.cancel();
+			terminalReads.cancel();
+		};
 	});
 
 	async function refreshContainers() {
-		const res = await fetch('/api/containers');
-		if (res.ok) {
-			containers = await res.json();
+		try {
+			await containerReads.run(
+				(signal) => requestJson<ContainerData[]>('/api/containers', { signal }),
+				(value) => {
+					containers = value;
+					containerError = '';
+				}
+			);
+		} catch (cause) {
+			containerError = `Container status may be outdated. ${errorMessage(cause)}`;
+			throw cause;
 		}
 	}
 
 	async function refreshWorkspaces() {
-		const res = await fetch('/api/workspaces');
-		if (res.ok) {
-			workspaces = await res.json();
+		try {
+			await workspaceReads.run(
+				(signal) => requestJson<LocalWorkspaceData[]>('/api/workspaces', { signal }),
+				(value) => {
+					workspaces = value;
+					workspaceError = '';
+				}
+			);
+		} catch (cause) {
+			workspaceError = `Workspace status may be outdated. ${errorMessage(cause)}`;
+			throw cause;
 		}
 	}
 
@@ -143,8 +172,17 @@
 
 	$effect(() => {
 		if (!hasActiveBuilds) return;
-		const interval = setInterval(refreshWorkspaces, 3000);
-		return () => clearInterval(interval);
+		let stopped = false;
+		let timer: ReturnType<typeof setTimeout>;
+		async function poll() {
+			await refreshWorkspaces().catch(() => {});
+			if (!stopped) timer = setTimeout(poll, 3000);
+		}
+		timer = setTimeout(poll, 3000);
+		return () => {
+			stopped = true;
+			clearTimeout(timer);
+		};
 	});
 
 	function sortContainers(list: ContainerData[]) {
@@ -218,12 +256,11 @@
 	}
 
 	async function closeTerminalSession(id: string) {
-		const response = await fetch('/api/terminal/sessions', {
+		await requestJson('/api/terminal/sessions', {
 			method: 'DELETE',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ id })
 		});
-		if (!response.ok) throw new Error('Could not stop terminal');
 		removeTerminalSessionLocally(id);
 	}
 
@@ -234,9 +271,24 @@
 	async function refreshTerminalSessions() {
 		const poll = ++terminalPoll;
 		const revision = terminalRevision;
-		const res = await fetch('/api/terminal/sessions', { cache: 'no-store' });
-		if (!res.ok) return;
-		const serverSessions: TerminalSession[] = await res.json();
+		try {
+			await terminalReads.run(
+				(signal) => requestJson<TerminalSession[]>('/api/terminal/sessions', { signal }),
+				(serverSessions) => {
+					terminalError = '';
+					reconcileTerminalSessions(serverSessions, poll, revision);
+				}
+			);
+		} catch (cause) {
+			terminalError = `Terminal status may be outdated. ${errorMessage(cause)}`;
+		}
+	}
+
+	function reconcileTerminalSessions(
+		serverSessions: TerminalSession[],
+		poll: number,
+		revision: number
+	) {
 		if (poll !== terminalPoll || revision !== terminalRevision) return;
 		const serverIds = new SvelteSet(serverSessions.map((s) => s.id));
 		const localIds = new SvelteSet(terminalSessions.map((s) => s.id));
@@ -262,7 +314,7 @@
 
 	function handleRunBackground() {
 		// Workspace row is tracked server-side; refresh so it appears immediately
-		refreshWorkspaces();
+		void refreshWorkspaces().catch(() => {});
 	}
 
 	function handleOpenTerminal(id: string, command: string, name: string, cwd: string) {
@@ -364,6 +416,19 @@
 		</header>
 
 		<main class="mx-auto mt-8 max-w-7xl space-y-12 px-6">
+			{#if containerError || workspaceError || terminalError}
+				<div>
+					<RequestError
+						message={containerError}
+						onRetry={() => void refreshContainers().catch(() => {})}
+					/>
+					<RequestError
+						message={workspaceError}
+						onRetry={() => void refreshWorkspaces().catch(() => {})}
+					/>
+					<RequestError message={terminalError} onRetry={() => void refreshTerminalSessions()} />
+				</div>
+			{/if}
 			<!-- Section 1: Active Devcontainers -->
 			<section>
 				<div
@@ -496,7 +561,7 @@
 					<div
 						class="overflow-hidden rounded-xl border border-[#d8dee9] bg-white shadow-sm dark:border-[#4c566a] dark:bg-[#3b4252]"
 					>
-						<div class="divide-y divide-[#d8dee9] dark:divide-[#4c566a]">
+						<div class="divide-y divide-[#d8dee9]/60 dark:divide-[#4c566a]/60">
 							{#each composeGroups as group (group.projectName)}
 								<ComposeGroupRow
 									projectName={group.projectName}

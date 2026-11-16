@@ -16,7 +16,14 @@
 		FileText,
 		X
 	} from 'lucide-svelte';
-	import { untrack } from 'svelte';
+	import { onDestroy, untrack } from 'svelte';
+	import {
+		errorMessage,
+		latestRequest,
+		requestJson,
+		RequestError as RequestFailure
+	} from '$lib/requests';
+	import RequestError from './RequestError.svelte';
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import { generateId } from '$lib/index';
 	import type { ContainerData, LocalWorkspaceData, RepositoryData } from '$lib/types';
@@ -35,7 +42,7 @@
 		vscodeSshHost: string;
 		serviceProxyEnabled?: boolean;
 		onOpenTerminal: (id: string, command: string, name: string, cwd: string) => void;
-		onRefreshWorkspaces: () => void;
+		onRefreshWorkspaces: () => Promise<void>;
 		onBootstrap?: () => void;
 		onScrollToContainer?: (containerId: string) => void;
 		onRefreshContainers?: () => Promise<void>;
@@ -88,6 +95,36 @@
 	let branchPickerLoading = $state(false);
 	let checkoutInProgress = $state<string | null>(null);
 	let startingRepos = $state<Set<string>>(new Set());
+	let refreshError = $state('');
+	let operationErrors = $state<Record<string, string>>({});
+	const pendingOperations = new SvelteSet<string>();
+	const branchReads = latestRequest();
+	let branchRevision = 0;
+	let refreshCount = 0;
+	let disposed = false;
+	onDestroy(() => {
+		disposed = true;
+		branchReads.cancel();
+	});
+
+	/** Catch event-handler failures and keep the error next to its workspace or repository. */
+	async function operate(key: string, work: () => Promise<void>) {
+		if (pendingOperations.has(key)) return;
+		pendingOperations.add(key);
+		operationErrors[key] = '';
+		try {
+			await work();
+		} catch (cause) {
+			if (!disposed) operationErrors[key] = errorMessage(cause);
+		} finally {
+			pendingOperations.delete(key);
+		}
+	}
+
+	/** Refresh notifications from process exits must not create unhandled rejections. */
+	function refreshAfterExit() {
+		void refresh();
+	}
 
 	// Config picker state for repos with multiple devcontainer.json files
 	let configPickerRepo = $state<string | null>(null);
@@ -131,11 +168,16 @@
 	}
 
 	async function refresh() {
+		refreshCount++;
 		refreshing = true;
+		refreshError = '';
 		try {
-			onRefreshWorkspaces();
+			await onRefreshWorkspaces();
+		} catch (cause) {
+			if (!disposed) refreshError = `Workspace status may be outdated. ${errorMessage(cause)}`;
 		} finally {
-			refreshing = false;
+			refreshCount--;
+			if (!disposed) refreshing = refreshCount > 0;
 		}
 	}
 
@@ -163,79 +205,81 @@
 
 	// Cancels a running build, or dismisses a failed build and deletes its log.
 	async function dismissBuild(buildId: string) {
-		try {
-			await fetch('/api/devcontainer/build', {
+		await operate(buildId, async () => {
+			await requestJson('/api/devcontainer/build', {
 				method: 'DELETE',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ id: buildId })
 			});
-		} finally {
-			onRefreshWorkspaces();
-		}
+			await onRefreshWorkspaces();
+		});
 	}
 
 	// Dismisses a failed bootstrap run and deletes its log.
 	async function dismissBootstrapRun(runId: string) {
-		try {
-			await fetch('/api/bootstrap/run', {
+		await operate(runId, async () => {
+			await requestJson('/api/bootstrap/run', {
 				method: 'DELETE',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ id: runId })
 			});
-		} finally {
-			onRefreshWorkspaces();
-		}
+			await onRefreshWorkspaces();
+		});
 	}
 
 	async function buildAndStart(repoPath: string, repoName: string, configPath?: string) {
+		if (pendingOperations.has(repoPath)) return;
 		buildingRepos = new Set([...buildingRepos, repoPath]);
-		try {
-			const res = await fetch('/api/devcontainer/build', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ repoPath, repoName, ...(configPath ? { configPath } : {}) })
-			});
-			if (res.ok) {
-				// Keep repoPath in buildingRepos — the $effect above will clear it once
-				// the workspace poll confirms the build session has started.
-				onRefreshWorkspaces();
-			} else {
+		await operate(repoPath, async () => {
+			try {
+				await requestJson('/api/devcontainer/build', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ repoPath, repoName, ...(configPath ? { configPath } : {}) })
+				});
+				await onRefreshWorkspaces();
+			} finally {
 				buildingRepos = new Set([...buildingRepos].filter((p) => p !== repoPath));
 			}
-		} catch {
-			buildingRepos = new Set([...buildingRepos].filter((p) => p !== repoPath));
-		}
+		});
 	}
 
 	async function startContainer(repoPath: string, containerId: string) {
+		if (pendingOperations.has(repoPath)) return;
 		startingRepos = new Set([...startingRepos, repoPath]);
-		try {
-			await fetch(`/api/containers/${containerId}/start`, { method: 'POST' });
-			if (onRefreshContainers) await onRefreshContainers();
-		} finally {
-			startingRepos = new Set([...startingRepos].filter((p) => p !== repoPath));
-		}
+		await operate(repoPath, async () => {
+			try {
+				await requestJson(`/api/containers/${containerId}/start`, { method: 'POST' });
+				if (onRefreshContainers) await onRefreshContainers();
+			} finally {
+				startingRepos = new Set([...startingRepos].filter((p) => p !== repoPath));
+			}
+		});
 	}
 
 	async function deleteWorkspace(ws: LocalWorkspaceData) {
+		if (pendingOperations.has(ws.id)) return;
 		if (!confirm(`Delete workspace "${ws.name}" at ${ws.path}? This cannot be undone.`)) return;
 		deletingWorkspaces = new Set([...deletingWorkspaces, ws.id]);
-		try {
-			const res = await fetch('/api/workspaces', {
-				method: 'DELETE',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ path: ws.path })
-			});
-			if (res.ok) {
+		await operate(ws.id, async () => {
+			try {
+				await requestJson('/api/workspaces', {
+					method: 'DELETE',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ path: ws.path })
+				});
 				workspaces = workspaces.filter((w) => w.id !== ws.id);
+				await onRefreshWorkspaces();
+			} finally {
+				deletingWorkspaces = new Set([...deletingWorkspaces].filter((id) => id !== ws.id));
 			}
-		} finally {
-			deletingWorkspaces = new Set([...deletingWorkspaces].filter((id) => id !== ws.id));
-		}
+		});
 	}
 
 	async function openBranchPicker(repoPath: string) {
+		const revision = ++branchRevision;
 		if (branchPickerRepo === repoPath) {
+			branchReads.cancel();
 			branchPickerRepo = null;
 			return;
 		}
@@ -243,129 +287,77 @@
 		branchPickerLoading = true;
 		branchPickerBranches = [];
 		branchPickerTags = [];
+		operationErrors[repoPath] = '';
 		try {
-			const res = await fetch(`/api/repos/branches?path=${encodeURIComponent(repoPath)}`);
-			if (res.ok) {
-				const data = await res.json();
-				branchPickerBranches = data.branches;
-				branchPickerTags = data.tags ?? [];
-			}
+			await branchReads.run(
+				(signal) =>
+					requestJson<{ branches: string[]; tags?: string[] }>(
+						`/api/repos/branches?path=${encodeURIComponent(repoPath)}`,
+						{ signal }
+					),
+				(data) => {
+					branchPickerBranches = data.branches;
+					branchPickerTags = data.tags ?? [];
+				}
+			);
+		} catch (cause) {
+			if (!disposed && branchPickerRepo === repoPath)
+				operationErrors[repoPath] = errorMessage(cause);
 		} finally {
-			branchPickerLoading = false;
+			if (!disposed && revision === branchRevision) branchPickerLoading = false;
 		}
 	}
 
 	async function checkoutBranch(repo: RepositoryData, branch: string) {
-		if (branch === repo.currentBranch) {
-			branchPickerRepo = null;
-			return;
-		}
-		checkoutInProgress = repo.path;
-		try {
-			const res = await fetch('/api/repos/checkout', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ path: repo.path, branch })
-			});
-			if (res.ok) {
-				const data = await res.json();
-				// Update repo branch in local state
-				workspaces = workspaces.map((ws) => ({
-					...ws,
-					repos: ws.repos.map((r) =>
-						r.path === repo.path
-							? { ...r, currentBranch: data.currentBranch, currentTag: data.currentTag }
-							: r
-					)
-				}));
-			} else if (res.status === 409) {
-				const data = await res.json();
-				if (data.error === 'dirty') {
-					const proceed = confirm('Working tree has uncommitted changes. Force checkout anyway?');
-					if (proceed) {
-						const forceRes = await fetch('/api/repos/checkout', {
-							method: 'POST',
-							headers: { 'Content-Type': 'application/json' },
-							body: JSON.stringify({ path: repo.path, branch, force: true })
-						});
-						if (forceRes.ok) {
-							const forceData = await forceRes.json();
-							workspaces = workspaces.map((ws) => ({
-								...ws,
-								repos: ws.repos.map((r) =>
-									r.path === repo.path
-										? {
-												...r,
-												currentBranch: forceData.currentBranch,
-												currentTag: forceData.currentTag
-											}
-										: r
-								)
-							}));
-						}
-					}
-				}
-			}
-		} finally {
-			checkoutInProgress = null;
-			branchPickerRepo = null;
-		}
+		await checkoutRef(repo, { branch }, branch === repo.currentBranch);
 	}
 
 	async function checkoutTag(repo: RepositoryData, tag: string) {
-		if (tag === repo.currentTag) {
+		await checkoutRef(repo, { tag }, tag === repo.currentTag);
+	}
+
+	/** Share branch/tag failure handling while preserving the explicit dirty-tree confirmation. */
+	async function checkoutRef(
+		repo: RepositoryData,
+		ref: { branch?: string; tag?: string },
+		current: boolean
+	) {
+		if (pendingOperations.has(repo.path)) return;
+		if (current) {
 			branchPickerRepo = null;
 			return;
 		}
+		branchReads.cancel();
 		checkoutInProgress = repo.path;
-		try {
-			const res = await fetch('/api/repos/checkout', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ path: repo.path, tag })
-			});
-			if (res.ok) {
-				const data = await res.json();
+		await operate(repo.path, async () => {
+			const checkout = (force = false) =>
+				requestJson<{ currentBranch?: string; currentTag?: string }>('/api/repos/checkout', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ path: repo.path, ...ref, force })
+				});
+			try {
+				let data;
+				try {
+					data = await checkout();
+				} catch (cause) {
+					if (!(cause instanceof RequestFailure) || cause.status !== 409) throw cause;
+					if (!confirm('Working tree has uncommitted changes. Force checkout anyway?')) return;
+					data = await checkout(true);
+				}
+				if (disposed) return;
 				workspaces = workspaces.map((ws) => ({
 					...ws,
-					repos: ws.repos.map((r) =>
-						r.path === repo.path
-							? { ...r, currentBranch: data.currentBranch, currentTag: data.currentTag }
-							: r
-					)
+					repos: ws.repos.map((r) => (r.path === repo.path ? { ...r, ...data } : r))
 				}));
-			} else if (res.status === 409) {
-				const data = await res.json();
-				if (data.error === 'dirty') {
-					const proceed = confirm('Working tree has uncommitted changes. Force checkout anyway?');
-					if (proceed) {
-						const forceRes = await fetch('/api/repos/checkout', {
-							method: 'POST',
-							headers: { 'Content-Type': 'application/json' },
-							body: JSON.stringify({ path: repo.path, tag, force: true })
-						});
-						if (forceRes.ok) {
-							const forceData = await forceRes.json();
-							workspaces = workspaces.map((ws) => ({
-								...ws,
-								repos: ws.repos.map((r) =>
-									r.path === repo.path
-										? {
-												...r,
-												currentBranch: forceData.currentBranch,
-												currentTag: forceData.currentTag
-											}
-										: r
-								)
-							}));
-						}
-					}
+				await onRefreshWorkspaces();
+			} finally {
+				if (!disposed) {
+					checkoutInProgress = null;
+					branchPickerRepo = null;
 				}
 			}
-		} finally {
-			checkoutInProgress = null;
-			branchPickerRepo = null;
-		}
+		});
 	}
 
 	interface RerunSession {
@@ -389,19 +381,22 @@
 	// Cancel stops the rerun process; it does not only hide the terminal.
 	async function dismissRerun(wsId: string) {
 		const session = rerunSessions.get(wsId);
-		rerunSessions.delete(wsId);
 		if (!session) return;
-		await fetch('/api/terminal/sessions', {
-			method: 'DELETE',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ id: session.sessionId })
+		await operate(wsId, async () => {
+			await requestJson('/api/terminal/sessions', {
+				method: 'DELETE',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ id: session.sessionId })
+			});
+			if (rerunSessions.get(wsId)?.sessionId === session.sessionId) rerunSessions.delete(wsId);
+			await onRefreshWorkspaces();
 		});
 	}
 
 	// Close the rerun terminal when the process exits, whatever the exit code.
 	function onRerunExit(wsId: string) {
 		rerunSessions.delete(wsId);
-		onRefreshWorkspaces();
+		refreshAfterExit();
 	}
 </script>
 
@@ -427,6 +422,7 @@
 	</div>
 
 	<!-- Bootstrap tool info bar -->
+	<RequestError message={refreshError} onRetry={() => void refresh()} />
 	<div class="mb-4">
 		<BootstrapStatus {onBootstrap} />
 	</div>
@@ -507,6 +503,12 @@
 					</div>
 				</div>
 
+				<div class="px-5">
+					<RequestError message={operationErrors[ws.id] ?? ''} />
+					<RequestError
+						message={ws.buildSession ? (operationErrors[ws.buildSession.id] ?? '') : ''}
+					/>
+				</div>
 				{#if expanded.has(ws.id)}
 					{#if ws.buildSession?.status === 'running'}
 						<!-- Inline terminal view for a running bootstrap; closes when the process exits -->
@@ -515,7 +517,7 @@
 								<TerminalTab
 									sessionId={ws.buildSession.id}
 									active={true}
-									onExit={onRefreshWorkspaces}
+									onExit={refreshAfterExit}
 								/>
 							</div>
 						</div>
@@ -571,6 +573,7 @@
 									<span class="text-xs font-medium text-[#b48ead]">Rerunning bootstrap…</span>
 									<button
 										onclick={() => dismissRerun(ws.id)}
+										disabled={pendingOperations.has(ws.id)}
 										class="ml-auto rounded p-0.5 text-[#b48ead]/60 transition-colors hover:bg-[#b48ead]/20 hover:text-[#b48ead]"
 										type="button"
 										aria-label="Cancel">✕</button
@@ -704,7 +707,7 @@
 																	</button>
 																{/each}
 															{/if}
-															{#if branchPickerBranches.length === 0 && branchPickerTags.length === 0}
+															{#if branchPickerBranches.length === 0 && branchPickerTags.length === 0 && !operationErrors[repo.path]}
 																<div
 																	class="px-3 py-2 text-xs text-[#4c566a] italic dark:text-[#d8dee9]/60"
 																>
@@ -883,6 +886,12 @@
 										</div>
 									</div>
 								</div>
+								<div class="px-8">
+									<RequestError message={operationErrors[repo.path] ?? ''} />
+									<RequestError
+										message={repo.buildSession ? (operationErrors[repo.buildSession.id] ?? '') : ''}
+									/>
+								</div>
 								{#if repoExpandable && repo.buildSession && expandedRepos.has(repo.path)}
 									<!-- Build output while the build runs; closes when the process exits -->
 									<div class="border-b border-[#d8dee9]/60 dark:border-[#4c566a]/60">
@@ -890,7 +899,7 @@
 											<TerminalTab
 												sessionId={repo.buildSession.id}
 												active={true}
-												onExit={onRefreshWorkspaces}
+												onExit={refreshAfterExit}
 											/>
 										</div>
 									</div>
