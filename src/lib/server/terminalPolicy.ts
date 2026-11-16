@@ -23,10 +23,22 @@ export function terminalLimits(env: NodeJS.ProcessEnv = process.env) {
 	};
 }
 
-/** Enforce the cap even when the incoming chunk alone is larger than the entire buffer. */
+/** Enforce text and bookkeeping bounds, including oversized chunks and fully evicted sessions. */
 export function appendOutput(buffer: string[], data: string, limit: number): number {
-	buffer.push(data.length > limit ? data.slice(-limit) : data);
-	let length = buffer.reduce((sum, chunk) => sum + chunk.length, 0);
+	if (limit === 0) {
+		buffer.length = 0;
+		return 0;
+	}
+	if (data.length > 0) buffer.push(data.length > limit ? data.slice(-limit) : data);
+	// Compact in place so retained HMR sessions also lose previously accumulated empty entries.
+	let count = 0;
+	let length = 0;
+	for (const chunk of buffer) {
+		if (chunk.length === 0) continue;
+		buffer[count++] = chunk;
+		length += chunk.length;
+	}
+	buffer.length = count;
 	while (length > limit) {
 		const excess = length - limit;
 		if (buffer[0].length <= excess) length -= buffer.shift()!.length;
