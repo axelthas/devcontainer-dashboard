@@ -17,6 +17,9 @@ Options:
   --workspace PATH         Workspace bind (same source and target).
   --socket PATH            Docker socket (default /var/run/docker.sock).
   --port N                 Host port (default 3000 registry, 3001 build).
+  --ai-port N              OpenChamber host port (default 3002); UI password required.
+  --ai-state-volume NAME   Reuse AI state after stopping its previous dashboard.
+                           Defaults: dashboard_ai registry, <name>-ai build.
   --bind-address ADDR      Registry only (default 127.0.0.1).
   --origin URL             Exact external HTTP(S) origin.
   --password VALUE         Visible in process lists; prefer file or prompt.
@@ -59,6 +62,7 @@ HELP
 parse_arguments() {
   MODE=registry SHOW_HELP=0
   WORKSPACE='' SOCKET='' PORT='' BIND_ADDRESS='' ORIGIN=''
+  AI_PORT='' AI_STATE_VOLUME=''
   PASSWORD='' PASSWORD_FILE='' HOST_USER='' HOST_UID='' HOST_GID='' HOST_HOME=''
   ENV_FILES=()
   BOOTSTRAP=0 SSH_DIR=0 CREATE_WORKSPACE=1 NON_INTERACTIVE=0 GATEWAY=0
@@ -68,12 +72,14 @@ parse_arguments() {
   while (( $# )); do
     case "$1" in
       --help|-h) SHOW_HELP=1; return ;;
-      --workspace|--socket|--port|--bind-address|--origin|--password|--password-file|--env-file|--host-user|--host-uid|--host-gid|--host-home|--gateway-host|--gateway-ports|--vscode-ssh-host|--image|--platform|--name|--health-timeout|--tailscale-socket|--tailscale-ports|--tailscale-gateway-port)
+      --workspace|--socket|--port|--ai-port|--ai-state-volume|--bind-address|--origin|--password|--password-file|--env-file|--host-user|--host-uid|--host-gid|--host-home|--gateway-host|--gateway-ports|--vscode-ssh-host|--image|--platform|--name|--health-timeout|--tailscale-socket|--tailscale-ports|--tailscale-gateway-port)
         [[ $# -ge 2 && -n "$2" ]] || fail "$1 requires a value"
         case "$1" in
           --workspace) WORKSPACE=$2 ;;
           --socket) SOCKET=$2 ;;
           --port) PORT=$2 ;;
+          --ai-port) AI_PORT=$2 ;;
+          --ai-state-volume) AI_STATE_VOLUME=$2 ;;
           --bind-address) BIND_ADDRESS=$2 ;;
           --origin) ORIGIN=$2 ;;
           --password) PASSWORD=$2 ;;
@@ -177,7 +183,7 @@ resolve_identity() {
   done
   [[ "$HOST_HOME" =~ ^/[a-zA-Z0-9_./\ -]+$ ]] || fail 'Invalid absolute --host-home'
   case "$HOST_HOME/" in
-    /|//|*/../*|*/./*|*//*|/app/*|/data/*|/dashboard-history/*|/opt/*|/etc/*|/usr/*|/var/*|/root/*|/bin/*|/sbin/*|/dev/*|/proc/*|/sys/*|/run/*|/tmp/*)
+    /|//|*/../*|*/./*|*//*|/app/*|/data/*|/dashboard-history/*|/dashboard-ai/*|/opt/*|/etc/*|/usr/*|/var/*|/root/*|/bin/*|/sbin/*|/dev/*|/proc/*|/sys/*|/run/*|/tmp/*)
       fail '--host-home must be a canonical dedicated non-system home path' ;;
   esac
   export HOST_USER HOST_UID HOST_GID HOST_HOME
@@ -233,6 +239,11 @@ validate_options() {
   [[ "$PORT" =~ ^[0-9]{1,5}$ ]] || fail '--port must be from 1 to 65535'
   PORT=$((10#$PORT))
   (( PORT >= 1 && PORT <= 65535 )) || fail '--port must be from 1 to 65535'
+  AI_PORT="${AI_PORT:-3002}"
+  [[ "$AI_PORT" =~ ^[0-9]{1,5}$ ]] || fail 'Invalid --ai-port'
+  AI_PORT=$((10#$AI_PORT))
+  (( AI_PORT >= 1 && AI_PORT <= 65535 && AI_PORT != PORT )) || fail '--ai-port must be valid and differ from --port'
+  [[ -z "$AI_STATE_VOLUME" || "$AI_STATE_VOLUME" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$ ]] || fail '--ai-state-volume must be a named volume'
   [[ -z "$BIND_ADDRESS" ]] || [[ "$BIND_ADDRESS" =~ ^[]0-9A-Za-z.:_[-]{1,64}$ ]] || fail 'Invalid --bind-address'
   [[ -z "$ORIGIN" ]] || valid_origin "$ORIGIN" || fail 'Invalid --origin'
   [[ -z "$IMAGE" ]] || [[ "$IMAGE" =~ ^[a-zA-Z0-9][a-zA-Z0-9_./:@-]*$ ]] || fail 'Invalid --image'
@@ -302,11 +313,16 @@ prepare_checkout() {
 prepare_arguments() {
   local path
   if [[ "$CREATE_WORKSPACE" == 1 ]]; then mkdir -p -- "$WORKSPACE"; fi
+  if [[ -z "$AI_STATE_VOLUME" ]]; then
+    if [[ "$MODE" == build ]]; then AI_STATE_VOLUME="$TEST_NAME-ai"; else AI_STATE_VOLUME=dashboard_ai; fi
+  fi
   ARGS=()
   for path in "${ENV_FILES[@]}"; do ARGS+=(--env-file "$path"); done
   # Docker applies explicit --env entries after env files, preserving launcher inputs.
   ARGS+=(--env DASHBOARD_PASSWORD --env HOST_USER --env HOST_UID --env HOST_GID --env HOST_HOME
     --env "WORKSPACE_ROOT=$WORKSPACE" --env "HOST_HOSTNAME=${HOSTNAME:-}"
+    --env AI_ENABLED=1 --env "AI_PUBLIC_PORT=$AI_PORT"
+    --mount "type=volume,source=$AI_STATE_VOLUME,target=/dashboard-ai"
     --mount "type=bind,source=$WORKSPACE,target=$WORKSPACE"
     --mount "type=bind,source=$SOCKET,target=/var/run/docker.sock")
   [[ -z "$ORIGIN" ]] || ARGS+=(--env "ORIGIN=$ORIGIN")
@@ -321,8 +337,8 @@ prepare_arguments() {
       --env "TAILSCALE_GATEWAY_PORT=$TAILSCALE_GATEWAY_PORT"
       --mount "type=bind,source=$TAILSCALE_SOCKET,target=/var/run/tailscale/tailscaled.sock")
     PUBLICATION=()
-  elif [[ "$MODE" == build ]]; then PUBLICATION=(--publish "127.0.0.1:$PORT:3000")
-  else PUBLICATION=(--publish "$BIND_ADDRESS:$PORT:3000")
+  elif [[ "$MODE" == build ]]; then PUBLICATION=(--publish "127.0.0.1:$PORT:3000" --publish "127.0.0.1:$AI_PORT:3002")
+  else PUBLICATION=(--publish "$BIND_ADDRESS:$PORT:3000" --publish "$BIND_ADDRESS:$AI_PORT:3002")
   fi
   if [[ -n "${SSH_AUTH_SOCK:-}" ]]; then
     export SSH_AUTH_SOCK
@@ -344,6 +360,8 @@ print_plan() {
   if [[ "$MODE" == build ]]; then printf 'Source: %s at %s (local changes: %s)\n' "$BRANCH" "$REVISION" "$DIRTY"; fi
   printf 'Operator: %s (%s:%s), home %s\n' "$HOST_USER" "$HOST_UID" "$HOST_GID" "$HOST_HOME"
   printf 'dev-bootstrap: %s (1=enabled, 0=disabled)\n' "$BOOTSTRAP"
+  printf 'Retained AI volume: %s (reuse with --ai-state-volume after stopping its old instance)\n' "$AI_STATE_VOLUME"
+  echo 'OpenChamber password: docker exec <container> cat /dashboard-ai/ui-password'
   echo 'All bind sources must exist on the Docker host. SSH resources are read-only.'
 }
 
@@ -364,7 +382,7 @@ run_build() {
   docker run --detach "${ARGS[@]}" "${PUBLICATION[@]}" \
     --volume "$TEST_NAME-data:/data" --volume "$TEST_NAME-zsh:/dashboard-history" \
     --name "$TEST_NAME" "$IMAGE" "${HOOK[@]}" || fail 'Container creation failed; check daemon-host paths and port availability'
-  printf 'Retained volumes: %s-data %s-zsh\n' "$TEST_NAME" "$TEST_NAME"
+  printf 'Retained volumes: %s-data %s-zsh %s\n' "$TEST_NAME" "$TEST_NAME" "$AI_STATE_VOLUME"
   printf 'Logs: docker logs -f %s\nStop: docker stop %s\nResume: docker start %s\n' "$TEST_NAME" "$TEST_NAME" "$TEST_NAME"
   wait_for_readiness
 }

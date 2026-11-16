@@ -8,14 +8,11 @@
 		Play,
 		Loader,
 		RefreshCw,
-		Trash2,
 		Loader2,
 		RotateCcw,
 		Package,
 		ArrowUpRight,
 		TriangleAlert,
-		Code,
-		TerminalSquare,
 		FileText,
 		X
 	} from 'lucide-svelte';
@@ -26,6 +23,9 @@
 	import BootstrapStatus from './BootstrapStatus.svelte';
 	import LogViewer from './LogViewer.svelte';
 	import ServiceButton from './ServiceButton.svelte';
+	import OpenWithMenu from './OpenWithMenu.svelte';
+	import WorkspaceMoreMenu from './WorkspaceMoreMenu.svelte';
+	import { resolve } from '$app/paths';
 	import TerminalTab from './TerminalTab.svelte';
 
 	interface Props {
@@ -409,6 +409,9 @@
 	<div class="mb-4 flex items-center gap-2 border-b border-[#d8dee9] pb-2 dark:border-[#4c566a]">
 		<FolderGit2 size={20} class="text-[#a3be8c] dark:text-[#a3be8c]" />
 		<h2 class="text-xl font-extrabold text-[#2e3440] dark:text-[#eceff4]">Local Workspaces</h2>
+		<a href={resolve('/ai')} class="text-sm text-[#5e81ac] underline dark:text-[#88c0d0]"
+			>AI folders</a
+		>
 		<span class="ml-1 text-sm font-medium text-[#4c566a] dark:text-[#d8dee9]/60"
 			>({workspaceRoot})</span
 		>
@@ -439,7 +442,7 @@
 			{#each workspaces as ws (ws.id)}
 				<!-- Task Workspace header -->
 				<div
-					class="flex w-full cursor-pointer items-center justify-between border-b border-[#d8dee9] px-5 py-3 transition-colors last:border-b-0 hover:bg-[#e5e9f0] dark:border-[#4c566a] dark:hover:bg-[#434c5e]"
+					class="flex w-full cursor-pointer flex-wrap items-center justify-between gap-3 border-b border-[#d8dee9] px-5 py-2 transition-colors last:border-b-0 hover:bg-[#e5e9f0] dark:border-[#4c566a] dark:hover:bg-[#434c5e]"
 					onclick={() => toggleExpand(ws.id)}
 					onkeydown={(e) => {
 						if (e.key === 'Enter' || e.key === ' ') toggleExpand(ws.id);
@@ -454,6 +457,9 @@
 							<ChevronRight size={16} class="text-[#4c566a] dark:text-[#d8dee9]/60" />
 						{/if}
 						<span class="font-semibold text-[#2e3440] dark:text-[#eceff4]">{ws.name}</span>
+						<span class="text-sm whitespace-nowrap text-[#4c566a] dark:text-[#d8dee9]/60"
+							>· {ws.repos.length} {ws.repos.length === 1 ? 'repo' : 'repos'}</span
+						>
 
 						{#if ws.buildSession?.status === 'running'}
 							<span
@@ -484,53 +490,20 @@
 							</span>
 						{/if}
 					</div>
-					<div class="flex items-center gap-2">
-						{#if ws.solutionMetadata}
-							{#if rerunSessions.has(ws.id)}
-								<button
-									disabled
-									class="flex cursor-not-allowed items-center gap-1.5 rounded-lg border border-[#b48ead]/30 bg-[#b48ead]/15 px-2.5 py-1 text-xs font-medium text-[#b48ead] opacity-75"
-									type="button"
-								>
-									<Loader2 size={12} class="animate-spin" />
-									Running…
-								</button>
-							{:else}
-								<button
-									onclick={(e) => {
-										e.stopPropagation();
-										rerunBootstrap(ws);
-									}}
-									class="flex items-center gap-1.5 rounded-lg border border-[#b48ead]/30 bg-[#b48ead]/15 px-2.5 py-1 text-xs font-medium text-[#b48ead] transition-colors hover:bg-[#b48ead]/25"
-									type="button"
-								>
-									<RotateCcw size={12} />
-									Rerun Bootstrap
-								</button>
-							{/if}
-						{/if}
-						<span
-							class="rounded-full bg-[#d8dee9] px-2 py-0.5 text-xs font-medium text-[#4c566a] dark:bg-[#4c566a] dark:text-[#d8dee9]"
-						>
-							{ws.repos.length}
-							{ws.repos.length === 1 ? 'Repo' : 'Repos'}
-						</span>
-						<button
-							onclick={(e) => {
-								e.stopPropagation();
-								deleteWorkspace(ws);
-							}}
-							disabled={deletingWorkspaces.has(ws.id)}
-							class="rounded-lg p-1.5 text-[#4c566a] transition-colors hover:bg-[#e5e9f0] hover:text-[#bf616a] disabled:cursor-not-allowed disabled:opacity-50 dark:text-[#d8dee9]/60 dark:hover:bg-[#3b4252] dark:hover:text-[#bf616a]"
-							title="Delete workspace"
-							type="button"
-						>
-							{#if deletingWorkspaces.has(ws.id)}
-								<Loader2 size={14} class="animate-spin" />
-							{:else}
-								<Trash2 size={14} />
-							{/if}
-						</button>
+					<!-- One compact group: frequent Open with first, rare/destructive actions under ⋯ -->
+					<div
+						class="flex items-center rounded-xl border border-[#d8dee9] bg-[#eceff4] p-1 shadow-sm dark:border-[#434c5e] dark:bg-[#2e3440]"
+					>
+						<OpenWithMenu path={ws.path} {vscodeSshHost} {onOpenTerminal} />
+						<div class="mx-0.5 h-4 w-px shrink-0 bg-[#d8dee9] dark:bg-[#434c5e]"></div>
+						<WorkspaceMoreMenu
+							name={ws.name}
+							canRerun={Boolean(ws.solutionMetadata)}
+							rerunning={rerunSessions.has(ws.id)}
+							deleting={deletingWorkspaces.has(ws.id)}
+							onRerun={() => rerunBootstrap(ws)}
+							onDelete={() => deleteWorkspace(ws)}
+						/>
 					</div>
 				</div>
 
@@ -622,11 +595,8 @@
 							{#each ws.repos as repo (repo.path)}
 								{@const matchedContainer = findContainerForRepo(repo.path)}
 								{@const repoExpandable = repo.buildSession?.status === 'running'}
-								{@const folderUri = vscodeSshHost
-									? `vscode://vscode-remote/ssh-remote+${vscodeSshHost}${repo.path}?windowId=_blank`
-									: `vscode://file${repo.path}?windowId=_blank`}
 								<div
-									class="flex min-h-[2.5rem] items-center border-b border-[#d8dee9]/60 px-8 py-1.5 last:border-b-0 dark:border-[#4c566a]/60"
+									class="flex min-h-[2.5rem] flex-wrap items-center gap-y-2 border-b border-[#d8dee9]/60 py-1.5 pr-5 pl-8 last:border-b-0 dark:border-[#4c566a]/60"
 								>
 									<!-- Repo name: takes available space -->
 									<div class="flex w-[200px] min-w-0 shrink-0 items-center gap-2">
@@ -768,31 +738,10 @@
 										</div>
 									{/if}
 
-									<!-- Action column: right-aligned -->
+									<!-- Action column: devcontainer actions, then Open with pinned to the right edge -->
 									<div class="ml-auto flex shrink-0 items-center justify-end gap-2">
-										<div
-											class="flex items-center rounded-xl border border-[#d8dee9] bg-[#eceff4] p-1 shadow-sm dark:border-[#434c5e] dark:bg-[#2e3440]"
-										>
-											<!-- VS Code: open folder via SSH or local file URI -->
-											<a
-												href={folderUri}
-												rel="external"
-												title="Open folder in VS Code"
-												class="rounded-lg p-1.5 text-[#4c566a] transition-colors hover:bg-[#e5e9f0] hover:text-[#5e81ac] dark:text-[#d8dee9]/60 dark:hover:bg-[#3b4252] dark:hover:text-[#81a1c1]"
-											>
-												<Code size={14} />
-											</a>
-											<!-- Terminal: open shell at repo path -->
-											<button
-												onclick={() => onOpenTerminal(generateId(), '', repo.name, repo.path)}
-												title="Open terminal in folder"
-												type="button"
-												class="rounded-lg p-1.5 text-[#4c566a] transition-colors hover:bg-[#e5e9f0] hover:text-[#88c0d0] dark:text-[#d8dee9]/60 dark:hover:bg-[#3b4252] dark:hover:text-[#88c0d0]"
-											>
-												<TerminalSquare size={14} />
-											</button>
-											{#if repo.hasDevcontainer}
-												<div class="mx-0.5 h-4 w-px shrink-0 bg-[#d8dee9] dark:bg-[#434c5e]"></div>
+										{#if repo.hasDevcontainer}
+											<div class="flex items-center gap-1">
 												{#if matchedContainer && matchedContainer.state === 'running'}
 													<button
 														onclick={() => onScrollToContainer?.(matchedContainer.id)}
@@ -925,14 +874,13 @@
 														Build &amp; Start
 													</button>
 												{/if}
-											{/if}
-										</div>
-										{#if !repo.hasDevcontainer}
-											<span
-												class="text-xs whitespace-nowrap text-[#4c566a] italic dark:text-[#d8dee9]/40"
-												>No config</span
-											>
+											</div>
 										{/if}
+										<div
+											class="flex items-center rounded-xl border border-[#d8dee9] bg-[#eceff4] p-1 shadow-sm dark:border-[#434c5e] dark:bg-[#2e3440]"
+										>
+											<OpenWithMenu path={repo.path} {vscodeSshHost} {onOpenTerminal} />
+										</div>
 									</div>
 								</div>
 								{#if repoExpandable && repo.buildSession && expandedRepos.has(repo.path)}

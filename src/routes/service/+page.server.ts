@@ -48,6 +48,36 @@ export const load: PageServerLoad = async ({ url }) => {
 	const workspacePath = params.get('path') ?? '';
 	const allPorts = parsePortsParam(params.get('ports'));
 	const base = { label, project, container, workspacePath, allPorts, containerId, containerPort };
+	if (params.get('local') === 'openchamber') {
+		try {
+			const { aiWebOrigin } = await import('$lib/server/aiRuntime.js');
+			const { aiDirectory } = await import('$lib/server/aiPaths.js');
+			const session = params.get('session');
+			let search: URLSearchParams;
+			if (session) {
+				if (!/^[a-zA-Z0-9_-]{1,128}$/.test(session)) throw new Error('Invalid session');
+				search = new URLSearchParams({ session });
+			} else {
+				const directory = await aiDirectory(
+					process.env.WORKSPACE_ROOT ?? '/workspaces',
+					params.get('directory') ?? ''
+				);
+				search = new URLSearchParams({ directory, new: '1' });
+			}
+			const origin = await aiWebOrigin(url, launchTailscaleService);
+			const target = `${origin}/?${search}`;
+			return {
+				...base,
+				label: 'OpenChamber',
+				viewer: { kind: 'proxy', target, directUrl: target } satisfies ViewerContract
+			};
+		} catch {
+			return {
+				...base,
+				viewer: { kind: 'unavailable', reason: 'local-ai-not-ready' } satisfies ViewerContract
+			};
+		}
+	}
 
 	// In Tailscale mode the custom server alone allocates and validates HTTPS origins.
 	// Never fall back to a raw URL or the same-origin path gateway on an allocation failure.
