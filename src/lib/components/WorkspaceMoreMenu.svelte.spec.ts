@@ -7,14 +7,20 @@ import WorkspaceMoreMenu from './WorkspaceMoreMenu.svelte';
 const mounted: ReturnType<typeof mount>[] = [];
 const targets: HTMLElement[] = [];
 
-/** Mount inside a clickable, clipped row, as the workspace header does. */
+/**
+ * Mount inside a clickable, clipped row, as the workspace header does.
+ * The row spy sits on a parent of the mount target: Svelte delegates onclick to the
+ * mount target, so a listener on the target itself always sees the click.
+ */
 function fixture(props: { canRerun: boolean; rerunning?: boolean; deleting?: boolean }) {
+	const row = document.createElement('div');
 	const target = document.createElement('div');
 	target.style.overflow = 'hidden';
+	row.append(target);
 	const onRow = vi.fn();
-	target.addEventListener('click', onRow);
-	document.body.append(target);
-	targets.push(target);
+	row.addEventListener('click', onRow);
+	document.body.append(row);
+	targets.push(row);
 	const onRerun = vi.fn();
 	const onDelete = vi.fn();
 	mounted.push(
