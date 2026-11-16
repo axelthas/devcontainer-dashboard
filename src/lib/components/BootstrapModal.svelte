@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
+	import { errorMessage, latestRequest, requestJson } from '$lib/requests';
+	import RequestError from './RequestError.svelte';
 	import {
 		X,
 		Play,
@@ -39,21 +42,40 @@
 	let fieldShowDestDir = $state(true);
 	let saving = $state(false);
 	let confirmingDelete = $state(false);
+	let presetsLoading = $state(true);
+	let presetsError = $state('');
+	const presetReads = latestRequest();
+	let presetRevision = 0;
+	let disposed = false;
+	onDestroy(() => {
+		disposed = true;
+		presetReads.cancel();
+	});
 
 	async function fetchPresets() {
-		const r = await fetch('/api/presets');
-		const data: BootstrapPreset[] = await r.json();
-		presets = data;
-		return data;
+		const revision = ++presetRevision;
+		presetsLoading = true;
+		try {
+			await presetReads.run(
+				(signal) => requestJson<BootstrapPreset[]>('/api/presets', { signal }),
+				(data) => {
+					presets = data;
+					presetsError = '';
+					if (!data.some((p) => p.id === selectedPresetId)) {
+						selectedPresetId = data[0]?.id ?? '';
+						command = data[0]?.command ?? '';
+					}
+				}
+			);
+		} catch (cause) {
+			if (!disposed) presetsError = `Presets unavailable. ${errorMessage(cause)}`;
+		} finally {
+			if (!disposed && revision === presetRevision) presetsLoading = false;
+		}
 	}
 
 	$effect(() => {
-		fetchPresets().then((data) => {
-			if (data.length > 0 && !selectedPresetId) {
-				selectedPresetId = data[0].id;
-				command = data[0].command;
-			}
-		});
+		void fetchPresets();
 	});
 
 	const selectedPreset = $derived(presets.find((p) => p.id === selectedPresetId));
@@ -132,16 +154,12 @@
 			if (editMode === 'edit' && selectedPreset) {
 				body.id = selectedPreset.id;
 			}
-			const res = await fetch('/api/presets', {
+			const updated = await requestJson<BootstrapPreset[]>('/api/presets', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify(body)
 			});
-			if (!res.ok) {
-				runError = await res.text();
-				return;
-			}
-			const updated: BootstrapPreset[] = await res.json();
+			if (disposed) return;
 			presets = updated;
 			// Select the newly saved preset
 			const saved = updated.find((p) => p.name === presetName.trim());
@@ -152,9 +170,9 @@
 			editMode = 'idle';
 			presetName = '';
 		} catch (err) {
-			runError = err instanceof Error ? err.message : String(err);
+			if (!disposed) runError = errorMessage(err);
 		} finally {
-			saving = false;
+			if (!disposed) saving = false;
 		}
 	}
 
@@ -163,28 +181,18 @@
 		saving = true;
 		runError = null;
 		try {
-			const res = await fetch('/api/presets', {
+			await requestJson('/api/presets', {
 				method: 'DELETE',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ id: selectedPreset.id })
 			});
-			if (!res.ok) {
-				runError = await res.text();
-				return;
-			}
-			const updated = await fetchPresets();
+			if (disposed) return;
+			await fetchPresets();
 			confirmingDelete = false;
-			if (updated.length > 0) {
-				selectedPresetId = updated[0].id;
-				command = updated[0].command;
-			} else {
-				selectedPresetId = '';
-				command = '';
-			}
 		} catch (err) {
-			runError = err instanceof Error ? err.message : String(err);
+			if (!disposed) runError = errorMessage(err);
 		} finally {
-			saving = false;
+			if (!disposed) saving = false;
 		}
 	}
 
@@ -195,21 +203,20 @@
 		const name = selectedPreset?.name ?? 'Bootstrap';
 		const resolved = command.trim().replaceAll('{destDir}', destDir.trim());
 		try {
-			const res = await fetch('/api/bootstrap/run', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					command: resolved,
-					name,
-					// Send empty string when destDir is hidden; server generates a placeholder
-					destDir: showDestDir ? destDir.trim() : ''
-				})
-			});
-			if (!res.ok) {
-				runError = await res.text();
-				return;
-			}
-			const { id, workspacePath } = await res.json();
+			const { id, workspacePath } = await requestJson<{ id: string; workspacePath: string }>(
+				'/api/bootstrap/run',
+				{
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({
+						command: resolved,
+						name,
+						// Send empty string when destDir is hidden; server generates a placeholder
+						destDir: showDestDir ? destDir.trim() : ''
+					})
+				}
+			);
+			if (disposed) return;
 			if (selectedPreset?.interactive) {
 				interactiveSessionId = id;
 				interactiveWorkspacePath = workspacePath;
@@ -219,9 +226,9 @@
 				onClose();
 			}
 		} catch (err) {
-			runError = err instanceof Error ? err.message : String(err);
+			if (!disposed) runError = errorMessage(err);
 		} finally {
-			running = false;
+			if (!disposed) running = false;
 		}
 	}
 
@@ -284,6 +291,10 @@
 				</button>
 			</div>
 		{:else}
+			{#if presetsLoading}<p role="status" class="mb-3 text-sm text-[#d8dee9]">
+					Loading presets...
+				</p>{/if}
+			<RequestError message={presetsError} onRetry={() => void fetchPresets()} />
 			<!-- Execution Preset -->
 			<div class="mb-4">
 				<div class="mb-1.5 flex items-center justify-between">
@@ -401,7 +412,7 @@
 							{#each presets as preset (preset.id)}
 								<option value={preset.id}>{preset.name}</option>
 							{/each}
-							{#if presets.length === 0}
+							{#if presets.length === 0 && !presetsLoading && !presetsError}
 								<option value="" disabled>No presets — click + to create one</option>
 							{/if}
 						</select>
@@ -444,13 +455,7 @@
 			{/if}
 
 			<!-- Error message -->
-			{#if runError}
-				<div
-					class="mb-3 rounded-lg border border-[#bf616a]/40 bg-[#bf616a]/10 px-3 py-2.5 text-sm text-[#bf616a]"
-				>
-					{runError}
-				</div>
-			{/if}
+			<RequestError message={runError ?? ''} />
 
 			<!-- Footer actions -->
 			<div class="mt-2 flex items-center justify-end gap-2">
