@@ -81,19 +81,47 @@ invoke the launcher inside a devcontainer.
   HTTPS origins for OpenCode, OpenChamber, noVNC, and other allowed services. This is
   opt-in, requires a native Linux Docker host, and grants broad access to tailscaled.
 
+## Work with a devcontainer
+
+Each devcontainer row and card has three controls. Each control has one job.
+
+| Control       | Job                        | Items                                                   |
+| ------------- | -------------------------- | ------------------------------------------------------- |
+| **Open with** | Work in the devcontainer   | VS Code, Terminal, OpenCode TUI, OpenChamber            |
+| **Services**  | Open a published service   | Every published port, for example OpenChamber and noVNC |
+| **⋯**         | Change the container state | Restart or Start, Stop, Rebuild and restart…, Delete…   |
+
+**Open with** has the same items, in the same order, as the menu of a local workspace.
+
+- When the container runs, the items open inside the container. **OpenCode TUI** runs
+  `opencode` in the terminal drawer, in the container workspace folder from the
+  container's labels. If that folder is unknown, the item is disabled. If `opencode` is
+  not installed in the container, the terminal shows a message. The dashboard does not
+  install it. **OpenChamber** opens the container's OpenChamber service. If the container
+  does not publish port 3000, the item is disabled.
+- When the container is stopped, the menu shows "Container stopped: host folder". The
+  items then open the local workspace folder on the host. They do not start the container.
+  Use **Start** to start it.
+
+The list view shows **Services** as a menu. The icons on the button show which services
+the container publishes. Expand a row with its chevron to see the service buttons and the
+local folder, container folder, configuration, and image of the container. The grid view
+keeps the service buttons on each card.
+
 ## Rebuild an existing devcontainer
 
-Use **Restart** to restart the same container without rebuilding its image or applying
-changed devcontainer configuration.
+Use **Restart** in the container's **⋯** menu to restart the same container without
+rebuilding its image or applying changed devcontainer configuration.
 
-Use **Rebuild and restart** (the hammer button) in either the devcontainer grid or list
-when build inputs or configuration change:
+Use **Rebuild and restart…** in the container's **⋯** menu, in either the devcontainer
+grid or list, when build inputs or configuration change:
 
 1. Save changes to the Dockerfile or devcontainer configuration.
-2. Select **Rebuild and restart** on the intended container.
-3. Read the replacement warning.
-4. Confirm the rebuild.
-5. Follow the output in the build terminal.
+2. Open **⋯** on the intended container.
+3. Select **Rebuild and restart…**.
+4. Read the replacement warning.
+5. Confirm the rebuild.
+6. Follow the output in the build terminal.
 
 The dashboard inspects the container's live `devcontainer.local_folder` and
 `devcontainer.config_file` labels. Both paths must exist inside the configured workspace
