@@ -15,7 +15,13 @@
 	} from 'lucide-svelte';
 	import { untrack } from 'svelte';
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
-	import type { ContainerData, LocalWorkspaceData, TerminalSession } from '$lib/types';
+	import type {
+		ContainerData,
+		LocalWorkspaceData,
+		NetworkData,
+		NetworkDrawerTarget,
+		TerminalSession
+	} from '$lib/types';
 	import DevcontainerCard from '$lib/components/DevcontainerCard.svelte';
 	import DevcontainerRow from '$lib/components/DevcontainerRow.svelte';
 	import SandboxRow from '$lib/components/SandboxRow.svelte';
@@ -24,7 +30,10 @@
 	import BootstrapModal from '$lib/components/BootstrapModal.svelte';
 	import TerminalManager from '$lib/components/TerminalManager.svelte';
 	import RequestError from '$lib/components/RequestError.svelte';
+	import NetworkDrawer from '$lib/components/NetworkDrawer.svelte';
 	import { errorMessage, latestRequest, requestJson } from '$lib/requests';
+	import { networkMemory } from '$lib/networkMemory.svelte';
+	import type { ConnectRequest } from '$lib/networkRules';
 
 	interface Props {
 		data: {
@@ -105,19 +114,27 @@
 		localStorage.setItem(SHOW_STOPPED_KEY, String(showStopped));
 	});
 
+	// Saved network connections live in this browser; read them after hydration.
+	$effect(() => {
+		networkMemory.load();
+	});
+
 	const containerReads = latestRequest();
 	const workspaceReads = latestRequest();
 	const terminalReads = latestRequest();
+	const networkReads = latestRequest();
 	let containerError = $state('');
 	let workspaceError = $state('');
 	let terminalError = $state('');
+	let networkError = $state('');
+	let networks = $state<NetworkData[]>([]);
 
 	// Schedule after completion, not at a fixed rate that can overlap slow requests.
 	$effect(() => {
 		let stopped = false;
 		let timer: ReturnType<typeof setTimeout>;
 		async function poll() {
-			await Promise.allSettled([refreshContainers(), refreshTerminalSessions()]);
+			await Promise.allSettled([refreshContainers(), refreshTerminalSessions(), refreshNetworks()]);
 			if (!stopped && workspaceError) await refreshWorkspaces().catch(() => {});
 			if (!stopped) timer = setTimeout(poll, 5000);
 		}
@@ -128,6 +145,7 @@
 			containerReads.cancel();
 			workspaceReads.cancel();
 			terminalReads.cancel();
+			networkReads.cancel();
 		};
 	});
 
@@ -144,6 +162,26 @@
 			containerError = `Container status may be outdated. ${errorMessage(cause)}`;
 			throw cause;
 		}
+	}
+
+	/** Network failures never block container status; the drawer shows them. */
+	async function refreshNetworks() {
+		try {
+			await networkReads.run(
+				(signal) => requestJson<NetworkData[]>('/api/networks', { signal }),
+				(value) => {
+					networks = value;
+					networkError = '';
+				}
+			);
+		} catch (cause) {
+			networkError = `Network status may be outdated. ${errorMessage(cause)}`;
+		}
+	}
+
+	/** Refresh after a container or network change, so rows and seats agree. */
+	async function refreshContainersAndNetworks() {
+		await Promise.all([refreshContainers(), refreshNetworks()]);
 	}
 
 	async function refreshWorkspaces() {
@@ -220,6 +258,36 @@
 	const visibleDevcontainers = $derived(
 		showStopped ? devcontainers : devcontainers.filter((c) => c.state === 'running')
 	);
+
+	// Network drawer: the target keeps the container ID, so polling updates the container.
+	let networkTarget = $state<NetworkDrawerTarget | null>(null);
+	const networkContainer = $derived(
+		networkTarget ? (containers.find((c) => c.id === networkTarget?.containerId) ?? null) : null
+	);
+
+	function openNetworkDrawer(container: ContainerData, network?: string, seatIp?: string) {
+		networkTarget = { containerId: container.id, network, seatIp };
+		void refreshNetworks();
+	}
+
+	/** Remember or forget the connection, then refresh rows and seats. */
+	async function handleNetworkConnected(
+		container: ContainerData,
+		request: ConnectRequest,
+		remember: boolean
+	) {
+		if (remember) {
+			const { network, ip, alias, setHostname } = request;
+			networkMemory.remember(container, { network, ip, alias, setHostname });
+		} else {
+			networkMemory.forget(container, request.network);
+		}
+		await refreshContainersAndNetworks().catch(() => {});
+	}
+
+	/** Networks that a Compose project created or has containers on. */
+	const projectNetworks = (projectName: string) =>
+		networks.filter((network) => network.projects.includes(projectName));
 
 	// Bootstrap modal
 	let bootstrapModalOpen = $state(false);
@@ -416,7 +484,7 @@
 		</header>
 
 		<main class="mx-auto mt-8 max-w-7xl space-y-12 px-6">
-			{#if containerError || workspaceError || terminalError}
+			{#if containerError || workspaceError || terminalError || networkError}
 				<div>
 					<RequestError
 						message={containerError}
@@ -427,6 +495,7 @@
 						onRetry={() => void refreshWorkspaces().catch(() => {})}
 					/>
 					<RequestError message={terminalError} onRetry={() => void refreshTerminalSessions()} />
+					<RequestError message={networkError} onRetry={() => void refreshNetworks()} />
 				</div>
 			{/if}
 			<!-- Section 1: Active Devcontainers -->
@@ -489,8 +558,9 @@
 								{container}
 								{vscodeSshHost}
 								serviceProxyEnabled={data.serviceProxyEnabled}
-								onRefresh={refreshContainers}
+								onRefresh={refreshContainersAndNetworks}
 								onOpenTerminal={handleOpenTerminal}
+								onConnectNetwork={openNetworkDrawer}
 							/>
 						{/each}
 					</div>
@@ -504,8 +574,9 @@
 									{container}
 									{vscodeSshHost}
 									serviceProxyEnabled={data.serviceProxyEnabled}
-									onRefresh={refreshContainers}
+									onRefresh={refreshContainersAndNetworks}
 									onOpenTerminal={handleOpenTerminal}
+									onConnectNetwork={openNetworkDrawer}
 								/>
 							{/each}
 						</div>
@@ -568,8 +639,11 @@
 									containers={group.containers}
 									{vscodeSshHost}
 									serviceProxyEnabled={data.serviceProxyEnabled}
-									onRefresh={refreshContainers}
+									onRefresh={refreshContainersAndNetworks}
 									onOpenTerminal={handleOpenTerminal}
+									networks={projectNetworks(group.projectName)}
+									{devcontainers}
+									onConnectNetwork={openNetworkDrawer}
 								/>
 							{/each}
 							{#each standaloneSandboxes as container (container.id)}
@@ -595,6 +669,17 @@
 			onRunBackground={handleRunBackground}
 		/>
 	{/if}
+
+	<!-- Network drawer: connect a running devcontainer to an existing network -->
+	<NetworkDrawer
+		container={networkContainer}
+		network={networkTarget?.network}
+		seatIp={networkTarget?.seatIp}
+		{networks}
+		networksError={networkError}
+		onClose={() => (networkTarget = null)}
+		onConnected={handleNetworkConnected}
+	/>
 
 	<!-- Terminal Drawer -->
 	<TerminalManager

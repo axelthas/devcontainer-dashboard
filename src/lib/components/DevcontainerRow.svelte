@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
-	import { Check, ChevronRight, Copy, FolderGit2, Loader2, Play } from 'lucide-svelte';
+	import { Check, ChevronRight, Copy, FolderGit2, Loader2, Play, Plus } from 'lucide-svelte';
 	import type { ContainerData } from '$lib/types';
 	import { ContainerActions, TRANSITION_LABELS } from '$lib/containerActions.svelte';
 	import { getPortLabel } from '$lib/portConfig';
@@ -10,7 +10,10 @@
 		containerShellBlocker,
 		containerShellCommand
 	} from '$lib/containerOpenTargets';
+	import { DEFAULT_NETWORKS } from '$lib/networkRules';
+	import { NetworkActions } from '$lib/networkActions.svelte';
 	import ServicesMenu from './ServicesMenu.svelte';
+	import NetworkChips from './NetworkChips.svelte';
 	import OpenWithMenu from './OpenWithMenu.svelte';
 	import ContainerMoreMenu from './ContainerMoreMenu.svelte';
 
@@ -20,10 +23,18 @@
 		serviceProxyEnabled?: boolean;
 		onRefresh: () => Promise<void>;
 		onOpenTerminal?: (id: string, command: string, name: string, cwd: string) => void;
+		/** Open the network drawer for this container, optionally on a network and a seat */
+		onConnectNetwork?: (container: ContainerData, network?: string, seatIp?: string) => void;
 	}
 
-	let { container, vscodeSshHost, serviceProxyEnabled, onRefresh, onOpenTerminal }: Props =
-		$props();
+	let {
+		container,
+		vscodeSshHost,
+		serviceProxyEnabled,
+		onRefresh,
+		onOpenTerminal,
+		onConnectNetwork
+	}: Props = $props();
 
 	// Lifecycle requests and rebuild polling; disposing never cancels a server-side rebuild.
 	const actions = new ContainerActions(() => ({
@@ -31,6 +42,12 @@
 		onRefresh,
 		rebuildContainer: container,
 		onOpenBuild: onOpenTerminal
+	}));
+	// Network disconnect and reconnect, shared by the chips and the ⋯ menu.
+	const networkActions = new NetworkActions(() => ({
+		container,
+		onRefresh,
+		onConnectNetwork
 	}));
 	onDestroy(() => {
 		actions.dispose();
@@ -103,6 +120,17 @@
 		}, 2000);
 	}
 
+	/** Open the network drawer on this container. */
+	const connectThis = () => onConnectNetwork?.(container);
+	/** Every network of the container, default networks included, for the details. */
+	const networkRows = $derived(
+		(container.networks ?? []).map((network) => ({
+			...network,
+			address: network.ip || network.configuredIp || '',
+			isDefault: DEFAULT_NETWORKS.has(network.name)
+		}))
+	);
+
 	const openTerminal = (id: string, command: string, name: string, cwd: string) =>
 		onOpenTerminal?.(id, command, name, cwd);
 </script>
@@ -153,6 +181,9 @@
 					{workspaceName}
 				</span>
 			{/if}
+			{#if !transition}
+				<NetworkChips {container} actions={networkActions} {onConnectNetwork} />
+			{/if}
 		</div>
 
 		<div class="ml-auto flex shrink-0 items-center gap-2">
@@ -194,13 +225,23 @@
 					onOpenTerminal={openTerminal}
 				/>
 				<div class="mx-0.5 h-4 w-px shrink-0 bg-[#d8dee9] dark:bg-[#434c5e]"></div>
-				<ContainerMoreMenu {container} {actions} />
+				<ContainerMoreMenu
+					{container}
+					{actions}
+					onConnectNetwork={onConnectNetwork ? connectThis : undefined}
+					onDisconnectNetwork={(network) => void networkActions.disconnect(network)}
+				/>
 			</div>
 		</div>
 	</div>
 
 	{#if actions.actionError}
 		<p role="alert" class="px-5 pb-2 text-right text-xs text-[#bf616a]">{actions.actionError}</p>
+	{/if}
+	{#if networkActions.failure}
+		<p role="alert" class="px-5 pb-2 text-right text-xs text-[#bf616a]">
+			{networkActions.failure}
+		</p>
 	{/if}
 
 	{#if expanded}
@@ -250,6 +291,44 @@
 						</ul>
 					{:else}
 						<span class="text-[#4c566a] dark:text-[#d8dee9]/60">No published ports</span>
+					{/if}
+				</dd>
+
+				<dt class="text-[#4c566a] dark:text-[#d8dee9]/60">Networks</dt>
+				<dd class="flex min-w-0 flex-wrap items-start justify-between gap-2">
+					{#if networkRows.length > 0}
+						<ul aria-label="Networks" class="grid min-w-0 gap-0.5">
+							{#each networkRows as network (network.name)}
+								<li class="flex flex-wrap gap-x-2">
+									<span
+										class="font-mono break-all {network.isDefault
+											? 'text-[#4c566a] dark:text-[#d8dee9]/60'
+											: 'text-[#4f8584] dark:text-[#8fbcbb]'}">{network.name}</span
+									>
+									<span class="font-mono text-[#2e3440] dark:text-[#d8dee9]"
+										>{network.address || 'no address while stopped'}</span
+									>
+									{#if network.aliases.length > 0}
+										<span class="text-[#4c566a] dark:text-[#d8dee9]/60"
+											>alias <span class="font-mono">{network.aliases.join(', ')}</span></span
+										>
+									{/if}
+								</li>
+							{/each}
+						</ul>
+					{:else}
+						<span class="text-[#4c566a] dark:text-[#d8dee9]/60">No networks reported</span>
+					{/if}
+					{#if onConnectNetwork}
+						<button
+							type="button"
+							disabled={!isRunning}
+							title={isRunning ? undefined : 'Start the container to connect a network'}
+							onclick={() => onConnectNetwork?.(container)}
+							class="flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 font-medium text-[#4f8584] transition-colors hover:bg-[#e5e9f0] disabled:cursor-not-allowed disabled:opacity-50 dark:text-[#8fbcbb] dark:hover:bg-[#434c5e]"
+						>
+							<Plus size={12} />Connect…
+						</button>
 					{/if}
 				</dd>
 

@@ -6,6 +6,7 @@
 	import ServiceButton from './ServiceButton.svelte';
 	import OpenWithMenu from './OpenWithMenu.svelte';
 	import ContainerMoreMenu from './ContainerMoreMenu.svelte';
+	import { NetworkActions } from '$lib/networkActions.svelte';
 
 	interface Props {
 		container: ContainerData;
@@ -13,10 +14,18 @@
 		serviceProxyEnabled?: boolean;
 		onRefresh: () => Promise<void>;
 		onOpenTerminal?: (id: string, command: string, name: string, cwd: string) => void;
+		/** Open the network drawer for this container */
+		onConnectNetwork?: (container: ContainerData, network?: string, seatIp?: string) => void;
 	}
 
-	let { container, vscodeSshHost, serviceProxyEnabled, onRefresh, onOpenTerminal }: Props =
-		$props();
+	let {
+		container,
+		vscodeSshHost,
+		serviceProxyEnabled,
+		onRefresh,
+		onOpenTerminal,
+		onConnectNetwork
+	}: Props = $props();
 
 	// Lifecycle requests and rebuild polling; disposing never cancels a server-side rebuild.
 	const actions = new ContainerActions(() => ({
@@ -26,6 +35,8 @@
 		onOpenBuild: onOpenTerminal
 	}));
 	onDestroy(() => actions.dispose());
+	const networkActions = new NetworkActions(() => ({ container, onRefresh, onConnectNetwork }));
+	const connectThis = () => onConnectNetwork?.(container);
 
 	const isRunning = $derived(container.state === 'running');
 	const transition = $derived(
@@ -107,11 +118,19 @@
 						onOpenTerminal={openTerminal}
 					/>
 					<div class="mx-0.5 h-4 w-px shrink-0 bg-[#d8dee9] dark:bg-[#434c5e]"></div>
-					<ContainerMoreMenu {container} {actions} />
+					<ContainerMoreMenu
+						{container}
+						{actions}
+						onConnectNetwork={onConnectNetwork ? connectThis : undefined}
+						onDisconnectNetwork={(network) => void networkActions.disconnect(network)}
+					/>
 				</div>
 			</div>
 			{#if actions.actionError}
 				<p role="alert" class="max-w-64 text-xs text-[#bf616a]">{actions.actionError}</p>
+			{/if}
+			{#if networkActions.failure}
+				<p role="alert" class="max-w-64 text-xs text-[#bf616a]">{networkActions.failure}</p>
 			{/if}
 		</div>
 	</div>
