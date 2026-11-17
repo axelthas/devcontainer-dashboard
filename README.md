@@ -94,7 +94,9 @@ Each devcontainer row and card has three controls. Each control has one job.
 **Open with** has the same items, in the same order, as the menu of a local workspace.
 
 - When the container runs, the items open inside the container. **Terminal** opens a
-  login shell (`bash -l`) in the container workspace folder. **OpenCode TUI** runs
+  Zsh login shell (`zsh -l`) in the container workspace folder. Zsh must be installed in
+  the container; the dashboard does not install it or silently fall back to Bash.
+  **OpenCode TUI** runs
   `opencode` in the terminal drawer, in the same folder. If the container workspace folder
   is unknown, **OpenCode TUI** is disabled. If `opencode` is not installed in the
   container, the terminal shows a message. The dashboard does not install it.

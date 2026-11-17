@@ -83,7 +83,7 @@ describe('Devcontainer row', () => {
 		await page.getByRole('menuitem', { name: 'Terminal', exact: true }).click();
 		expect(onOpenTerminal).toHaveBeenCalledWith(
 			expect.any(String),
-			`${EXEC_PREFIX} bash -l`,
+			`${EXEC_PREFIX} zsh -l`,
 			'fixture',
 			'/workspaces/task/fixture'
 		);
@@ -96,7 +96,7 @@ describe('Devcontainer row', () => {
 		const ports = page.getByRole('list', { name: 'Port mapping' });
 		await expect.element(ports).toHaveTextContent('3000 → host 43000');
 		await expect.element(ports).toHaveTextContent('6904 → host 46904');
-		await expect.element(page.getByText(`${EXEC_PREFIX} bash -l`)).toBeVisible();
+		await expect.element(page.getByText(`${EXEC_PREFIX} zsh -l`)).toBeVisible();
 		await expect
 			.element(page.getByRole('button', { name: 'Copy OpenCode TUI command' }))
 			.toBeVisible();
@@ -107,7 +107,7 @@ describe('Devcontainer row', () => {
 		row(running);
 		await page.getByRole('button', { name: 'Details: fixture' }).click();
 		await page.getByRole('button', { name: 'Copy Terminal command' }).click();
-		expect(writeText).toHaveBeenCalledWith(`${EXEC_PREFIX} bash -l`);
+		expect(writeText).toHaveBeenCalledWith(`${EXEC_PREFIX} zsh -l`);
 	});
 
 	it('disables container commands when the remote user cannot be used', async () => {

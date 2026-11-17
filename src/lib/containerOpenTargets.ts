@@ -52,10 +52,10 @@ export function containerOpenCodeBlocker(container: CommandTarget): string | nul
 	return null;
 }
 
-/** Login shell as the remote user in the workspace folder, or null when blocked. */
+/** Zsh login shell as the remote user in the workspace folder, or null when blocked. */
 export function containerShellCommand(container: CommandTarget): string | null {
 	if (containerShellBlocker(container)) return null;
-	return [...execPrefix(container), 'bash', '-l'].join(' ');
+	return [...execPrefix(container), 'zsh', '-l'].join(' ');
 }
 
 /**

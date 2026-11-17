@@ -32,7 +32,7 @@ describe('shellQuote', () => {
 });
 
 describe('devcontainer Open with commands', () => {
-	it('opens a login shell as the remote user in the workspace folder', () => {
+	it('opens a zsh login shell as the remote user in the workspace folder', () => {
 		const command = containerShellCommand({
 			name: '/fixture_1',
 			remoteUser: 'vscode',
@@ -46,7 +46,7 @@ describe('devcontainer Open with commands', () => {
 			'-w',
 			folder,
 			'fixture_1',
-			'bash',
+			'zsh',
 			'-l'
 		]);
 	});
@@ -56,7 +56,7 @@ describe('devcontainer Open with commands', () => {
 			'exec',
 			'-it',
 			'fixture_1',
-			'bash',
+			'zsh',
 			'-l'
 		]);
 	});
