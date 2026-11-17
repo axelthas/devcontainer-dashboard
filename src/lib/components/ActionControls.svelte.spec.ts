@@ -41,14 +41,17 @@ describe('Rebuild and restart', () => {
 	it.each([
 		['grid', DevcontainerCard],
 		['list', DevcontainerRow]
-	] as const)('is available in the %s view', async (_name, Component) => {
+	] as const)('is available in the %s view container menu', async (_name, Component) => {
 		mounted.push(
 			mount(Component, {
 				target: target(),
 				props: { container, onRefresh: async () => {} }
 			})
 		);
-		await expect.element(page.getByRole('button', { name: 'Rebuild and restart' })).toBeEnabled();
+		await page.getByRole('button', { name: 'Container actions: fixture' }).click();
+		await expect
+			.element(page.getByRole('menuitem', { name: 'Rebuild and restart…' }))
+			.toBeEnabled();
 	});
 
 	it('cancelling confirmation starts no request and identifies the target and data-loss boundary', async () => {
@@ -189,6 +192,22 @@ describe('Rebuild and restart', () => {
 			})
 		);
 		await expect.element(page.getByRole('button', { name: 'Rebuild and restart' })).toBeDisabled();
+	});
+
+	it('disables rebuilding in the container menu when the configuration label is absent', async () => {
+		mounted.push(
+			mount(DevcontainerRow, {
+				target: target(),
+				props: {
+					container: { ...container, devcontainerConfigFile: undefined },
+					onRefresh: async () => {}
+				}
+			})
+		);
+		await page.getByRole('button', { name: 'Container actions: fixture' }).click();
+		await expect
+			.element(page.getByRole('menuitem', { name: 'Rebuild and restart…' }))
+			.toBeDisabled();
 	});
 
 	it('does not add rebuilding to unrelated Docker service controls', async () => {
