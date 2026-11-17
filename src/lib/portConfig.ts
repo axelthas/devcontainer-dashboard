@@ -7,6 +7,8 @@ export interface PortConfig {
 	label: string;
 	icon: LucideIcon;
 	colorClass: string;
+	/** Icon tint for compact lists such as the Services menu. */
+	accentClass?: string;
 }
 
 export const PORT_MAP: Record<string, PortConfig> = {
@@ -14,25 +16,29 @@ export const PORT_MAP: Record<string, PortConfig> = {
 		label: 'OpenChamber',
 		icon: Globe,
 		colorClass:
-			'text-[#8fbcbb] bg-[#8fbcbb]/20 border-[#8fbcbb]/30 hover:bg-[#8fbcbb]/30 dark:text-[#8fbcbb] dark:bg-[#8fbcbb]/20 dark:border-[#8fbcbb]/30 dark:hover:bg-[#8fbcbb]/30'
+			'text-[#8fbcbb] bg-[#8fbcbb]/20 border-[#8fbcbb]/30 hover:bg-[#8fbcbb]/30 dark:text-[#8fbcbb] dark:bg-[#8fbcbb]/20 dark:border-[#8fbcbb]/30 dark:hover:bg-[#8fbcbb]/30',
+		accentClass: 'text-[#8fbcbb]'
 	},
 	'6904': {
 		label: 'NoVNC',
 		icon: Monitor,
 		colorClass:
-			'text-[#5e81ac] bg-[#81a1c1]/20 border-[#81a1c1]/30 hover:bg-[#81a1c1]/30 dark:text-[#88c0d0] dark:bg-[#81a1c1]/20 dark:border-[#88c0d0]/30 dark:hover:bg-[#81a1c1]/40'
+			'text-[#5e81ac] bg-[#81a1c1]/20 border-[#81a1c1]/30 hover:bg-[#81a1c1]/30 dark:text-[#88c0d0] dark:bg-[#81a1c1]/20 dark:border-[#88c0d0]/30 dark:hover:bg-[#81a1c1]/40',
+		accentClass: 'text-[#5e81ac] dark:text-[#88c0d0]'
 	},
 	'4096': {
 		label: 'OpenCode',
 		icon: Code,
 		colorClass:
-			'text-[#b48ead] bg-[#b48ead]/20 border-[#b48ead]/30 hover:bg-[#b48ead]/30 dark:text-[#b48ead] dark:bg-[#b48ead]/20 dark:border-[#b48ead]/30 dark:hover:bg-[#b48ead]/40'
+			'text-[#b48ead] bg-[#b48ead]/20 border-[#b48ead]/30 hover:bg-[#b48ead]/30 dark:text-[#b48ead] dark:bg-[#b48ead]/20 dark:border-[#b48ead]/30 dark:hover:bg-[#b48ead]/40',
+		accentClass: 'text-[#b48ead]'
 	},
 	'9001': {
 		label: 'Supervisor',
 		icon: Activity,
 		colorClass:
-			'text-[#d08770] bg-[#d08770]/20 border-[#d08770]/30 hover:bg-[#d08770]/30 dark:text-[#d08770] dark:bg-[#d08770]/20 dark:border-[#d08770]/30 dark:hover:bg-[#d08770]/40'
+			'text-[#d08770] bg-[#d08770]/20 border-[#d08770]/30 hover:bg-[#d08770]/30 dark:text-[#d08770] dark:bg-[#d08770]/20 dark:border-[#d08770]/30 dark:hover:bg-[#d08770]/40',
+		accentClass: 'text-[#d08770]'
 	},
 	'8000': {
 		label: 'VSCode',

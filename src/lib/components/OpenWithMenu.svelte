@@ -2,193 +2,173 @@
 	import { ChevronDown, Code, PanelsTopLeft, TerminalSquare } from 'lucide-svelte';
 	import { resolve } from '$app/paths';
 	import { generateId } from '$lib';
+	import type { ContainerData } from '$lib/types';
+	import { buildContainerVscodeUri } from '$lib/vscode';
+	import { containerOpenCodeCommand, containerShellCommand } from '$lib/containerOpenTargets';
+	import { openContainerService } from '$lib/serviceLaunch';
+	import RowMenu from './RowMenu.svelte';
 
 	interface Props {
+		/** Host folder. For a devcontainer: its local workspace folder, or '' when unknown. */
 		path: string;
 		vscodeSshHost?: string;
 		aiDisabled?: boolean;
+		/**
+		 * Devcontainer target. Running: every action opens inside the container.
+		 * Stopped: actions open `path` on the host, and the menu says so.
+		 */
+		container?: ContainerData;
+		serviceProxyEnabled?: boolean;
+		disabled?: boolean;
 		onOpenTerminal: (id: string, command: string, name: string, cwd: string) => void;
 	}
-	let { path, vscodeSshHost = '', aiDisabled = false, onOpenTerminal }: Props = $props();
-	const uid = $props.id();
-	const menuId = `open-with-${uid}`;
-	let menu: HTMLDivElement;
-	let trigger: HTMLButtonElement;
-	let expanded = $state(false);
-	let left = $state(0);
-	let top = $state(0);
-	let focusLast = false;
-	const name = $derived(path.split('/').filter(Boolean).pop() ?? path);
-	const vscodeHref = $derived(
+	let {
+		path,
+		vscodeSshHost = '',
+		aiDisabled = false,
+		container,
+		serviceProxyEnabled,
+		disabled = false,
+		onOpenTerminal
+	}: Props = $props();
+
+	/** Container port that OpenChamber publishes. */
+	const OPENCHAMBER_PORT = '3000';
+
+	const inContainer = $derived(container?.state === 'running');
+	const name = $derived(container?.projectName ?? path.split('/').filter(Boolean).pop() ?? path);
+	const caption = $derived(
+		!container ? '' : inContainer ? 'Inside the container' : 'Container stopped: host folder'
+	);
+	/** A stopped container without a known host folder has nothing to open. */
+	const unavailable = $derived(disabled || (Boolean(container) && !inContainer && !path));
+	const hostVscodeHref = $derived(
 		vscodeSshHost
 			? `vscode://vscode-remote/ssh-remote+${vscodeSshHost}${path}?windowId=_blank`
 			: `vscode://file${path}?windowId=_blank`
 	);
-
-	/** Position the native popover before it opens; it escapes clipped rows. */
-	function place() {
-		const box = trigger.getBoundingClientRect();
-		left = Math.max(8, Math.min(box.left, window.innerWidth - 184));
-		top = box.bottom + 4 + 172 > window.innerHeight ? Math.max(8, box.top - 176) : box.bottom + 4;
-	}
-
-	/** Track the native state and move focus into the visible menu. */
-	function toggled() {
-		expanded = menu.matches(':popover-open');
-		if (!expanded) return;
-		const items = menu.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)');
-		items[focusLast ? items.length - 1 : 0]?.focus();
-		focusLast = false;
-	}
-
-	/** Arrow keys open the closed menu at its first or last item. */
-	function openFromKey(event: KeyboardEvent) {
-		event.stopPropagation();
-		if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
-		event.preventDefault();
-		focusLast = event.key === 'ArrowUp';
-		if (!menu.matches(':popover-open')) menu.showPopover();
-	}
-
-	/** Dismiss before dispatch without moving focus away from a newly opened window. */
-	function close() {
-		menu.hidePopover();
-	}
+	const vscodeHref = $derived(
+		container && inContainer ? buildContainerVscodeUri(container, vscodeSshHost) : hostVscodeHref
+	);
+	const openCodeCommand = $derived(
+		container && inContainer ? containerOpenCodeCommand(container) : null
+	);
+	const servesOpenChamber = $derived(Boolean(container?.ports[OPENCHAMBER_PORT]));
+	const tuiDisabled = $derived(inContainer ? !openCodeCommand : aiDisabled);
+	const chamberDisabled = $derived(inContainer ? !servesOpenChamber : aiDisabled);
+	const where = $derived(inContainer ? 'in container' : 'host');
 
 	/** Keep selection synchronous so browser popup rules allow AI service windows. */
-	function openAi(tool: 'opencode' | 'openchamber') {
+	function openAi(close: () => void, tool: 'opencode' | 'openchamber') {
 		close();
 		const query = new URLSearchParams({ path, tool, launch: generateId() });
 		window.open(resolve(`/ai?${query}`), '_blank', 'noopener,noreferrer');
 	}
 
-	/** Use the same terminal drawer callback as the former terminal icon. */
-	function openTerminal() {
+	/** Open a shell in the terminal drawer: in the container, or in the host folder. */
+	function openTerminal(close: () => void) {
 		close();
-		onOpenTerminal(generateId(), '', name, path);
+		if (container && inContainer)
+			onOpenTerminal(
+				generateId(),
+				containerShellCommand(container),
+				name,
+				container.localWorkspacePath ?? ''
+			);
+		else onOpenTerminal(generateId(), '', name, path);
 	}
 
-	/** Support standard menu navigation without triggering workspace-row shortcuts. */
-	function navigate(event: KeyboardEvent) {
-		event.stopPropagation();
-		if (event.key === 'Tab') {
-			close();
+	/** Run the OpenCode TUI in the terminal drawer inside the container's workspace folder. */
+	function openTui(close: () => void) {
+		if (!container || !inContainer) {
+			openAi(close, 'opencode');
 			return;
 		}
-		if (event.key === ' ' && document.activeElement instanceof HTMLAnchorElement) {
-			event.preventDefault();
-			document.activeElement.click();
+		if (!openCodeCommand) return;
+		close();
+		onOpenTerminal(
+			generateId(),
+			openCodeCommand,
+			`${name} · OpenCode`,
+			container.localWorkspacePath ?? ''
+		);
+	}
+
+	/** Open the container's OpenChamber service, or OpenChamber for the host folder. */
+	function openChamber(close: () => void) {
+		if (!container || !inContainer) {
+			openAi(close, 'openchamber');
 			return;
 		}
-		if (event.key === 'Escape') {
-			event.preventDefault();
-			close();
-			trigger.focus();
-			return;
-		}
-		const items = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)')];
-		const index = items.indexOf(document.activeElement as HTMLElement);
-		let next: number;
-		if (event.key === 'ArrowDown') next = (index + 1) % items.length;
-		else if (event.key === 'ArrowUp') next = (index - 1 + items.length) % items.length;
-		else if (event.key === 'Home') next = 0;
-		else if (event.key === 'End') next = items.length - 1;
-		else return;
-		event.preventDefault();
-		items[next]?.focus();
+		if (!servesOpenChamber) return;
+		close();
+		openContainerService({
+			containerPort: OPENCHAMBER_PORT,
+			hostPort: container.ports[OPENCHAMBER_PORT],
+			label: 'OpenChamber',
+			containerName: container.name,
+			projectName: container.projectName,
+			workspacePath: container.localWorkspacePath,
+			allPorts: container.ports,
+			containerId: container.id,
+			serviceProxyEnabled
+		});
 	}
 </script>
 
-<button
-	bind:this={trigger}
-	type="button"
-	aria-label={`Open with: ${name}`}
-	aria-haspopup="menu"
-	aria-expanded={expanded}
-	title={`Open ${path} with…`}
-	popovertarget={menuId}
-	onclick={(event) => event.stopPropagation()}
-	onkeydown={openFromKey}
-	class="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold whitespace-nowrap text-[#4c566a] hover:bg-[#e5e9f0] dark:text-[#d8dee9] dark:hover:bg-[#434c5e]"
+<RowMenu
+	label={`Open with: ${name}`}
+	menuLabel={`Open ${name} with`}
+	title={`Open ${container ? name : path} with…`}
+	width={container ? 248 : 176}
+	height={caption ? 204 : 172}
+	disabled={unavailable}
+	triggerClass="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold whitespace-nowrap text-[#4c566a] hover:bg-[#e5e9f0] disabled:cursor-not-allowed disabled:opacity-50 dark:text-[#d8dee9] dark:hover:bg-[#434c5e]"
 >
-	Open with <ChevronDown size={13} />
-</button>
-
-<div
-	bind:this={menu}
-	id={menuId}
-	popover="auto"
-	role="menu"
-	tabindex="-1"
-	aria-label={`Open ${name} with`}
-	onclick={(event) => event.stopPropagation()}
-	onbeforetoggle={place}
-	ontoggle={toggled}
-	onkeydown={navigate}
-	style:left={`${left}px`}
-	style:top={`${top}px`}
-	class="open-menu rounded-lg border border-[#d8dee9] bg-white p-1 text-[#2e3440] shadow-lg dark:border-[#4c566a] dark:bg-[#3b4252] dark:text-[#eceff4]"
->
-	<a role="menuitem" tabindex="-1" href={vscodeHref} rel="external" onclick={close}>
-		<Code size={15} />VS Code
-	</a>
-	<button role="menuitem" tabindex="-1" type="button" onclick={openTerminal}>
-		<TerminalSquare size={15} />Terminal
-	</button>
-	<button
-		role="menuitem"
-		tabindex="-1"
-		type="button"
-		disabled={aiDisabled}
-		onclick={() => openAi('opencode')}
-	>
-		<TerminalSquare size={15} />OpenCode TUI
-	</button>
-	<button
-		role="menuitem"
-		tabindex="-1"
-		type="button"
-		disabled={aiDisabled}
-		onclick={() => openAi('openchamber')}
-	>
-		<PanelsTopLeft size={15} />OpenChamber
-	</button>
-</div>
-
-<style>
-	.open-menu {
-		position: fixed;
-		inset: auto;
-		margin: 0;
-		width: 176px;
-	}
-	.open-menu:popover-open {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-	}
-	.open-menu :is(a, button) {
-		display: flex;
-		align-items: center;
-		gap: 0.6rem;
-		width: 100%;
-		border-radius: 5px;
-		padding: 0.5rem;
-		font-size: 0.75rem;
-		text-align: left;
-		text-decoration: none;
-		color: inherit;
-		cursor: pointer;
-	}
-	.open-menu :is(a, button):focus-visible {
-		outline: 2px solid #81a1c1;
-		outline-offset: -2px;
-	}
-	.open-menu :is(a, button):hover {
-		background: #81a1c126;
-	}
-	.open-menu button:disabled {
-		opacity: 0.4;
-		cursor: not-allowed;
-	}
-</style>
+	{#snippet trigger()}
+		Open with <ChevronDown size={13} />
+	{/snippet}
+	{#snippet children(close: () => void)}
+		{#if caption}
+			<span class="menu-caption">{caption}</span>
+		{/if}
+		<a role="menuitem" tabindex="-1" href={vscodeHref} rel="external" onclick={close}>
+			<Code size={15} /><span class="menu-text">VS Code</span>
+			{#if container}<span class="menu-hint" aria-hidden="true">{where}</span>{/if}
+		</a>
+		<button role="menuitem" tabindex="-1" type="button" onclick={() => openTerminal(close)}>
+			<TerminalSquare size={15} /><span class="menu-text">Terminal</span>
+			{#if container}<span class="menu-hint" aria-hidden="true">{where}</span>{/if}
+		</button>
+		<button
+			role="menuitem"
+			tabindex="-1"
+			type="button"
+			disabled={tuiDisabled}
+			title={inContainer && !openCodeCommand
+				? 'Unavailable: the container workspace folder is unknown'
+				: undefined}
+			onclick={() => openTui(close)}
+		>
+			<TerminalSquare size={15} class="text-[#b48ead]" /><span class="menu-text">OpenCode TUI</span>
+			{#if container}<span class="menu-hint" aria-hidden="true"
+					>{inContainer && !openCodeCommand ? 'folder unknown' : where}</span
+				>{/if}
+		</button>
+		<button
+			role="menuitem"
+			tabindex="-1"
+			type="button"
+			disabled={chamberDisabled}
+			title={inContainer && !servesOpenChamber
+				? 'Unavailable: this container does not publish OpenChamber'
+				: undefined}
+			onclick={() => openChamber(close)}
+		>
+			<PanelsTopLeft size={15} class="text-[#8fbcbb]" /><span class="menu-text">OpenChamber</span>
+			{#if container}<span class="menu-hint" aria-hidden="true"
+					>{inContainer ? (servesOpenChamber ? `:${OPENCHAMBER_PORT}` : 'not served') : where}</span
+				>{/if}
+		</button>
+	{/snippet}
+</RowMenu>
