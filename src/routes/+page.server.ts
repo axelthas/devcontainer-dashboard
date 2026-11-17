@@ -6,7 +6,8 @@ import {
 	resolveContainerWorkspaceFolder,
 	WORKSPACE_ROOT
 } from '$lib/server/workspaces';
-import { resolveRemoteUser } from '$lib/server/devcontainerMetadata';
+import { resolveNetworkPresets, resolveRemoteUser } from '$lib/server/devcontainerMetadata';
+import { containerNetworks } from '$lib/server/networkData';
 import { isServiceProxyEnabled } from '$lib/server/serviceGatewayRuntime';
 import type { ContainerData } from '$lib/types';
 import type { PageServerLoad } from './$types';
@@ -92,7 +93,9 @@ export const load: PageServerLoad = async () => {
 				? resolveContainerWorkspaceFolder(c.Mounts, localWorkspacePath)
 				: undefined,
 			...resolveRemoteUser(labels),
-			composeProject
+			composeProject,
+			networks: containerNetworks(c.NetworkSettings?.Networks),
+			networkPresets: resolveNetworkPresets(labels)
 		});
 	}
 

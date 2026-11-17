@@ -2,7 +2,8 @@ import { basename } from 'node:path';
 import { json } from '@sveltejs/kit';
 import docker from '$lib/server/docker';
 import { resolveContainerWorkspaceFolder } from '$lib/server/workspaces';
-import { resolveRemoteUser } from '$lib/server/devcontainerMetadata';
+import { resolveNetworkPresets, resolveRemoteUser } from '$lib/server/devcontainerMetadata';
+import { containerNetworks } from '$lib/server/networkData';
 import type { ContainerData } from '$lib/types';
 import type { RequestHandler } from './$types';
 
@@ -88,7 +89,9 @@ export const GET: RequestHandler = async () => {
 				? resolveContainerWorkspaceFolder(c.Mounts, localWorkspacePath)
 				: undefined,
 			...resolveRemoteUser(labels),
-			composeProject
+			composeProject,
+			networks: containerNetworks(c.NetworkSettings?.Networks),
+			networkPresets: resolveNetworkPresets(labels)
 		});
 	}
 
