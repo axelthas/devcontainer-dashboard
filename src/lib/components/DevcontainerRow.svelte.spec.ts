@@ -17,7 +17,16 @@ const running: ContainerData = {
 	devcontainerConfigFile: '/workspaces/task/fixture/.devcontainer/devcontainer.json',
 	containerWorkspaceFolder: '/workspaces/fixture',
 	remoteUser: 'vscode',
-	remoteUserSource: 'remoteUser'
+	remoteUserSource: 'remoteUser',
+	networks: [{ name: 'bridge', ip: '172.17.0.4', aliases: [] }]
+};
+/** The same container, connected to a sandbox network as a stand-in. */
+const standingIn: ContainerData = {
+	...running,
+	networks: [
+		{ name: 'bridge', ip: '172.17.0.4', aliases: [] },
+		{ name: 'keflavik_oplan', ip: '192.168.103.101', aliases: ['twr-fdd-1-sup'] }
+	]
 };
 /** Prefix of every container command: the remote user, the workspace folder, the name. */
 const EXEC_PREFIX = "docker exec -it -u 'vscode' -w '/workspaces/fixture' 'relaxed_fixture'";
@@ -31,10 +40,14 @@ function row(container: ContainerData) {
 	targets.push(target);
 	const onOpenTerminal = vi.fn();
 	const onRefresh = vi.fn(async () => {});
+	const onConnectNetwork = vi.fn();
 	mounted.push(
-		mount(DevcontainerRow, { target, props: { container, onRefresh, onOpenTerminal } })
+		mount(DevcontainerRow, {
+			target,
+			props: { container, onRefresh, onOpenTerminal, onConnectNetwork }
+		})
 	);
-	return { onOpenTerminal, onRefresh };
+	return { onOpenTerminal, onRefresh, onConnectNetwork };
 }
 
 /** Tear down viewers and timers without issuing container actions. */
@@ -180,5 +193,67 @@ describe('Devcontainer row', () => {
 		await expect.element(page.getByRole('status')).toHaveTextContent('Stopping');
 		finish(Response.json({ success: true }));
 		await expect.element(page.getByRole('status')).not.toBeInTheDocument();
+	});
+
+	it('shows each network connection as a chip and lists every network in the details', async () => {
+		row(standingIn);
+		await expect
+			.element(page.getByRole('button', { name: 'Network keflavik_oplan: fixture' }))
+			.toHaveTextContent(/keflavik_oplan\s*as twr-fdd-1-sup\s*\.101/);
+		await page.getByRole('button', { name: 'Details: fixture' }).click();
+		const networks = page.getByRole('list', { name: 'Networks' });
+		await expect.element(networks).toHaveTextContent(/bridge\s*172\.17\.0\.4/);
+		await expect.element(networks).toHaveTextContent(/keflavik_oplan\s*192\.168\.103\.101/);
+		await expect.element(networks).toHaveTextContent(/alias\s*twr-fdd-1-sup/);
+	});
+
+	it('opens the network drawer from the details and from the container menu', async () => {
+		const { onConnectNetwork } = row(running);
+		await page.getByRole('button', { name: 'Details: fixture' }).click();
+		await page.getByRole('button', { name: 'Connect…' }).click();
+		expect(onConnectNetwork).toHaveBeenLastCalledWith(expect.objectContaining({ id: running.id }));
+		await page.getByRole('button', { name: 'Container actions: fixture' }).click();
+		await page.getByRole('menuitem', { name: 'Connect to network…' }).click();
+		expect(onConnectNetwork).toHaveBeenCalledTimes(2);
+	});
+
+	it('suggests the network that devcontainer.json declares', async () => {
+		const { onConnectNetwork } = row({
+			...running,
+			networkPresets: [{ network: 'keflavik_oplan', seats: [] }]
+		});
+		await page.getByRole('button', { name: 'Join keflavik_oplan' }).click();
+		expect(onConnectNetwork).toHaveBeenCalledWith(
+			expect.objectContaining({ id: running.id }),
+			'keflavik_oplan'
+		);
+	});
+
+	it('asks before it disconnects a network and sends no request when cancelled', async () => {
+		const confirm = vi.fn(() => false);
+		const fetch = vi.fn();
+		vi.stubGlobal('confirm', confirm);
+		vi.stubGlobal('fetch', fetch);
+		row(standingIn);
+		await page.getByRole('button', { name: 'Network keflavik_oplan: fixture' }).click();
+		await page.getByRole('menuitem', { name: 'Disconnect from keflavik_oplan' }).click();
+		expect(confirm).toHaveBeenCalledWith(
+			expect.stringContaining('docker network disconnect keflavik_oplan relaxed_fixture')
+		);
+		expect(fetch).not.toHaveBeenCalled();
+	});
+
+	it('disconnects after confirmation and refreshes the row', async () => {
+		vi.stubGlobal('confirm', vi.fn(() => true));
+		const fetch = vi.fn(async () => Response.json({ steps: [], networks: running.networks }));
+		vi.stubGlobal('fetch', fetch);
+		const { onRefresh } = row(standingIn);
+		await page.getByRole('button', { name: 'Container actions: fixture' }).click();
+		await page.getByRole('menuitem', { name: 'Disconnect from keflavik_oplan' }).click();
+		await vi.waitFor(() => expect(onRefresh).toHaveBeenCalled());
+		expect(fetch).toHaveBeenCalledWith(
+			'/api/containers/bbbbbbbbbbbb/networks/keflavik_oplan',
+			expect.objectContaining({ method: 'DELETE' })
+		);
 	});
 });

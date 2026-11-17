@@ -1,6 +1,6 @@
 /** Regressions for reading the remote user from the devcontainer.metadata label. */
 import { describe, expect, it } from 'vitest';
-import { resolveRemoteUser } from './devcontainerMetadata';
+import { resolveNetworkPresets, resolveRemoteUser } from './devcontainerMetadata';
 
 /** Build container labels with one metadata label. */
 const labels = (metadata: unknown) => ({ 'devcontainer.metadata': JSON.stringify(metadata) });
@@ -112,5 +112,61 @@ describe('resolveRemoteUser', () => {
 				{}
 			)
 		).toEqual({ remoteUser: 'vscode', remoteUserSource: 'remoteUser' });
+	});
+});
+
+describe('resolveNetworkPresets', () => {
+	/** Wrap network declarations the way devcontainer.json customizations store them. */
+	const declared = (networks: unknown) => ({
+		customizations: { 'devcontainer-dashboard': { networks } }
+	});
+
+	it('reads declared networks and seats from the metadata label', () => {
+		expect(
+			resolveNetworkPresets(
+				labels([
+					{ id: 'feature' },
+					declared([
+						{
+							network: 'keflavik_oplan',
+							seats: [{ hostname: 'sim-pilot-1', ip: '192.168.103.140' }, { hostname: 'any' }]
+						}
+					])
+				])
+			)
+		).toEqual([
+			{
+				network: 'keflavik_oplan',
+				seats: [{ hostname: 'sim-pilot-1', ip: '192.168.103.140' }, { hostname: 'any' }]
+			}
+		]);
+	});
+
+	it('lets a later entry replace a network and skips invalid values', () => {
+		expect(
+			resolveNetworkPresets(
+				labels([
+					declared([{ network: 'net', seats: [{ hostname: 'old', ip: '10.0.0.2' }] }]),
+					declared([
+						{ network: 'bridge' },
+						{ network: '../escape' },
+						{
+							network: 'net',
+							seats: [
+								{ hostname: 'Bad Host', ip: '10.0.0.3' },
+								{ hostname: 'new', ip: '10.0.0.999' },
+								{ hostname: 'kept', ip: '10.0.0.4' }
+							]
+						}
+					])
+				])
+			)
+		).toEqual([{ network: 'net', seats: [{ hostname: 'kept', ip: '10.0.0.4' }] }]);
+	});
+
+	it('returns no presets without metadata, with invalid JSON, or without the customization', () => {
+		expect(resolveNetworkPresets(undefined)).toEqual([]);
+		expect(resolveNetworkPresets({ 'devcontainer.metadata': '{' })).toEqual([]);
+		expect(resolveNetworkPresets(labels([{ customizations: { vscode: {} } }]))).toEqual([]);
 	});
 });
