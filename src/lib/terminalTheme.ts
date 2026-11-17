@@ -1,4 +1,5 @@
 import type { ITheme } from '@xterm/xterm';
+import type { TerminalViewColors } from './terminalView';
 
 /** Nord colours shared by the interactive terminal and the log viewer */
 export const TERMINAL_THEME: ITheme = {
@@ -21,6 +22,34 @@ export const TERMINAL_THEME: ITheme = {
 	brightMagenta: '#b48ead',
 	brightCyan: '#8fbcbb',
 	brightWhite: '#eceff4'
+};
+
+/** ANSI colors 0-15 in palette order, as xterm.js theme keys. */
+export const ANSI_THEME_KEYS = [
+	'black',
+	'red',
+	'green',
+	'yellow',
+	'blue',
+	'magenta',
+	'cyan',
+	'white',
+	'brightBlack',
+	'brightRed',
+	'brightGreen',
+	'brightYellow',
+	'brightBlue',
+	'brightMagenta',
+	'brightCyan',
+	'brightWhite'
+] as const;
+
+/** The same Nord colours in the engine-independent terminal view format. */
+export const TERMINAL_COLORS: TerminalViewColors = {
+	foreground: TERMINAL_THEME.foreground ?? '#d8dee9',
+	background: TERMINAL_THEME.background ?? '#2e3440',
+	cursor: TERMINAL_THEME.cursor ?? '#d8dee9',
+	palette: ANSI_THEME_KEYS.map((key) => TERMINAL_THEME[key] ?? '#d8dee9')
 };
 
 export const TERMINAL_FONT_FAMILY = '"Cascadia Code", "Fira Code", monospace';

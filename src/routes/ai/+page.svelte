@@ -1,11 +1,20 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { invalidateAll } from '$app/navigation';
+	import { invalidateAll, replaceState } from '$app/navigation';
 	import { resolve } from '$app/paths';
+	import { page } from '$app/state';
 	import OpenWithMenu from '$lib/components/OpenWithMenu.svelte';
 	import AiViewerHeader from '$lib/components/AiViewerHeader.svelte';
 	import TerminalTab from '$lib/components/TerminalTab.svelte';
 	import TerminalManager from '$lib/components/TerminalManager.svelte';
+	import TerminalEngineSelect from '$lib/components/TerminalEngineSelect.svelte';
+	import { defaultTerminalEngine } from '$lib/terminalEnginePreference.svelte';
+	import {
+		DEFAULT_TERMINAL_ENGINE,
+		isTerminalEngineId,
+		type TerminalEngineId,
+		type TerminalViewIdentity
+	} from '$lib/terminalView';
 	import type { TerminalSession } from '$lib/types';
 	import type { PageData } from './$types';
 
@@ -17,6 +26,9 @@
 	let terminalOpen = $state(false);
 	let terminalSessions = $state<TerminalSession[]>([]);
 	let activeTerminalId = $state<string | null>(null);
+	/** Engine of the OpenCode TUI viewer; switching it reattaches to the same PTY. */
+	let engine = $state<TerminalEngineId>(DEFAULT_TERMINAL_ENGINE);
+	let identity = $state<TerminalViewIdentity>();
 
 	/** Reuse the dashboard terminal drawer for ordinary folder shells. */
 	function openTerminal(id: string, command: string, name: string, cwd: string) {
@@ -38,7 +50,17 @@
 		if (!terminalSessions.length) terminalOpen = false;
 	}
 
+	/** Switch the viewer and keep the choice in the URL, so a reload uses it too. */
+	function changeEngine(next: TerminalEngineId) {
+		engine = next;
+		const query = new URLSearchParams(page.url.searchParams);
+		query.set('engine', next);
+		replaceState(resolve(`/ai?${query}`), {});
+	}
+
 	onMount(() => {
+		const requested = page.url.searchParams.get('engine');
+		engine = isTerminalEngineId(requested) ? requested : defaultTerminalEngine();
 		dark = localStorage.getItem('devcontainer-dashboard-theme') !== 'light';
 		const syncTheme = (event: StorageEvent) => {
 			if (event.key === 'devcontainer-dashboard-theme') dark = event.newValue !== 'light';
@@ -123,8 +145,30 @@
 			{dark}
 		/>
 		{#if terminalId}
-			<div class="min-h-0 flex-1 bg-[#2e3440] p-2">
-				<TerminalTab sessionId={terminalId} active={true} focusOnActivate={true} />
+			<div class="flex min-h-0 flex-1 flex-col gap-1 bg-[#2e3440] p-2">
+				<div class="flex shrink-0 flex-wrap items-center gap-3">
+					<TerminalEngineSelect
+						label="Engine"
+						value={engine}
+						help="Switch how OpenCode TUI is displayed. OpenCode keeps running."
+						onSelect={changeEngine}
+					/>
+					{#if identity}
+						<span class="truncate text-[11px] text-[#d8dee9]/60"
+							>{identity.core} · {identity.renderer}</span
+						>
+					{/if}
+				</div>
+				<div class="min-h-0 flex-1">
+					<TerminalTab
+						sessionId={terminalId}
+						{engine}
+						active={true}
+						focusOnActivate={true}
+						onIdentity={(next) => (identity = next)}
+						onUseFallback={() => changeEngine('xterm')}
+					/>
+				</div>
 			</div>
 		{:else if data.viewer}
 			<section
