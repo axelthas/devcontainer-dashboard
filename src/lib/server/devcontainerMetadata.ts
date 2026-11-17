@@ -19,21 +19,51 @@ function plainUser(value: unknown): value is string {
 	return typeof value === 'string' && USER_PATTERN.test(value);
 }
 
-/** Describe a rejected value without echoing an unbounded label. */
-function rejected(property: string, value: unknown): RemoteUserFields {
-	const shown = typeof value === 'string' ? JSON.stringify(value.slice(0, 64)) : typeof value;
-	return {
-		remoteUserError: `${property} ${shown} in the devcontainer metadata is not a plain user name`
-	};
+/** Resolve localEnv tokens once as literal text, without shell expansion or value logging. */
+function resolveUser(
+	property: 'remoteUser' | 'containerUser',
+	value: unknown,
+	env: Record<string, string | undefined>
+): RemoteUserFields {
+	if (typeof value !== 'string') {
+		return { remoteUserError: `${property} in the devcontainer metadata must be a string` };
+	}
+	let missing: string | undefined;
+	const resolved = value.replace(
+		/\$\{localEnv:([^:{}]+)(?::([^{}]*))?\}/g,
+		(_token, name: string, fallback: string | undefined) => {
+			const replacement = Object.hasOwn(env, name) ? env[name] : undefined;
+			if (replacement !== undefined) return replacement;
+			if (fallback !== undefined) return fallback;
+			missing ??= name;
+			return '';
+		}
+	);
+	if (missing) {
+		return {
+			remoteUserError: `${property}: localEnv variable ${missing} is not set in the dashboard environment`
+		};
+	}
+	if (!plainUser(resolved)) {
+		return {
+			remoteUserError: `${property} in the devcontainer metadata does not resolve to a plain user name`
+		};
+	}
+	return { remoteUser: resolved, remoteUserSource: property };
 }
 
 /**
  * Return the last `remoteUser`, else the last `containerUser`. Return no user when the
  * container has no metadata label: the container's default user then applies.
- * Return an error when the metadata names a user that cannot be used literally, for
- * example an unresolved `${localEnv:USER}`, so callers never run as another user.
+ * Resolve `${localEnv:VAR}` from the dashboard environment before validating the user.
+ * An unset variable can supply `${localEnv:VAR:default}`. Missing or invalid values
+ * return an error so callers never run as another user. Substituted values are not
+ * expanded again and are never included in error messages.
  */
-export function resolveRemoteUser(labels: Record<string, string> | undefined): RemoteUserFields {
+export function resolveRemoteUser(
+	labels: Record<string, string> | undefined,
+	env: Record<string, string | undefined> = process.env
+): RemoteUserFields {
 	const raw = labels?.['devcontainer.metadata'];
 	if (!raw) return {};
 	let parsed: unknown;
@@ -50,13 +80,7 @@ export function resolveRemoteUser(labels: Record<string, string> | undefined): R
 		if (record.remoteUser !== undefined) remoteUser = record.remoteUser;
 		if (record.containerUser !== undefined) containerUser = record.containerUser;
 	}
-	if (remoteUser !== undefined)
-		return plainUser(remoteUser)
-			? { remoteUser, remoteUserSource: 'remoteUser' }
-			: rejected('remoteUser', remoteUser);
-	if (containerUser !== undefined)
-		return plainUser(containerUser)
-			? { remoteUser: containerUser, remoteUserSource: 'containerUser' }
-			: rejected('containerUser', containerUser);
+	if (remoteUser !== undefined) return resolveUser('remoteUser', remoteUser, env);
+	if (containerUser !== undefined) return resolveUser('containerUser', containerUser, env);
 	return {};
 }

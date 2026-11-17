@@ -34,7 +34,7 @@ describe('resolveRemoteUser', () => {
 		expect(resolveRemoteUser(labels([{ customizations: {} }]))).toEqual({});
 	});
 
-	it.each(['${localEnv:USER}', 'a b', '-u', "o'brien", ''])(
+	it.each(['a b', '-u', "o'brien", ''])(
 		'rejects %j instead of running as another user',
 		(user) => {
 			const result = resolveRemoteUser(labels([{ remoteUser: user }]));
@@ -45,7 +45,8 @@ describe('resolveRemoteUser', () => {
 
 	it('does not fall back to containerUser when remoteUser is unusable', () => {
 		const result = resolveRemoteUser(
-			labels([{ containerUser: 'node', remoteUser: '${localEnv:USER}' }])
+			labels([{ containerUser: 'node', remoteUser: '${localEnv:USER}' }]),
+			{}
 		);
 		expect(result).toEqual({ remoteUserError: expect.stringContaining('remoteUser') });
 	});
@@ -54,5 +55,62 @@ describe('resolveRemoteUser', () => {
 		expect(resolveRemoteUser({ 'devcontainer.metadata': '{' })).toEqual({
 			remoteUserError: 'The devcontainer metadata label is not valid JSON'
 		});
+	});
+
+	it('resolves localEnv from the dashboard environment before validating remoteUser', () => {
+		expect(
+			resolveRemoteUser(labels({ remoteUser: '${localEnv:USER}' }), { USER: 'axel' })
+		).toEqual({ remoteUser: 'axel', remoteUserSource: 'remoteUser' });
+	});
+
+	it('resolves multiple tokens and literal text in containerUser', () => {
+		expect(
+			resolveRemoteUser(labels({ containerUser: '${localEnv:UID}:${localEnv:GID}' }), {
+				UID: '1000',
+				GID: '1001'
+			})
+		).toEqual({ remoteUser: '1000:1001', remoteUserSource: 'containerUser' });
+		expect(
+			resolveRemoteUser(labels({ remoteUser: 'dev-${localEnv:USER}' }), { USER: 'axel' })
+		).toEqual({ remoteUser: 'dev-axel', remoteUserSource: 'remoteUser' });
+	});
+
+	it('uses a default only when the variable is unset', () => {
+		const metadata = labels({ remoteUser: '${localEnv:USER:vscode}' });
+		expect(resolveRemoteUser(metadata, {})).toEqual({
+			remoteUser: 'vscode',
+			remoteUserSource: 'remoteUser'
+		});
+		expect(resolveRemoteUser(metadata, { USER: 'axel' }).remoteUser).toBe('axel');
+		expect(resolveRemoteUser(metadata, { USER: '' }).remoteUserError).toContain('remoteUser');
+	});
+
+	it('reports a missing variable without falling back to another user', () => {
+		const result = resolveRemoteUser(
+			labels({ remoteUser: '${localEnv:USER}', containerUser: 'root' }),
+			{}
+		);
+		expect(result.remoteUser).toBeUndefined();
+		expect(result.remoteUserError).toContain('USER is not set');
+	});
+
+	it.each(['bad user', '$(id)', '${localEnv:OTHER}', '', '-root'])(
+		'rejects invalid substituted values without exposing them: %j',
+		(USER) => {
+			const result = resolveRemoteUser(labels({ remoteUser: '${localEnv:USER}' }), { USER });
+			expect(result.remoteUser).toBeUndefined();
+			expect(result.remoteUserError).toBe(
+				'remoteUser in the devcontainer metadata does not resolve to a plain user name'
+			);
+		}
+	);
+
+	it('does not substitute tokens in overridden metadata entries', () => {
+		expect(
+			resolveRemoteUser(
+				labels([{ remoteUser: '${localEnv:MISSING}' }, { remoteUser: 'vscode' }]),
+				{}
+			)
+		).toEqual({ remoteUser: 'vscode', remoteUserSource: 'remoteUser' });
 	});
 });

@@ -115,9 +115,19 @@ Features, and `devcontainer.json`. A later entry overrides an earlier one.
 2. If no entry sets `remoteUser`, the dashboard uses the last `containerUser`.
 3. If no entry sets either property, the container's default user applies.
 
-If the value is not a plain user name or user ID, for example an unresolved
-`${localEnv:USER}`, **Terminal** and **OpenCode TUI** are disabled. The dashboard never
-uses a different user instead. The dashboard does not apply `remoteEnv`.
+Before validating the selected user, the dashboard resolves `${localEnv:VAR}` from its
+own server environment. We assume this environment is close enough to the host
+environment. For example, `"remoteUser": "${localEnv:USER}"` uses the dashboard's `USER`.
+`${localEnv:VAR:default}` supplies a default when the variable is unset (not when it is
+set to an empty string). Multiple tokens and literal text can form the user value.
+Substitution is literal, happens once, and does not run a shell.
+
+If a variable is missing without a default, or the result is not a plain user name or
+user ID, **Terminal** and **OpenCode TUI** are disabled. The dashboard never uses a
+different user instead. Errors do not include substituted environment values.
+Make the required host variables available in the dashboard environment. Changes to
+that environment require restarting the dashboard. The dashboard does not apply
+`remoteEnv`.
 
 ### Details
 
