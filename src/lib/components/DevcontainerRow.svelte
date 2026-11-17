@@ -1,9 +1,15 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
-	import { ChevronRight, FolderGit2, Loader2, Play } from 'lucide-svelte';
+	import { Check, ChevronRight, Copy, FolderGit2, Loader2, Play } from 'lucide-svelte';
 	import type { ContainerData } from '$lib/types';
 	import { ContainerActions, TRANSITION_LABELS } from '$lib/containerActions.svelte';
-	import ServiceButton from './ServiceButton.svelte';
+	import { getPortLabel } from '$lib/portConfig';
+	import {
+		containerOpenCodeBlocker,
+		containerOpenCodeCommand,
+		containerShellBlocker,
+		containerShellCommand
+	} from '$lib/containerOpenTargets';
 	import ServicesMenu from './ServicesMenu.svelte';
 	import OpenWithMenu from './OpenWithMenu.svelte';
 	import ContainerMoreMenu from './ContainerMoreMenu.svelte';
@@ -26,7 +32,10 @@
 		rebuildContainer: container,
 		onOpenBuild: onOpenTerminal
 	}));
-	onDestroy(() => actions.dispose());
+	onDestroy(() => {
+		actions.dispose();
+		clearTimeout(copyTimer);
+	});
 
 	const uid = $props.id();
 	const detailsId = `devcontainer-details-${uid}`;
@@ -49,6 +58,51 @@
 			] as [string, string | undefined][]
 		).filter((entry): entry is [string, string] => Boolean(entry[1]))
 	);
+	/** Published ports, sorted by container port: container port → host port. */
+	const portMappings = $derived(
+		Object.entries(container.ports)
+			.map(([containerPort, hostPort]) => ({
+				containerPort,
+				hostPort,
+				label: getPortLabel(containerPort)
+			}))
+			.sort((a, b) => Number(a.containerPort) - Number(b.containerPort))
+	);
+	/** The exact commands that Open with runs in the terminal drawer, or why it cannot. */
+	const commands = $derived([
+		{
+			label: 'Terminal command',
+			command: containerShellCommand(container),
+			blocker: containerShellBlocker(container)
+		},
+		{
+			label: 'OpenCode TUI command',
+			command: containerOpenCodeCommand(container),
+			blocker: containerOpenCodeBlocker(container)
+		}
+	]);
+
+	let copied = $state('');
+	let copyError = $state('');
+	let copyTimer: ReturnType<typeof setTimeout> | undefined;
+
+	/** Copy a command. The clipboard API needs a secure context, so a failure is reported. */
+	async function copyCommand(label: string, command: string) {
+		clearTimeout(copyTimer);
+		copyError = '';
+		try {
+			await navigator.clipboard.writeText(command);
+			copied = label;
+		} catch {
+			copied = '';
+			copyError = 'Copy failed: select the command and copy it manually.';
+		}
+		copyTimer = setTimeout(() => {
+			copied = '';
+			copyError = '';
+		}, 2000);
+	}
+
 	const openTerminal = (id: string, command: string, name: string, cwd: string) =>
 		onOpenTerminal?.(id, command, name, cwd);
 </script>
@@ -154,24 +208,6 @@
 			id={detailsId}
 			class="mr-5 mb-3 ml-14 grid gap-3 rounded-lg border border-[#d8dee9] bg-[#f0f4f8] p-3 dark:border-[#4c566a] dark:bg-[#2e3440]"
 		>
-			{#if portCount > 0}
-				<div class="flex flex-wrap gap-2">
-					{#each Object.entries(container.ports) as [containerPort, hostPort] (containerPort)}
-						<ServiceButton
-							{containerPort}
-							{hostPort}
-							running={isRunning}
-							variant="row"
-							containerName={container.name}
-							projectName={container.projectName}
-							workspacePath={container.localWorkspacePath}
-							allPorts={container.ports}
-							containerId={container.id}
-							{serviceProxyEnabled}
-						/>
-					{/each}
-				</div>
-			{/if}
 			<dl class="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-xs">
 				{#each details as [label, value] (label)}
 					<dt class="text-[#4c566a] dark:text-[#d8dee9]/60">{label}</dt>
@@ -179,7 +215,80 @@
 						{value}
 					</dd>
 				{/each}
+
+				<dt class="text-[#4c566a] dark:text-[#d8dee9]/60">Remote user</dt>
+				<dd class="min-w-0">
+					{#if container.remoteUserError}
+						<span class="text-[#bf616a]">{container.remoteUserError}</span>
+					{:else if container.remoteUser}
+						<span class="font-mono text-[#2e3440] dark:text-[#d8dee9]">{container.remoteUser}</span>
+						<span class="text-[#4c566a] dark:text-[#d8dee9]/60"
+							>from {container.remoteUserSource ?? 'remoteUser'} in the devcontainer metadata</span
+						>
+					{:else}
+						<span class="text-[#2e3440] dark:text-[#d8dee9]">Container default user</span>
+						<span class="text-[#4c566a] dark:text-[#d8dee9]/60"
+							>no remoteUser or containerUser in the devcontainer metadata</span
+						>
+					{/if}
+				</dd>
+
+				<dt class="text-[#4c566a] dark:text-[#d8dee9]/60">Ports</dt>
+				<dd class="min-w-0">
+					{#if portMappings.length > 0}
+						<ul aria-label="Port mapping" class="grid gap-0.5">
+							{#each portMappings as port (port.containerPort)}
+								<li class="flex gap-2">
+									<span class="w-24 shrink-0 truncate text-[#4c566a] dark:text-[#d8dee9]/60"
+										>{port.label}</span
+									>
+									<span class="font-mono text-[#2e3440] dark:text-[#d8dee9]"
+										>{port.containerPort} → host {port.hostPort}</span
+									>
+								</li>
+							{/each}
+						</ul>
+					{:else}
+						<span class="text-[#4c566a] dark:text-[#d8dee9]/60">No published ports</span>
+					{/if}
+				</dd>
+
+				{#each commands as entry (entry.label)}
+					<dt class="text-[#4c566a] dark:text-[#d8dee9]/60">{entry.label}</dt>
+					<dd class="flex min-w-0 items-start gap-2">
+						{#if entry.command}
+							<code
+								class="min-w-0 flex-1 font-mono break-all whitespace-pre-wrap text-[#2e3440] dark:text-[#d8dee9]"
+								>{entry.command}</code
+							>
+							<button
+								type="button"
+								aria-label={`Copy ${entry.label}`}
+								title={`Copy ${entry.label}`}
+								onclick={() => void copyCommand(entry.label, entry.command ?? '')}
+								class="shrink-0 rounded p-0.5 text-[#4c566a] transition-colors hover:bg-[#e5e9f0] dark:text-[#d8dee9]/60 dark:hover:bg-[#434c5e]"
+							>
+								{#if copied === entry.label}
+									<Check size={13} class="text-[#a3be8c]" />
+								{:else}
+									<Copy size={13} />
+								{/if}
+							</button>
+						{:else}
+							<span class="text-[#4c566a] dark:text-[#d8dee9]/60">{entry.blocker}</span>
+						{/if}
+					</dd>
+				{/each}
 			</dl>
+			{#if !isRunning}
+				<p class="text-xs text-[#4c566a] dark:text-[#d8dee9]/60">
+					The commands run when the container is running. While it is stopped, Open with opens
+					the host folder.
+				</p>
+			{/if}
+			{#if copyError}
+				<p role="alert" class="text-xs text-[#bf616a]">{copyError}</p>
+			{/if}
 		</div>
 	{/if}
 </div>

@@ -18,6 +18,8 @@ function dockerArgv(command: string): string[] {
 		.split('\n');
 }
 
+const folder = "/workspaces/it's $HOME; `id`";
+
 describe('shellQuote', () => {
 	it.each(['plain', 'with space', "it's", '$HOME', '`id`', 'a;b|c&d>e', ''])(
 		'keeps %j as one literal word',
@@ -30,29 +32,67 @@ describe('shellQuote', () => {
 });
 
 describe('devcontainer Open with commands', () => {
-	it('keeps the existing container shell command', () => {
-		expect(containerShellCommand({ name: '/fixture_1' })).toBe('docker exec -it fixture_1 bash');
-	});
-
-	it('does not guess the container folder from the host path', () => {
-		expect(containerOpenCodeCommand({ name: '/fixture_1' })).toBeNull();
-	});
-
-	it('starts OpenCode in the labelled container folder with literal arguments', () => {
-		const command = containerOpenCodeCommand({
+	it('opens a login shell as the remote user in the workspace folder', () => {
+		const command = containerShellCommand({
 			name: '/fixture_1',
-			containerWorkspaceFolder: "/workspaces/it's $HOME; `id`"
+			remoteUser: 'vscode',
+			containerWorkspaceFolder: folder
 		});
 		expect(dockerArgv(command!)).toEqual([
 			'exec',
 			'-it',
+			'-u',
+			'vscode',
 			'-w',
-			"/workspaces/it's $HOME; `id`",
+			folder,
+			'fixture_1',
+			'bash',
+			'-l'
+		]);
+	});
+
+	it('uses the container default user and folder when the metadata names neither', () => {
+		expect(dockerArgv(containerShellCommand({ name: '/fixture_1' })!)).toEqual([
+			'exec',
+			'-it',
+			'fixture_1',
+			'bash',
+			'-l'
+		]);
+	});
+
+	it('does not guess the container folder from the host path', () => {
+		expect(containerOpenCodeCommand({ name: '/fixture_1', remoteUser: 'vscode' })).toBeNull();
+	});
+
+	it('starts OpenCode as the remote user in the labelled folder with literal arguments', () => {
+		const command = containerOpenCodeCommand({
+			name: '/fixture_1',
+			remoteUser: '1000:1000',
+			containerWorkspaceFolder: folder
+		});
+		expect(dockerArgv(command!)).toEqual([
+			'exec',
+			'-it',
+			'-u',
+			'1000:1000',
+			'-w',
+			folder,
 			'fixture_1',
 			'sh',
 			'-lc',
 			OPENCODE_LAUNCH_SCRIPT
 		]);
+	});
+
+	it('runs nothing when the remote user cannot be resolved', () => {
+		const container = {
+			name: '/fixture_1',
+			containerWorkspaceFolder: folder,
+			remoteUserError: 'remoteUser "${localEnv:USER}" is not a plain user name'
+		};
+		expect(containerShellCommand(container)).toBeNull();
+		expect(containerOpenCodeCommand(container)).toBeNull();
 	});
 
 	it('explains a missing OpenCode executable and installs nothing', () => {

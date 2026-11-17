@@ -93,20 +93,46 @@ Each devcontainer row and card has three controls. Each control has one job.
 
 **Open with** has the same items, in the same order, as the menu of a local workspace.
 
-- When the container runs, the items open inside the container. **OpenCode TUI** runs
-  `opencode` in the terminal drawer, in the container workspace folder from the
-  container's labels. If that folder is unknown, the item is disabled. If `opencode` is
-  not installed in the container, the terminal shows a message. The dashboard does not
-  install it. **OpenChamber** opens the container's OpenChamber service. If the container
-  does not publish port 3000, the item is disabled.
+- When the container runs, the items open inside the container. **Terminal** opens a
+  login shell (`bash -l`) in the container workspace folder. **OpenCode TUI** runs
+  `opencode` in the terminal drawer, in the same folder. If the container workspace folder
+  is unknown, **OpenCode TUI** is disabled. If `opencode` is not installed in the
+  container, the terminal shows a message. The dashboard does not install it.
+  **OpenChamber** opens the container's OpenChamber service. If the container does not
+  publish port 3000, the item is disabled.
 - When the container is stopped, the menu shows "Container stopped: host folder". The
   items then open the local workspace folder on the host. They do not start the container.
   Use **Start** to start it.
 
+### Remote user
+
+**Terminal** and **OpenCode TUI** run as the remote user of the devcontainer, as VS Code
+does. The dashboard reads the user from the `devcontainer.metadata` label that the Dev
+Containers CLI writes on the container. The label contains the image metadata, the
+Features, and `devcontainer.json`. A later entry overrides an earlier one.
+
+1. The dashboard uses the last `remoteUser`.
+2. If no entry sets `remoteUser`, the dashboard uses the last `containerUser`.
+3. If no entry sets either property, the container's default user applies.
+
+If the value is not a plain user name or user ID, for example an unresolved
+`${localEnv:USER}`, **Terminal** and **OpenCode TUI** are disabled. The dashboard never
+uses a different user instead. The dashboard does not apply `remoteEnv`.
+
+### Details
+
 The list view shows **Services** as a menu. The icons on the button show which services
-the container publishes. Expand a row with its chevron to see the service buttons and the
-local folder, container folder, configuration, and image of the container. The grid view
-keeps the service buttons on each card.
+the container publishes. The grid view keeps the service buttons on each card.
+
+Expand a row with its chevron to see:
+
+- The local folder, container folder, configuration, and image of the container.
+- The remote user and the metadata property that sets it.
+- The port mapping: each container port and the host port that publishes it.
+- The exact **Terminal** and **OpenCode TUI** commands, with a copy button. The commands
+  run when the container is running.
+
+The **Terminal** and **OpenCode TUI** menu items also show the command as a tooltip.
 
 ## Rebuild an existing devcontainer
 

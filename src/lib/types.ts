@@ -11,6 +11,15 @@ export interface ContainerData {
 	devcontainerConfigFile?: string;
 	/** Path the workspace is mounted at inside the container */
 	containerWorkspaceFolder?: string;
+	/**
+	 * Effective remote user from the `devcontainer.metadata` label: the last `remoteUser`,
+	 * else the last `containerUser`. Undefined: the container's default user applies.
+	 */
+	remoteUser?: string;
+	/** Metadata property that supplied `remoteUser` */
+	remoteUserSource?: 'remoteUser' | 'containerUser';
+	/** Set when the metadata names a user that cannot be used; container commands are then disabled */
+	remoteUserError?: string;
 	composeProject?: string;
 }
 

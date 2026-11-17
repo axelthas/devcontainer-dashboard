@@ -4,7 +4,12 @@
 	import { generateId } from '$lib';
 	import type { ContainerData } from '$lib/types';
 	import { buildContainerVscodeUri } from '$lib/vscode';
-	import { containerOpenCodeCommand, containerShellCommand } from '$lib/containerOpenTargets';
+	import {
+		containerOpenCodeBlocker,
+		containerOpenCodeCommand,
+		containerShellBlocker,
+		containerShellCommand
+	} from '$lib/containerOpenTargets';
 	import { openContainerService } from '$lib/serviceLaunch';
 	import RowMenu from './RowMenu.svelte';
 
@@ -50,13 +55,26 @@
 	const vscodeHref = $derived(
 		container && inContainer ? buildContainerVscodeUri(container, vscodeSshHost) : hostVscodeHref
 	);
-	const openCodeCommand = $derived(
-		container && inContainer ? containerOpenCodeCommand(container) : null
-	);
+	// Container commands run as the remote user. A blocker disables the item and gives the reason.
+	const target = $derived(container && inContainer ? container : undefined);
+	const shellCommand = $derived(target ? containerShellCommand(target) : null);
+	const shellBlocker = $derived(target ? containerShellBlocker(target) : null);
+	const openCodeCommand = $derived(target ? containerOpenCodeCommand(target) : null);
+	const openCodeBlocker = $derived(target ? containerOpenCodeBlocker(target) : null);
 	const servesOpenChamber = $derived(Boolean(container?.ports[OPENCHAMBER_PORT]));
 	const tuiDisabled = $derived(inContainer ? !openCodeCommand : aiDisabled);
 	const chamberDisabled = $derived(inContainer ? !servesOpenChamber : aiDisabled);
 	const where = $derived(inContainer ? 'in container' : 'host');
+	const terminalHint = $derived(commandHint(shellBlocker));
+	const tuiHint = $derived(commandHint(openCodeBlocker));
+
+	/** Short menu hint for a container command: the blocker, the user, or the location. */
+	function commandHint(blocker: string | null): string {
+		if (!target) return where;
+		if (target.remoteUserError) return 'user invalid';
+		if (blocker) return 'folder unknown';
+		return target.remoteUser ? `as ${target.remoteUser}` : where;
+	}
 
 	/** Keep selection synchronous so browser popup rules allow AI service windows. */
 	function openAi(close: () => void, tool: 'opencode' | 'openchamber') {
@@ -67,15 +85,14 @@
 
 	/** Open a shell in the terminal drawer: in the container, or in the host folder. */
 	function openTerminal(close: () => void) {
+		if (container && inContainer) {
+			if (!shellCommand) return;
+			close();
+			onOpenTerminal(generateId(), shellCommand, name, container.localWorkspacePath ?? '');
+			return;
+		}
 		close();
-		if (container && inContainer)
-			onOpenTerminal(
-				generateId(),
-				containerShellCommand(container),
-				name,
-				container.localWorkspacePath ?? ''
-			);
-		else onOpenTerminal(generateId(), '', name, path);
+		onOpenTerminal(generateId(), '', name, path);
 	}
 
 	/** Run the OpenCode TUI in the terminal drawer inside the container's workspace folder. */
@@ -136,24 +153,27 @@
 			<Code size={15} /><span class="menu-text">VS Code</span>
 			{#if container}<span class="menu-hint" aria-hidden="true">{where}</span>{/if}
 		</a>
-		<button role="menuitem" tabindex="-1" type="button" onclick={() => openTerminal(close)}>
+		<button
+			role="menuitem"
+			tabindex="-1"
+			type="button"
+			disabled={Boolean(shellBlocker)}
+			title={shellBlocker ?? shellCommand ?? undefined}
+			onclick={() => openTerminal(close)}
+		>
 			<TerminalSquare size={15} /><span class="menu-text">Terminal</span>
-			{#if container}<span class="menu-hint" aria-hidden="true">{where}</span>{/if}
+			{#if container}<span class="menu-hint" aria-hidden="true">{terminalHint}</span>{/if}
 		</button>
 		<button
 			role="menuitem"
 			tabindex="-1"
 			type="button"
 			disabled={tuiDisabled}
-			title={inContainer && !openCodeCommand
-				? 'Unavailable: the container workspace folder is unknown'
-				: undefined}
+			title={openCodeBlocker ?? openCodeCommand ?? undefined}
 			onclick={() => openTui(close)}
 		>
 			<TerminalSquare size={15} class="text-[#b48ead]" /><span class="menu-text">OpenCode TUI</span>
-			{#if container}<span class="menu-hint" aria-hidden="true"
-					>{inContainer && !openCodeCommand ? 'folder unknown' : where}</span
-				>{/if}
+			{#if container}<span class="menu-hint" aria-hidden="true">{tuiHint}</span>{/if}
 		</button>
 		<button
 			role="menuitem"

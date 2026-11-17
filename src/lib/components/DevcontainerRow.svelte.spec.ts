@@ -15,8 +15,12 @@ const running: ContainerData = {
 	ports: { '3000': '43000', '6904': '46904' },
 	localWorkspacePath: '/workspaces/task/fixture',
 	devcontainerConfigFile: '/workspaces/task/fixture/.devcontainer/devcontainer.json',
-	containerWorkspaceFolder: '/workspaces/fixture'
+	containerWorkspaceFolder: '/workspaces/fixture',
+	remoteUser: 'vscode',
+	remoteUserSource: 'remoteUser'
 };
+/** Prefix of every container command: the remote user, the workspace folder, the name. */
+const EXEC_PREFIX = "docker exec -it -u 'vscode' -w '/workspaces/fixture' 'relaxed_fixture'";
 const mounted: ReturnType<typeof mount>[] = [];
 const targets: HTMLElement[] = [];
 
@@ -61,16 +65,64 @@ describe('Devcontainer row', () => {
 			await expect.element(page.getByRole('menuitem', { name, exact: true })).toBeVisible();
 	});
 
-	it('runs the OpenCode TUI inside the container workspace folder', async () => {
+	it('runs the OpenCode TUI as the remote user in the container workspace folder', async () => {
 		const { onOpenTerminal } = row(running);
 		await page.getByRole('button', { name: 'Open with: fixture' }).click();
 		await page.getByRole('menuitem', { name: 'OpenCode TUI', exact: true }).click();
 		expect(onOpenTerminal).toHaveBeenCalledWith(
 			expect.any(String),
-			expect.stringContaining("docker exec -it -w '/workspaces/fixture' 'relaxed_fixture' sh -lc"),
+			expect.stringContaining(`${EXEC_PREFIX} sh -lc`),
 			'fixture · OpenCode',
 			'/workspaces/task/fixture'
 		);
+	});
+
+	it('opens the terminal as the remote user in the container workspace folder', async () => {
+		const { onOpenTerminal } = row(running);
+		await page.getByRole('button', { name: 'Open with: fixture' }).click();
+		await page.getByRole('menuitem', { name: 'Terminal', exact: true }).click();
+		expect(onOpenTerminal).toHaveBeenCalledWith(
+			expect.any(String),
+			`${EXEC_PREFIX} bash -l`,
+			'fixture',
+			'/workspaces/task/fixture'
+		);
+	});
+
+	it('shows the remote user, the port mapping, and the commands in the details', async () => {
+		row(running);
+		await page.getByRole('button', { name: 'Details: fixture' }).click();
+		await expect.element(page.getByText('vscode', { exact: true })).toBeVisible();
+		const ports = page.getByRole('list', { name: 'Port mapping' });
+		await expect.element(ports).toHaveTextContent('3000 → host 43000');
+		await expect.element(ports).toHaveTextContent('6904 → host 46904');
+		await expect.element(page.getByText(`${EXEC_PREFIX} bash -l`)).toBeVisible();
+		await expect
+			.element(page.getByRole('button', { name: 'Copy OpenCode TUI command' }))
+			.toBeVisible();
+	});
+
+	it('copies the terminal command from the details', async () => {
+		const writeText = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue(undefined);
+		row(running);
+		await page.getByRole('button', { name: 'Details: fixture' }).click();
+		await page.getByRole('button', { name: 'Copy Terminal command' }).click();
+		expect(writeText).toHaveBeenCalledWith(`${EXEC_PREFIX} bash -l`);
+	});
+
+	it('disables container commands when the remote user cannot be used', async () => {
+		const remoteUserError =
+			'remoteUser "${localEnv:USER}" in the devcontainer metadata is not a plain user name';
+		const { onOpenTerminal } = row({
+			...running,
+			remoteUser: undefined,
+			remoteUserSource: undefined,
+			remoteUserError
+		});
+		await page.getByRole('button', { name: 'Open with: fixture' }).click();
+		for (const name of ['Terminal', 'OpenCode TUI'])
+			await expect.element(page.getByRole('menuitem', { name, exact: true })).toBeDisabled();
+		expect(onOpenTerminal).not.toHaveBeenCalled();
 	});
 
 	it('disables container actions that the container cannot provide', async () => {

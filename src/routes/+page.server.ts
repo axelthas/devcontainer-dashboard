@@ -6,6 +6,7 @@ import {
 	resolveContainerWorkspaceFolder,
 	WORKSPACE_ROOT
 } from '$lib/server/workspaces';
+import { resolveRemoteUser } from '$lib/server/devcontainerMetadata';
 import { isServiceProxyEnabled } from '$lib/server/serviceGatewayRuntime';
 import type { ContainerData } from '$lib/types';
 import type { PageServerLoad } from './$types';
@@ -90,6 +91,7 @@ export const load: PageServerLoad = async () => {
 			containerWorkspaceFolder: localWorkspacePath
 				? resolveContainerWorkspaceFolder(c.Mounts, localWorkspacePath)
 				: undefined,
+			...resolveRemoteUser(labels),
 			composeProject
 		});
 	}
