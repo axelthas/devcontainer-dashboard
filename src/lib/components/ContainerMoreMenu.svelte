@@ -29,7 +29,9 @@
 	const containerName = $derived(container.name.replace(/^\//, ''));
 	/** Networks above lifecycle: they change wiring, not the container. */
 	const networks = $derived(onConnectNetwork ? userNetworks(container) : []);
-	const networkItems = $derived(onConnectNetwork ? 1 + (onDisconnectNetwork ? networks.length : 0) : 0);
+	const networkItems = $derived(
+		onConnectNetwork ? 1 + (onDisconnectNetwork ? networks.length : 0) : 0
+	);
 	const menuHeight = $derived((running ? 188 : 156) + (networkItems ? networkItems * 32 + 9 : 0));
 
 	/** Close first, so a confirmation dialog never sits behind the menu. */
@@ -84,7 +86,9 @@
 							onDisconnectNetwork?.(network.name);
 						}}
 					>
-						<Unplug size={14} /><span class="menu-text truncate">Disconnect from {network.name}</span>
+						<Unplug size={14} /><span class="menu-text truncate"
+							>Disconnect from {network.name}</span
+						>
 					</button>
 				{/each}
 			{/if}
