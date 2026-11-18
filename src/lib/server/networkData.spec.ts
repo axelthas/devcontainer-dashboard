@@ -48,10 +48,7 @@ const networks = [
 		Scope: 'local',
 		Labels: { 'com.docker.compose.project': 'keflavik' },
 		IPAM: {
-			Config: [
-				{ Subnet: 'fd00::/64' },
-				{ Subnet: '192.168.103.0/24', Gateway: '192.168.103.1' }
-			]
+			Config: [{ Subnet: 'fd00::/64' }, { Subnet: '192.168.103.0/24', Gateway: '192.168.103.1' }]
 		}
 	},
 	{ Name: 'swarm_net', Driver: 'overlay', Scope: 'swarm' },

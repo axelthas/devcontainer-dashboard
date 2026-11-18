@@ -165,9 +165,9 @@ describe('planConnect', () => {
 	const request = { network: 'keflavik_oplan', onlyNetwork: false, setHostname: false };
 
 	it('keeps existing networks by default', () => {
-		expect(planConnect(bridgeOnly, { ...request, ip: '192.168.103.101', alias: 'twr' })).toEqual(
-			[{ action: 'connect', network: 'keflavik_oplan', ip: '192.168.103.101', alias: 'twr' }]
-		);
+		expect(planConnect(bridgeOnly, { ...request, ip: '192.168.103.101', alias: 'twr' })).toEqual([
+			{ action: 'connect', network: 'keflavik_oplan', ip: '192.168.103.101', alias: 'twr' }
+		]);
 	});
 	it('connects first and disconnects the rest when it becomes the only network', () => {
 		const current = [...bridgeOnly, { name: 'devtools', ip: '172.30.5.2', aliases: [] }];

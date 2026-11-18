@@ -34,14 +34,11 @@ describe('resolveRemoteUser', () => {
 		expect(resolveRemoteUser(labels([{ customizations: {} }]))).toEqual({});
 	});
 
-	it.each(['a b', '-u', "o'brien", ''])(
-		'rejects %j instead of running as another user',
-		(user) => {
-			const result = resolveRemoteUser(labels([{ remoteUser: user }]));
-			expect(result.remoteUser).toBeUndefined();
-			expect(result.remoteUserError).toContain('remoteUser');
-		}
-	);
+	it.each(['a b', '-u', "o'brien", ''])('rejects %j instead of running as another user', (user) => {
+		const result = resolveRemoteUser(labels([{ remoteUser: user }]));
+		expect(result.remoteUser).toBeUndefined();
+		expect(result.remoteUserError).toContain('remoteUser');
+	});
 
 	it('does not fall back to containerUser when remoteUser is unusable', () => {
 		const result = resolveRemoteUser(
@@ -58,9 +55,9 @@ describe('resolveRemoteUser', () => {
 	});
 
 	it('resolves localEnv from the dashboard environment before validating remoteUser', () => {
-		expect(
-			resolveRemoteUser(labels({ remoteUser: '${localEnv:USER}' }), { USER: 'axel' })
-		).toEqual({ remoteUser: 'axel', remoteUserSource: 'remoteUser' });
+		expect(resolveRemoteUser(labels({ remoteUser: '${localEnv:USER}' }), { USER: 'axel' })).toEqual(
+			{ remoteUser: 'axel', remoteUserSource: 'remoteUser' }
+		);
 	});
 
 	it('resolves multiple tokens and literal text in containerUser', () => {

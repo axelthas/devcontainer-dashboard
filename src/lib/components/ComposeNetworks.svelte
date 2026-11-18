@@ -148,7 +148,8 @@
 						{#each networkSeats(network, presets) as seat (seat.ip)}
 							{@const status = seatStatus(network, seat)}
 							<li
-								class="flex min-h-10 items-center gap-3 overflow-hidden rounded-md border border-l-4 border-[#d8dee9] bg-white pr-1 pl-3 dark:border-[#4c566a] dark:bg-[#3b4252] {status.holder?.isDevcontainer
+								class="flex min-h-10 items-center gap-3 overflow-hidden rounded-md border border-l-4 border-[#d8dee9] bg-white pr-1 pl-3 dark:border-[#4c566a] dark:bg-[#3b4252] {status
+									.holder?.isDevcontainer
 									? 'border-l-[#81a1c1]'
 									: status.free
 										? 'border-l-[#4c566a]/50'
