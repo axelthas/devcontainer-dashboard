@@ -7,11 +7,13 @@
 		Square,
 		RotateCw,
 		Loader2,
-		Network
+		Network,
+		Globe
 	} from 'lucide-svelte';
 	import { errorMessage, requestJson } from '$lib/requests';
 	import RequestError from './RequestError.svelte';
-	import type { ContainerData, NetworkData } from '$lib/types';
+	import type { ContainerData, NetworkData, ServiceAccess, ServicePortPolicy } from '$lib/types';
+	import { containerExposure } from '$lib/publishedPorts';
 	import SandboxRow from './SandboxRow.svelte';
 	import ComposeNetworks from './ComposeNetworks.svelte';
 
@@ -20,6 +22,9 @@
 		containers: ContainerData[];
 		vscodeSshHost: string;
 		serviceProxyEnabled?: boolean;
+		/** Which container ports are web services, and how the dashboard opens them */
+		servicePorts?: ServicePortPolicy;
+		serviceAccess?: ServiceAccess;
 		onRefresh: () => Promise<void>;
 		onOpenTerminal?: (id: string, command: string, name: string, cwd: string) => void;
 		/** Networks that the project created or has containers on */
@@ -35,6 +40,8 @@
 		containers,
 		vscodeSshHost,
 		serviceProxyEnabled,
+		servicePorts = {},
+		serviceAccess = 'direct',
 		onRefresh,
 		onOpenTerminal,
 		networks = [],
@@ -54,6 +61,10 @@
 	const runningCount = $derived(containers.filter((c) => c.state === 'running').length);
 	const totalCount = $derived(containers.length);
 	const anyRunning = $derived(runningCount > 0);
+	/** One exposure warning for the group, instead of one under every container. */
+	const exposedCount = $derived(
+		containers.filter((c) => containerExposure(c.portBindings) === 'all').length
+	);
 
 	async function handleGroupAction(action: 'start' | 'stop' | 'restart') {
 		if (loadingAction) return;
@@ -135,6 +146,16 @@
 			</span>
 		</button>
 
+		{#if exposedCount > 0}
+			<span
+				class="hidden shrink-0 items-center gap-1.5 rounded-full border border-[#b48ead]/40 bg-[#b48ead]/10 px-2 py-0.5 text-xs font-medium text-[#b48ead] sm:flex"
+				title={`${exposedCount} of ${totalCount} containers publish ports on all host interfaces`}
+			>
+				<Globe size={12} />
+				{exposedCount} on all interfaces
+			</span>
+		{/if}
+
 		{#if networks.length > 0}
 			<span
 				class="hidden shrink-0 items-center gap-1.5 text-xs text-[#4f8584] sm:flex dark:text-[#8fbcbb]"
@@ -205,6 +226,8 @@
 						{container}
 						{vscodeSshHost}
 						{serviceProxyEnabled}
+						{servicePorts}
+						{serviceAccess}
 						{onRefresh}
 						{onOpenTerminal}
 					/>

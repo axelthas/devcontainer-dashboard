@@ -22,8 +22,16 @@
 		/** Open the network drawer. Without it, the menu has no network group. */
 		onConnectNetwork?: () => void;
 		onDisconnectNetwork?: (network: string) => void;
+		/** Show Rebuild and restart. Plain Docker services have no devcontainer to rebuild. */
+		rebuild?: boolean;
 	}
-	let { container, actions, onConnectNetwork, onDisconnectNetwork }: Props = $props();
+	let {
+		container,
+		actions,
+		onConnectNetwork,
+		onDisconnectNetwork,
+		rebuild = true
+	}: Props = $props();
 
 	const running = $derived(container.state === 'running');
 	const containerName = $derived(container.name.replace(/^\//, ''));
@@ -32,7 +40,9 @@
 	const networkItems = $derived(
 		onConnectNetwork ? 1 + (onDisconnectNetwork ? networks.length : 0) : 0
 	);
-	const menuHeight = $derived((running ? 188 : 156) + (networkItems ? networkItems * 32 + 9 : 0));
+	const menuHeight = $derived(
+		(running ? 188 : 156) - (rebuild ? 0 : 32) + (networkItems ? networkItems * 32 + 9 : 0)
+	);
 
 	/** Close first, so a confirmation dialog never sits behind the menu. */
 	function run(close: () => void, work: () => Promise<void>) {
@@ -124,18 +134,20 @@
 				<Play size={14} />Start
 			</button>
 		{/if}
-		<button
-			role="menuitem"
-			tabindex="-1"
-			type="button"
-			disabled={actions.busy || !actions.canRebuild}
-			title={actions.canRebuild
-				? 'Rebuild and restart'
-				: 'Rebuild unavailable: workspace or exact configuration label is missing'}
-			onclick={() => run(close, () => actions.rebuild())}
-		>
-			<Hammer size={14} />Rebuild and restart…
-		</button>
+		{#if rebuild}
+			<button
+				role="menuitem"
+				tabindex="-1"
+				type="button"
+				disabled={actions.busy || !actions.canRebuild}
+				title={actions.canRebuild
+					? 'Rebuild and restart'
+					: 'Rebuild unavailable: workspace or exact configuration label is missing'}
+				onclick={() => run(close, () => actions.rebuild())}
+			>
+				<Hammer size={14} />Rebuild and restart…
+			</button>
+		{/if}
 		<div class="menu-divider" role="separator"></div>
 		<button
 			role="menuitem"
