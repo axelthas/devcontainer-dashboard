@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { publishedBindings } from '../../src/lib/server/publishedBindings.ts';
 
- test('live bindings preserve IPv4, IPv6 and transport without collapsing addresses', () => {
+test('live bindings preserve IPv4, IPv6 and transport without collapsing addresses', () => {
 	assert.deepEqual(
 		publishedBindings([
 			{ PrivatePort: 8080, PublicPort: 18080, IP: '0.0.0.0', Type: 'tcp' },
