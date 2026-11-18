@@ -81,19 +81,155 @@ invoke the launcher inside a devcontainer.
   HTTPS origins for OpenCode, OpenChamber, noVNC, and other allowed services. This is
   opt-in, requires a native Linux Docker host, and grants broad access to tailscaled.
 
+## Work with a devcontainer
+
+Each devcontainer row and card has three controls. Each control has one job.
+
+| Control       | Job                      | Items                                                                                   |
+| ------------- | ------------------------ | --------------------------------------------------------------------------------------- |
+| **Open with** | Work in the devcontainer | VS Code, Terminal, OpenCode TUI, OpenChamber                                            |
+| **Services**  | Open a published service | Every published port, for example OpenChamber and noVNC                                 |
+| **⋯**         | Change wiring and state  | Connect to network…, Disconnect…, Restart or Start, Stop, Rebuild and restart…, Delete… |
+
+**Open with** has the same items, in the same order, as the menu of a local workspace.
+
+- When the container runs, the items open inside the container. **Terminal** opens a
+  Zsh login shell (`zsh -l`) in the container workspace folder. Zsh must be installed in
+  the container; the dashboard does not install it or silently fall back to Bash.
+  **OpenCode TUI** runs
+  `opencode` in the terminal drawer, in the same folder. If the container workspace folder
+  is unknown, **OpenCode TUI** is disabled. If `opencode` is not installed in the
+  container, the terminal shows a message. The dashboard does not install it.
+  **OpenChamber** opens the container's OpenChamber service. If the container does not
+  publish port 3000, the item is disabled.
+- When the container is stopped, the menu shows "Container stopped: host folder". The
+  items then open the local workspace folder on the host. They do not start the container.
+  Use **Start** to start it.
+
+### Remote user
+
+**Terminal** and **OpenCode TUI** run as the remote user of the devcontainer, as VS Code
+does. The dashboard reads the user from the `devcontainer.metadata` label that the Dev
+Containers CLI writes on the container. The label contains the image metadata, the
+Features, and `devcontainer.json`. A later entry overrides an earlier one.
+
+1. The dashboard uses the last `remoteUser`.
+2. If no entry sets `remoteUser`, the dashboard uses the last `containerUser`.
+3. If no entry sets either property, the container's default user applies.
+
+Before validating the selected user, the dashboard resolves `${localEnv:VAR}` from its
+own server environment. We assume this environment is close enough to the host
+environment. For example, `"remoteUser": "${localEnv:USER}"` uses the dashboard's `USER`.
+`${localEnv:VAR:default}` supplies a default when the variable is unset (not when it is
+set to an empty string). Multiple tokens and literal text can form the user value.
+Substitution is literal, happens once, and does not run a shell.
+
+If a variable is missing without a default, or the result is not a plain user name or
+user ID, **Terminal** and **OpenCode TUI** are disabled. The dashboard never uses a
+different user instead. Errors do not include substituted environment values.
+Make the required host variables available in the dashboard environment. Changes to
+that environment require restarting the dashboard. The dashboard does not apply
+`remoteEnv`.
+
+### Details
+
+The list view shows **Services** as a menu. The icons on the button show which services
+the container publishes. The grid view keeps the service buttons on each card.
+
+Expand a row with its chevron to see:
+
+- The local folder, container folder, configuration, and image of the container.
+- The remote user and the metadata property that sets it.
+- The port mapping: each container port and the host port that publishes it.
+- The exact **Terminal** and **OpenCode TUI** commands, with a copy button. The commands
+  run when the container is running.
+- The networks of the container, with each address and alias, and a **Connect…** button.
+
+The **Terminal** and **OpenCode TUI** menu items also show the command as a tooltip.
+
+## Connect a devcontainer to a sandbox network
+
+Connect a running devcontainer to an existing Docker network, for example the network of
+a Polaris sandbox. This replaces `dev_connect_myself_to_docker_network.sh` and its VS Code
+tasks. The dashboard server calls the Docker API. Nothing runs `docker` or `sudo` inside
+the container.
+
+Open the network drawer from one of these places:
+
+- **⋯** > **Connect to network…** on a devcontainer row or card.
+- **Connect…** in the expanded details of a devcontainer row.
+- The network chip on a row: **Change address or alias…**.
+- A **Join** chip, when `devcontainer.json` declares a network.
+- **Docker Services**: expand a Compose group, select a network, then choose
+  **Connect devcontainer** or **Stand in** on a free node seat.
+
+In the drawer:
+
+1. Select a network. The drawer lists existing user-defined networks only. The dashboard
+   never creates a network.
+2. Select how to join:
+   - **Stand in for a node** takes the hostname and the address of a seat. A seat is free
+     when its sandbox node is stopped.
+   - **Any free address** lets Docker assign an address.
+   - **Custom** takes an address and an alias that you enter.
+3. Select the wiring options:
+   - **Make it the only network** disconnects the other networks after the connect. It is
+     off by default, so existing connections stay.
+   - **Set the container hostname** runs `hostname` as root in the container. This needs
+     `CAP_SYS_ADMIN`. If it fails, the drawer says so; the network alias still works.
+   - **Offer to reconnect after a rebuild** saves the connection in this browser.
+4. Read the Docker calls under the form, then select **Connect**.
+
+A devcontainer can connect to several networks, one at a time. A Compose project can have
+several networks, and a network can belong to several projects.
+
+Rules:
+
+- An address that a running container or another devcontainer holds is refused before
+  anything runs. The message names the holder.
+- The dashboard connects first and disconnects after. A failed step never leaves the
+  container without a network. Leaving the last network connects `bridge` first.
+- **Disconnect** asks first and shows the Docker calls.
+- A rebuild makes a new container without the networks. The row then shows a
+  **Reconnect** chip for each saved connection. The dashboard never reconnects by itself.
+  If the saved address is taken, the drawer opens on that network.
+
+Seats come from two sources:
+
+- The containers of the sandbox on that network, running or stopped. A stopped container
+  keeps its static address. The seat name is the first alias, else the Compose service.
+- The `devcontainer.json` of the project, read from the `devcontainer.metadata` label:
+
+```jsonc
+"customizations": {
+	"devcontainer-dashboard": {
+		"networks": [
+			{
+				"network": "keflavik_oplan",
+				"seats": [{ "hostname": "sim-pilot-1", "ip": "192.168.103.140" }]
+			}
+		]
+	}
+}
+```
+
+The dashboard skips invalid networks and seats in this declaration. A change takes effect
+after **Rebuild and restart…**, because the label is written when the container is created.
+
 ## Rebuild an existing devcontainer
 
-Use **Restart** to restart the same container without rebuilding its image or applying
-changed devcontainer configuration.
+Use **Restart** in the container's **⋯** menu to restart the same container without
+rebuilding its image or applying changed devcontainer configuration.
 
-Use **Rebuild and restart** (the hammer button) in either the devcontainer grid or list
-when build inputs or configuration change:
+Use **Rebuild and restart…** in the container's **⋯** menu, in either the devcontainer
+grid or list, when build inputs or configuration change:
 
 1. Save changes to the Dockerfile or devcontainer configuration.
-2. Select **Rebuild and restart** on the intended container.
-3. Read the replacement warning.
-4. Confirm the rebuild.
-5. Follow the output in the build terminal.
+2. Open **⋯** on the intended container.
+3. Select **Rebuild and restart…**.
+4. Read the replacement warning.
+5. Confirm the rebuild.
+6. Follow the output in the build terminal.
 
 The dashboard inspects the container's live `devcontainer.local_folder` and
 `devcontainer.config_file` labels. Both paths must exist inside the configured workspace

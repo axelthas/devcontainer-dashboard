@@ -1,18 +1,38 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
-	import { ChevronRight, ChevronDown, Play, Square, RotateCw, Loader2 } from 'lucide-svelte';
+	import {
+		ChevronRight,
+		ChevronDown,
+		Play,
+		Square,
+		RotateCw,
+		Loader2,
+		Network,
+		Globe
+	} from 'lucide-svelte';
 	import { errorMessage, requestJson } from '$lib/requests';
 	import RequestError from './RequestError.svelte';
-	import type { ContainerData } from '$lib/types';
+	import type { ContainerData, NetworkData, ServiceAccess, ServicePortPolicy } from '$lib/types';
+	import { containerExposure } from '$lib/publishedPorts';
 	import SandboxRow from './SandboxRow.svelte';
+	import ComposeNetworks from './ComposeNetworks.svelte';
 
 	interface Props {
 		projectName: string;
 		containers: ContainerData[];
 		vscodeSshHost: string;
 		serviceProxyEnabled?: boolean;
+		/** Which container ports are web services, and how the dashboard opens them */
+		servicePorts?: ServicePortPolicy;
+		serviceAccess?: ServiceAccess;
 		onRefresh: () => Promise<void>;
 		onOpenTerminal?: (id: string, command: string, name: string, cwd: string) => void;
+		/** Networks that the project created or has containers on */
+		networks?: NetworkData[];
+		/** Devcontainers that can join those networks */
+		devcontainers?: ContainerData[];
+		/** Open the network drawer; without it, the group shows no network panel */
+		onConnectNetwork?: (container: ContainerData, network?: string, seatIp?: string) => void;
 	}
 
 	let {
@@ -20,8 +40,13 @@
 		containers,
 		vscodeSshHost,
 		serviceProxyEnabled,
+		servicePorts = {},
+		serviceAccess = 'direct',
 		onRefresh,
-		onOpenTerminal
+		onOpenTerminal,
+		networks = [],
+		devcontainers = [],
+		onConnectNetwork
 	}: Props = $props();
 
 	let expanded = $state(false);
@@ -36,6 +61,10 @@
 	const runningCount = $derived(containers.filter((c) => c.state === 'running').length);
 	const totalCount = $derived(containers.length);
 	const anyRunning = $derived(runningCount > 0);
+	/** One exposure warning for the group, instead of one under every container. */
+	const exposedCount = $derived(
+		containers.filter((c) => containerExposure(c.portBindings) === 'all').length
+	);
 
 	async function handleGroupAction(action: 'start' | 'stop' | 'restart') {
 		if (loadingAction) return;
@@ -117,6 +146,27 @@
 			</span>
 		</button>
 
+		{#if exposedCount > 0}
+			<span
+				class="hidden shrink-0 items-center gap-1.5 rounded-full border border-[#b48ead]/40 bg-[#b48ead]/10 px-2 py-0.5 text-xs font-medium text-[#b48ead] sm:flex"
+				title={`${exposedCount} of ${totalCount} containers publish ports on all host interfaces`}
+			>
+				<Globe size={12} />
+				{exposedCount} on all interfaces
+			</span>
+		{/if}
+
+		{#if networks.length > 0}
+			<span
+				class="hidden shrink-0 items-center gap-1.5 text-xs text-[#4f8584] sm:flex dark:text-[#8fbcbb]"
+				title={networks.map((network) => network.name).join(', ')}
+			>
+				<Network size={14} />
+				{networks.length}
+				{networks.length === 1 ? 'network' : 'networks'}
+			</span>
+		{/if}
+
 		<!-- Group actions -->
 		<div
 			class="flex shrink-0 items-center gap-1.5 rounded-xl border border-[#d8dee9] bg-[#eceff4] p-1 shadow-sm dark:border-[#434c5e] dark:bg-[#2e3440]"
@@ -167,12 +217,17 @@
 	<!-- Expanded container list -->
 	{#if expanded}
 		<div class="bg-[#f0f4f8] dark:bg-[#2e3440]">
+			{#if networks.length > 0 && onConnectNetwork}
+				<ComposeNetworks {projectName} {networks} {devcontainers} {onConnectNetwork} />
+			{/if}
 			<div class="divide-y divide-[#d8dee9]/60 dark:divide-[#4c566a]/60">
 				{#each containers as container (container.id)}
 					<SandboxRow
 						{container}
 						{vscodeSshHost}
 						{serviceProxyEnabled}
+						{servicePorts}
+						{serviceAccess}
 						{onRefresh}
 						{onOpenTerminal}
 					/>

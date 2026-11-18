@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Server } from 'lucide-svelte';
 	import { PORT_MAP, fallbackColorClass, disabledClass } from '$lib/portConfig';
-	import { serviceViewerHref } from '$lib/serviceTargets';
+	import { openContainerService } from '$lib/serviceLaunch';
 
 	interface Props {
 		containerPort: string;
@@ -29,42 +29,20 @@
 		serviceProxyEnabled
 	}: Props = $props();
 
+	/** The Services menu uses the same launch function, so both open the same viewer. */
 	function openService() {
 		if (!running) return;
-		// Gateway mode: launch by validated container identity so the viewer can verify the target.
-		if (serviceProxyEnabled && containerId) {
-			window.open(
-				serviceViewerHref({
-					containerId,
-					containerPort,
-					label,
-					...(projectName ? { projectName } : {}),
-					...(containerName ? { containerName } : {}),
-					...(workspacePath ? { workspacePath } : {}),
-					...(allPorts && Object.keys(allPorts).length > 1 ? { allPorts } : {})
-				}),
-				'_blank'
-			);
-			return;
-		}
-		// Legacy mode: raw URL, with metadata params for named containers.
-		const serviceHostname = window.location.hostname;
-		const serviceUrl = `http://${serviceHostname}:${hostPort}`;
-		if (containerName || projectName) {
-			const params = new URLSearchParams({
-				url: serviceUrl,
-				label,
-				...(projectName ? { project: projectName } : {}),
-				...(containerName ? { container: containerName } : {}),
-				...(workspacePath ? { path: workspacePath } : {}),
-				...(allPorts && Object.keys(allPorts).length > 1
-					? { ports: JSON.stringify(allPorts), hostname: serviceHostname }
-					: {})
-			});
-			window.open(`/service?${params}`, '_blank');
-		} else {
-			window.open(serviceUrl, '_blank');
-		}
+		openContainerService({
+			containerPort,
+			hostPort,
+			label,
+			containerName,
+			projectName,
+			workspacePath,
+			allPorts,
+			containerId,
+			serviceProxyEnabled
+		});
 	}
 
 	const config = $derived(PORT_MAP[containerPort]);

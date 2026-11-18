@@ -2,6 +2,9 @@ import { basename } from 'node:path';
 import { json } from '@sveltejs/kit';
 import docker from '$lib/server/docker';
 import { resolveContainerWorkspaceFolder } from '$lib/server/workspaces';
+import { resolveNetworkPresets, resolveRemoteUser } from '$lib/server/devcontainerMetadata';
+import { containerNetworks } from '$lib/server/networkData';
+import { publishedBindings } from '$lib/server/publishedBindings';
 import type { ContainerData } from '$lib/types';
 import type { RequestHandler } from './$types';
 
@@ -80,13 +83,17 @@ export const GET: RequestHandler = async () => {
 			state: c.State ?? 'unknown',
 			isDevcontainer: isDevcontainer(rawName, image),
 			ports,
+			portBindings: publishedBindings(c.Ports, inspectMap.get(c.Id)?.HostConfig?.PortBindings),
 			image,
 			localWorkspacePath,
 			devcontainerConfigFile: labels['devcontainer.config_file'] ?? undefined,
 			containerWorkspaceFolder: localWorkspacePath
 				? resolveContainerWorkspaceFolder(c.Mounts, localWorkspacePath)
 				: undefined,
-			composeProject
+			...resolveRemoteUser(labels),
+			composeProject,
+			networks: containerNetworks(c.NetworkSettings?.Networks),
+			networkPresets: resolveNetworkPresets(labels)
 		});
 	}
 

@@ -11,6 +11,7 @@ import { dirname, isAbsolute, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { hostname } from 'node:os';
+import { createConnection } from 'node:net';
 import type { Duplex } from 'node:stream';
 import type { ServeConfig } from './tailscaleServe.js';
 
@@ -40,6 +41,8 @@ export type TailscaleSettings = {
 	last: number;
 	listenPort: number;
 	stateFile: string;
+	/** Explicit opt-in; original published ports keep their existing exposure. */
+	allowWildcardBindings?: boolean;
 };
 type Options = {
 	settings: TailscaleSettings;
@@ -66,6 +69,12 @@ function causedError(message: string, cause: unknown): Error & { cause: unknown 
 /** Parse strict startup settings only when the operator supplied an explicit socket. */
 export function tailscaleSettings(env: NodeJS.ProcessEnv): TailscaleSettings | null {
 	if (!env.TAILSCALE_SOCKET) return null;
+	if (
+		env.TAILSCALE_ALLOW_WILDCARD_BINDINGS !== undefined &&
+		!['0', '1'].includes(env.TAILSCALE_ALLOW_WILDCARD_BINDINGS)
+	) {
+		throw new Error('TAILSCALE_ALLOW_WILDCARD_BINDINGS must be 0 or 1');
+	}
 	if (!isAbsolute(env.TAILSCALE_SOCKET)) throw new Error('TAILSCALE_SOCKET must be absolute');
 	const origin = new URL(env.ORIGIN ?? '');
 	if (
@@ -110,7 +119,8 @@ export function tailscaleSettings(env: NodeJS.ProcessEnv): TailscaleSettings | n
 		first,
 		last,
 		listenPort,
-		stateFile
+		stateFile,
+		allowWildcardBindings: env.TAILSCALE_ALLOW_WILDCARD_BINDINGS === '1'
 	};
 }
 
@@ -157,24 +167,64 @@ export function removeOwnedServeEntry(config: ServeConfig, entry: Entry): boolea
 	return true;
 }
 
-/** Return one running service's loopback-only published port, never a client-selected address. */
-function binding(info: Inspection, id: string, port: string): number {
+/** Attach a bounded, non-sensitive reason that the service viewer can display. */
+function serviceError(code: string, message: string): Error & { code: string } {
+	return Object.assign(new Error(message), { code });
+}
+
+/** Resolve one IPv4-loopback-reachable host port, never a client-selected address. */
+export function serviceBinding(
+	info: Inspection,
+	id: string,
+	port: string,
+	allowWildcardBindings = false
+): number {
 	const entries = info.NetworkSettings.Ports?.[`${port}/tcp`];
-	if (
-		!/^[a-f0-9]{64}$/.test(info.Id) ||
-		!info.Id.startsWith(id) ||
-		!info.State.Running ||
-		!entries?.length ||
-		entries.some((entry) => !['127.0.0.1', '::1'].includes(entry.HostIp)) ||
-		!entries.some((entry) => entry.HostIp === '127.0.0.1') ||
-		new Set(entries.map((entry) => entry.HostPort)).size !== 1
-	)
-		throw new Error('Service must be running and published on IPv4 host loopback only');
+	if (!/^[a-f0-9]{64}$/.test(info.Id) || !info.Id.startsWith(id)) {
+		throw serviceError('unknown-container', 'Container is no longer available');
+	}
+	if (!info.State.Running) throw serviceError('not-running', 'Container is not running');
+	if (!entries?.length) {
+		throw serviceError('no-published-binding', 'Service has no published TCP binding');
+	}
+	if (new Set(entries.map((entry) => entry.HostPort)).size !== 1) {
+		throw serviceError('ambiguous-binding', 'Service has multiple published host ports');
+	}
+	if (entries.some((entry) => !['127.0.0.1', '::1', '0.0.0.0', '::'].includes(entry.HostIp))) {
+		throw serviceError('unsupported-binding', 'Service needs an IPv4 host loopback route');
+	}
+	if (!allowWildcardBindings && entries.some((entry) => ['0.0.0.0', '::'].includes(entry.HostIp))) {
+		throw serviceError(
+			'wildcard-binding-disabled',
+			'Wildcard service binding refused; enable --tailscale-allow-wildcard-bindings or publish on loopback'
+		);
+	}
+	if (!entries.some((entry) => ['127.0.0.1', '0.0.0.0'].includes(entry.HostIp))) {
+		throw serviceError('unsupported-binding', 'Service needs an IPv4 host loopback route');
+	}
 	const value = entries[0].HostPort;
 	if (!/^[1-9]\d{0,4}$/.test(value) || Number(value) > 65535) {
-		throw new Error('Invalid service binding');
+		throw serviceError('invalid-service-binding', 'Invalid published host port');
 	}
 	return Number(value);
+}
+
+/** Check local TCP reachability before allocating HTTPS; send no application data. */
+async function probeService(hostPort: number): Promise<void> {
+	await new Promise<void>((resolve, reject) => {
+		const socket = createConnection({ host: '127.0.0.1', port: hostPort });
+		socket.setTimeout(1500);
+		socket.once('connect', () => {
+			socket.destroy();
+			resolve();
+		});
+		const failed = () => {
+			socket.destroy();
+			reject(serviceError('service-unreachable', 'Service is unreachable through host loopback'));
+		};
+		socket.once('timeout', failed);
+		socket.once('error', failed);
+	});
 }
 
 /** Read only our versioned journal; corrupt or unsafe state must not trigger cleanup. */
@@ -357,10 +407,13 @@ export async function startTailscaleServices(options: Options): Promise<Runtime>
 			Number(port) > 65535 ||
 			!['http', 'https'].includes(ports[port])
 		) {
-			throw new Error('Invalid or disabled web service identity');
+			throw serviceError('port-not-allowed', 'Invalid or disabled web service identity');
 		}
 		const info = await lookup(id);
-		return { id: info.Id, hostPort: binding(info, id, port) };
+		return {
+			id: info.Id,
+			hostPort: serviceBinding(info, id, port, settings.allowWildcardBindings)
+		};
 	}
 
 	/** Return a stable origin per full container identity and port; journal before each attempted write. */
@@ -368,6 +421,7 @@ export async function startTailscaleServices(options: Options): Promise<Runtime>
 		return serial(async () => {
 			if (closing) throw new Error('Tailscale runtime is stopping');
 			const service = await inspect(id, port);
+			await probeService(service.hostPort);
 			const existing = journal.entries.find(
 				(entry) => entry.id === service.id && entry.port === port
 			);
@@ -538,7 +592,12 @@ export async function startTailscaleServices(options: Options): Promise<Runtime>
 				clearTimeout(timer);
 				if (response.destroyed) return;
 				if (response.headersSent) response.destroy();
-				else reply(response, 502, 'Service unreachable');
+				else
+					reply(
+						response,
+						502,
+						'Service unreachable through host loopback; check its configured HTTP/HTTPS protocol'
+					);
 			});
 			peer.once('response', (incoming) => {
 				clearTimeout(timer);
@@ -582,6 +641,7 @@ export async function startTailscaleServices(options: Options): Promise<Runtime>
 			});
 			peer.once('error', () => socket.destroy());
 			peer.once('response', (incoming) => {
+				clearTimeout(timer);
 				incoming.resume();
 				socket.destroy();
 			});
@@ -621,7 +681,9 @@ export async function startTailscaleServices(options: Options): Promise<Runtime>
 			try {
 				const info = await lookup(entry.id);
 				try {
-					remove = binding(info, entry.id, entry.port) !== entry.hostPort;
+					remove =
+						serviceBinding(info, entry.id, entry.port, settings.allowWildcardBindings) !==
+						entry.hostPort;
 				} catch {
 					remove = true;
 				}

@@ -6,8 +6,11 @@ import {
 	resolveContainerWorkspaceFolder,
 	WORKSPACE_ROOT
 } from '$lib/server/workspaces';
-import { isServiceProxyEnabled } from '$lib/server/serviceGatewayRuntime';
-import type { ContainerData } from '$lib/types';
+import { resolveNetworkPresets, resolveRemoteUser } from '$lib/server/devcontainerMetadata';
+import { containerNetworks } from '$lib/server/networkData';
+import { publishedBindings } from '$lib/server/publishedBindings';
+import { isServiceProxyEnabled, resolveServicePorts } from '$lib/server/serviceGatewayRuntime';
+import type { ContainerData, ServiceAccess, ServicePortPolicy } from '$lib/types';
 import type { PageServerLoad } from './$types';
 
 function cleanProjectName(rawName: string): string {
@@ -23,6 +26,16 @@ function cleanProjectName(rawName: string): string {
 function isDevcontainer(name: string, image: string): boolean {
 	const lower = (name + ' ' + image).toLowerCase();
 	return lower.includes('vsc-') || lower.includes('devcontainer') || lower.includes('-features');
+}
+
+/** The effective web-port policy; a malformed SERVICE_PROXY_PORTS hides web actions, not the page. */
+function portPolicy(): ServicePortPolicy {
+	try {
+		return resolveServicePorts();
+	} catch (error) {
+		console.error('[services]', error instanceof Error ? error.message : 'Invalid port policy');
+		return {};
+	}
 }
 
 export const load: PageServerLoad = async () => {
@@ -84,13 +97,17 @@ export const load: PageServerLoad = async () => {
 			state: c.State ?? 'unknown',
 			isDevcontainer: isDevcontainer(rawName, image),
 			ports,
+			portBindings: publishedBindings(c.Ports, inspectMap.get(c.Id)?.HostConfig?.PortBindings),
 			image,
 			localWorkspacePath,
 			devcontainerConfigFile: labels['devcontainer.config_file'] ?? undefined,
 			containerWorkspaceFolder: localWorkspacePath
 				? resolveContainerWorkspaceFolder(c.Mounts, localWorkspacePath)
 				: undefined,
-			composeProject
+			...resolveRemoteUser(labels),
+			composeProject,
+			networks: containerNetworks(c.NetworkSettings?.Networks),
+			networkPresets: resolveNetworkPresets(labels)
 		});
 	}
 
@@ -99,6 +116,17 @@ export const load: PageServerLoad = async () => {
 	const vscodeSshHost = process.env.VSCODE_SSH_HOST ?? '';
 
 	const workspaces = await loadMergedWorkspaces();
+	// Tailscale origins also serve OpenChamber on 3000; an explicit --gateway-ports value wins.
+	const tailscale = Boolean(process.env.TAILSCALE_SOCKET);
+	const servicePorts: ServicePortPolicy = {
+		...(tailscale ? { '3000': 'http' } : {}),
+		...portPolicy()
+	};
+	const serviceAccess: ServiceAccess = tailscale
+		? 'https'
+		: isServiceProxyEnabled()
+			? 'gateway'
+			: 'direct';
 
 	return {
 		containers,
@@ -106,6 +134,8 @@ export const load: PageServerLoad = async () => {
 		workspaces,
 		workspaceRoot: WORKSPACE_ROOT,
 		vscodeSshHost,
-		serviceProxyEnabled: isServiceProxyEnabled()
+		serviceProxyEnabled: isServiceProxyEnabled(),
+		servicePorts,
+		serviceAccess
 	};
 };

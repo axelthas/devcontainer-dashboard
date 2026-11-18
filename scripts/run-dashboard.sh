@@ -45,6 +45,9 @@ Options:
   --tailscale-ports A-B    HTTPS Serve range (default 8400-8499, max 256 ports).
   --tailscale-gateway-port N
                            Host-loopback proxy listener (default 3003).
+  --tailscale-allow-wildcard-bindings
+                           Proxy existing all-interface service bindings over HTTPS.
+                           Requires --tailscale-socket; original HTTP exposure stays.
   --vscode-ssh-host VALUE  VS Code SSH host.
   --image REF              Registry image (default ghcr.io/axelthas/devcontainer-dashboard:latest).
   --build                  Build and run this checkout; never publish an image.
@@ -69,6 +72,7 @@ parse_arguments() {
   GATEWAY_HOST='' GATEWAY_PORTS='' VSCODE_SSH_HOST=''
   IMAGE='' PLATFORM='' TEST_NAME='' HEALTH_TIMEOUT=''
   TAILSCALE_SOCKET='' TAILSCALE_PORTS='' TAILSCALE_GATEWAY_PORT=''
+  TAILSCALE_ALLOW_WILDCARD_BINDINGS=0
   while (( $# )); do
     case "$1" in
       --help|-h) SHOW_HELP=1; return ;;
@@ -108,6 +112,7 @@ parse_arguments() {
       --no-create-workspace) CREATE_WORKSPACE=0; shift ;;
       --non-interactive) NON_INTERACTIVE=1; shift ;;
       --gateway) GATEWAY=1; shift ;;
+      --tailscale-allow-wildcard-bindings) TAILSCALE_ALLOW_WILDCARD_BINDINGS=1; shift ;;
       --build) MODE=build; shift ;;
       *) fail "Unknown option: $1 (use --help)" ;;
     esac
@@ -273,7 +278,8 @@ validate_options() {
       (( value < first || value > last )) || fail 'Tailscale port range overlaps a dashboard or gateway listener'
     done
   else
-    [[ -z "$TAILSCALE_PORTS" && -z "$TAILSCALE_GATEWAY_PORT" ]] || fail 'Tailscale port flags require --tailscale-socket'
+    [[ -z "$TAILSCALE_PORTS" && -z "$TAILSCALE_GATEWAY_PORT" && "$TAILSCALE_ALLOW_WILDCARD_BINDINGS" == 0 ]] ||
+      fail 'Tailscale port and binding flags require --tailscale-socket'
   fi
 }
 
@@ -320,6 +326,7 @@ prepare_arguments() {
   for path in "${ENV_FILES[@]}"; do ARGS+=(--env-file "$path"); done
   # Docker applies explicit --env entries after env files, preserving launcher inputs.
   ARGS+=(--env DASHBOARD_PASSWORD --env HOST_USER --env HOST_UID --env HOST_GID --env HOST_HOME
+    --env "TAILSCALE_ALLOW_WILDCARD_BINDINGS=$TAILSCALE_ALLOW_WILDCARD_BINDINGS"
     --env "WORKSPACE_ROOT=$WORKSPACE" --env "HOST_HOSTNAME=${HOSTNAME:-}"
     --env AI_ENABLED=1 --env "AI_PUBLIC_PORT=$AI_PORT"
     --mount "type=volume,source=$AI_STATE_VOLUME,target=/dashboard-ai"
@@ -363,6 +370,10 @@ print_plan() {
   printf 'Retained AI volume: %s (reuse with --ai-state-volume after stopping its old instance)\n' "$AI_STATE_VOLUME"
   echo 'OpenChamber password: docker exec <container> cat /dashboard-ai/ui-password'
   echo 'All bind sources must exist on the Docker host. SSH resources are read-only.'
+  if [[ "$TAILSCALE_ALLOW_WILDCARD_BINDINGS" == 1 ]]; then
+    echo 'WARNING: HTTPS proxying does not close existing all-interface service ports.'
+    echo 'Their original HTTP/HTTPS endpoints remain accessible subject to host firewall rules.'
+  fi
 }
 
 # Pull and run attached; keep data/history volumes after Ctrl+C.
