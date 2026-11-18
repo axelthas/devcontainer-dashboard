@@ -18,6 +18,8 @@ row, and then connect a devcontainer to the sandbox network.
 | Project directory | The directory of the first selected file; Compose resolves paths from it   |
 | Project name      | The name that `docker compose config` resolves for the selection           |
 | Stack             | The containers that carry the `com.docker.compose.project` label           |
+| Sandbox kind      | The repository name plus the selected files, in merge order                |
+| Service selection | The services that Build and Start use; by default every service            |
 
 ## Discovery
 
@@ -38,7 +40,8 @@ row, and then connect a devcontainer to the sandbox network.
 - The environment file is optional and relative to the repository. When it is empty,
   Compose reads `.env` in the project directory.
 - Profiles are optional names, separated by commas or spaces.
-- The browser saves the selection per repository.
+- The browser saves the selection per repository path. A clone of the same repository in
+  another task uses the last saved selection of that repository name as its default.
 
 ## Check
 
@@ -46,7 +49,8 @@ The panel runs a check when it opens and after each selection change. The check 
 `docker compose config --format json` on the server. The response contains only:
 
 - The project name and project directory.
-- Per service: name, image, build flag, profiles, ports, networks, and container name.
+- Per service: name, image, build flag, profiles, ports, networks, dependencies
+  (`depends_on`), and container name.
 - Per network: name, external flag, and first IPAM subnet.
 - Compose warnings, for example unset variables.
 - The existing containers of the project name, with state and working directory.
@@ -54,40 +58,65 @@ The panel runs a check when it opens and after each selection change. The check 
 The response never contains environment values, build arguments, secrets, labels, or
 commands.
 
+## Services
+
+- The panel shows a checkbox for each service. By default, every service is selected.
+- **Build**, **Start**, and **Build and start** pass the selected services to Compose. When
+  every service is selected, the call has no service arguments.
+- Compose also starts the `depends_on` services of a selected service. The panel shows these
+  services as selected, with the label **dependency**. Their checkboxes are disabled.
+- A service outside the selection keeps its current state. **Start** does not stop it.
+- **Stop unselected** appears when services outside the selection run. It stops only those
+  services.
+- **Stop** always stops every service of the project.
+- **Service logs** follows the selected services.
+- **All** selects every service. **None** clears the selection. Build and Start are then
+  disabled.
+- The browser saves the service selection per sandbox kind. Clones of one solution in
+  different task workspaces share it. A different set of Compose files is a different kind.
+- The browser saves the deselected services, not the selected services. A service that a
+  later revision adds is selected by default.
+
 ## Actions
 
-| Button          | Docker call                          | Effect                                         |
-| --------------- | ------------------------------------ | ---------------------------------------------- |
-| Build           | `docker compose build`               | Builds service images                          |
-| Start           | `docker compose up --detach`         | Creates or reconciles and starts the stack     |
-| Build and start | `docker compose up --detach --build` | Builds, then starts                            |
-| Stop            | `docker compose stop`                | Stops containers; keeps containers and volumes |
+| Button          | Docker call                                     | Effect                                       |
+| --------------- | ----------------------------------------------- | -------------------------------------------- |
+| Build           | `docker compose build [services]`               | Builds service images                        |
+| Start           | `docker compose up --detach [services]`         | Creates or reconciles and starts services    |
+| Build and start | `docker compose up --detach --build [services]` | Builds, then starts                          |
+| Stop            | `docker compose stop`                           | Stops every container of the project         |
+| Stop unselected | `docker compose stop <services>`                | Stops running services outside the selection |
 
 Each call also has `--project-directory`, one `--file` per selected file, the optional
-`--env-file`, and one `--profile` per profile. The panel shows the exact calls under
-**Docker calls**.
+`--env-file`, and one `--profile` per profile. `[services]` is empty when every service is
+selected. The panel shows the exact calls under **Docker calls**.
 
-`down`, volume removal, and free command entry are not available.
+**Stop** keeps containers and volumes. `down`, volume removal, and free command entry are
+not available.
 
-**Service logs** opens `docker compose logs --follow --tail 200` in the terminal drawer.
+**Service logs** opens `docker compose logs --follow --tail 200 [services]` in the terminal
+drawer.
 
 ## Rules
 
 1. The server validates every selection again. Paths must be inside the workspace root,
    also after symlink resolution.
 2. The server runs Compose with literal arguments. No shell parses them.
-3. The child environment excludes `DASHBOARD_PASSWORD` and editor launch variables.
-4. The server checks the configuration again when an action starts.
-5. If containers of the same project name belong to another working directory, or have no
+3. Each service name must be a service of the resolved configuration. The server rejects
+   unknown names, invalid names, and an empty list. A list that names every service runs
+   with no service arguments.
+4. The child environment excludes `DASHBOARD_PASSWORD` and editor launch variables.
+5. The server checks the configuration again when an action starts.
+6. If containers of the same project name belong to another working directory, or have no
    working-directory label, the server refuses the action. Compose would otherwise
    reconcile, recreate, or stop that other stack.
-6. Only one action runs at a time for one project directory or one project name.
-7. A browser reload, disconnect, or panel close does not stop an action.
-8. **Cancel** stops the Compose process tree. It does not remove containers, networks, or
+7. Only one action runs at a time for one project directory or one project name.
+8. A browser reload, disconnect, or panel close does not stop an action.
+9. **Cancel** stops the Compose process tree. It does not remove containers, networks, or
    images that Compose already created.
-9. A failed action keeps its output as a log for seven days, also across a dashboard restart.
-   A running action is not restored after a dashboard restart.
-10. Deleting a workspace releases its run tracking. It does not remove containers.
+10. A failed action keeps its output as a log for seven days, also across a dashboard
+    restart. A running action is not restored after a dashboard restart.
+11. Deleting a workspace releases its run tracking. It does not remove containers.
 
 ## Connect a devcontainer
 
@@ -103,6 +132,8 @@ drawer of a devcontainer to join a sandbox network or stand in for a stopped nod
 - Registry credentials come from the dashboard runtime. Private images can fail to pull.
 - The project name is the Compose default. The dashboard does not rename projects.
 - The `docker compose` plugin must be available in the runtime image.
+- The service selection is saved in one browser. Another browser starts with every service
+  selected.
 
 ## Acceptance test
 
@@ -114,9 +145,18 @@ Use a disposable Docker host and a disposable workspace. Do not use an operator 
 4. Select **Build and start**. Reload the browser while it runs. Verify that the output
    continues and that no second process starts.
 5. Verify that **Docker Services** shows the stack, and that the service states update.
-6. Connect a devcontainer to the sandbox network and stand in for a stopped node.
-7. Select **Stop**. Verify that containers and volumes remain.
-8. Clone the same repository into a second task. Select **Start** there. Verify that the
-   dashboard refuses and names the first working directory.
-9. Set a missing variable or an invalid file. Verify the error message, and that no process
-   starts.
+6. Deselect a service that has dependencies. Verify that its dependencies stay selected
+   only when another selected service depends on them.
+7. Deselect a service that another selected service depends on. Verify that it stays
+   selected, with the label **dependency**.
+8. Select **Start**. Verify that **Docker calls** names the selected services, and that
+   **Stop unselected** stops only the running services outside the selection.
+9. Connect a devcontainer to the sandbox network and stand in for a stopped node.
+10. Select **Stop**. Verify that all containers stop, and that containers and volumes
+    remain.
+11. Clone the same repository into a second task. Open its sandbox. Verify that it shows
+    the same file and service selection.
+12. Select **Start** in the second task. Verify that the dashboard refuses and names the
+    first working directory.
+13. Set a missing variable or an invalid file. Verify the error message, and that no
+    process starts.

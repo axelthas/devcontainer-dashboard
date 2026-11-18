@@ -1,6 +1,6 @@
 <script lang="ts">
 	/**
-	 * Compose sandbox controls for one Git repository: select files, resolve the
+	 * Compose sandbox controls for one Git repository: select files and services, resolve the
 	 * configuration, and run one allowlisted lifecycle action at a time.
 	 * The server validates every selection again; this component only proposes it.
 	 */
@@ -27,13 +27,15 @@
 		composeDirectory,
 		composeLogsCommand,
 		composeQuery,
+		composeSandboxKind,
 		defaultComposeSelection,
 		parseProfiles,
 		shellCommand,
+		withDependencies,
 		type ComposeAction,
 		type ComposeSelection
 	} from '$lib/composeCommands';
-	import type { ComposeInspection, RepositoryData } from '$lib/types';
+	import type { ComposeInspection, ComposeRunData, RepositoryData } from '$lib/types';
 	import RequestError from './RequestError.svelte';
 	import TerminalTab from './TerminalTab.svelte';
 
@@ -47,6 +49,7 @@
 	let { repo, onRefresh, onRefreshContainers, onOpenTerminal, onOpenLog }: Props = $props();
 
 	const STORAGE_KEY = 'devcontainer-dashboard-compose-selections';
+	const SERVICE_STORAGE_KEY = 'devcontainer-dashboard-compose-services';
 	interface StoredSelection {
 		files: string[];
 		envFile: string;
@@ -66,10 +69,30 @@
 		}
 	}
 
+	/** The storage key that other clones of the same repository fall back to. */
+	function nameKey(name: string): string {
+		return `name:${name}`;
+	}
+
+	/**
+	 * Read the excluded services of every sandbox kind. An exclusion list, not an inclusion
+	 * list, is saved, so a service that a later revision adds is selected by default.
+	 */
+	function readExcludedServices(): Record<string, string[]> {
+		if (typeof localStorage === 'undefined') return {};
+		try {
+			const value = JSON.parse(localStorage.getItem(SERVICE_STORAGE_KEY) ?? '{}');
+			return value && typeof value === 'object' ? (value as Record<string, string[]>) : {};
+		} catch {
+			return {};
+		}
+	}
+
 	/** Restore a saved selection only when its files still exist in the repository. */
 	const initial = untrack(() => {
 		const available = repo.composeFiles ?? [];
-		const stored = readStoredSelections()[repo.path];
+		const all = readStoredSelections();
+		const stored = all[repo.path] ?? all[nameKey(repo.name)];
 		const files = stored?.files?.filter((file) => available.includes(file)) ?? [];
 		return {
 			files: files.length > 0 ? files : defaultComposeSelection(available),
@@ -81,6 +104,7 @@
 	let selectedFiles = $state<string[]>(initial.files);
 	let envFile = $state(initial.envFile);
 	let profilesText = $state(initial.profiles);
+	let excludedByKind = $state<Record<string, string[]>>(readExcludedServices());
 
 	const files = $derived(repo.composeFiles ?? []);
 	const directories = $derived([...new Set(files.map(composeDirectory))]);
@@ -99,7 +123,7 @@
 	let inspecting = $state(false);
 	let inspectError = $state('');
 	let actionError = $state('');
-	let starting = $state<ComposeAction | null>(null);
+	let starting = $state<string | null>(null);
 	let disposed = false;
 	onDestroy(() => {
 		disposed = true;
@@ -115,20 +139,50 @@
 	const runningCount = $derived(
 		inspection?.containers.filter((container) => container.state === 'running').length ?? 0
 	);
+
+	// Service selection. Clones of one solution share a sandbox kind and its saved selection.
+	const sandboxKind = $derived(composeSandboxKind(repo.name, selectedFiles));
+	const excluded = $derived(
+		Array.isArray(excludedByKind[sandboxKind]) ? excludedByKind[sandboxKind] : []
+	);
+	const serviceNames = $derived(inspection?.services.map((service) => service.name) ?? []);
+	/** Services that the operator selected. */
+	const chosen = $derived(serviceNames.filter((name) => !excluded.includes(name)));
+	/** Selected services plus their transitive depends_on services, in config order. */
+	const effective = $derived(withDependencies(inspection?.services ?? [], chosen));
+	/** Services that run only because a selected service depends on them. */
+	const implied = $derived(effective.filter((name) => !chosen.includes(name)));
+	const allSelected = $derived(effective.length === serviceNames.length);
+	/** Service arguments for Compose; no arguments means every service. */
+	const serviceArgs = $derived(allSelected ? [] : effective);
+	/** Running services outside the selection; Build and Start do not change them. */
+	const runningOutside = $derived(
+		serviceNames.filter(
+			(name) =>
+				!effective.includes(name) &&
+				(inspection?.containers ?? []).some(
+					(container) => container.service === name && container.state === 'running'
+				)
+		)
+	);
+
 	const commandPreview = $derived(
 		selectedFiles.length === 0
 			? ''
 			: COMPOSE_ACTIONS.map((action) =>
-					shellCommand(composeActionCommand(repo.path, selection, action))
+					shellCommand(
+						composeActionCommand(repo.path, selection, action, actionServices(action))
+					)
 				).join('\n')
 	);
 
-	// Save the selection per repository in this browser.
+	// Save the selection per repository path, and per repository name for other clones.
 	$effect(() => {
 		const entry: StoredSelection = { files: selectedFiles, envFile, profiles: profilesText };
 		try {
 			const all = readStoredSelections();
 			all[repo.path] = entry;
+			all[nameKey(repo.name)] = entry;
 			localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
 		} catch {
 			// ignore storage errors
@@ -188,16 +242,60 @@
 		selectedFiles = defaultComposeSelection(files, next);
 	}
 
-	/** Start one action. The server checks the selection and the live stack again. */
-	async function start(action: ComposeAction) {
+	/**
+	 * Save the excluded services of the current sandbox kind. Read storage again first, so
+	 * another tab's choices for other kinds stay. An empty list removes the entry.
+	 */
+	function saveExcluded(next: string[]) {
+		const all = Object.fromEntries(
+			Object.entries(readExcludedServices()).filter(([kind]) => kind !== sandboxKind)
+		);
+		if (next.length > 0) all[sandboxKind] = next;
+		excludedByKind = all;
+		try {
+			localStorage.setItem(SERVICE_STORAGE_KEY, JSON.stringify(all));
+		} catch {
+			// ignore storage errors
+		}
+	}
+
+	/** Select or deselect one service. Dependencies follow the selection. */
+	function toggleService(name: string) {
+		saveExcluded(
+			excluded.includes(name) ? excluded.filter((item) => item !== name) : [...excluded, name]
+		);
+	}
+
+	/** Select or deselect every service. Keep exclusions for services of other profiles. */
+	function selectAllServices(selected: boolean) {
+		const others = excluded.filter((name) => !serviceNames.includes(name));
+		saveExcluded(selected ? others : [...others, ...serviceNames]);
+	}
+
+	/** Stop always applies to the whole project; the other actions use the selected services. */
+	function actionServices(action: ComposeAction): string[] {
+		return action === 'stop' ? [] : serviceArgs;
+	}
+
+	/**
+	 * Start one action. An empty service list means every service. The server checks the
+	 * selection, the services, and the live stack again.
+	 */
+	async function start(action: ComposeAction, services: string[], key: string = action) {
 		if (blocked) return;
-		starting = action;
+		starting = key;
 		actionError = '';
 		try {
 			await requestJson('/api/compose/run', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ repoPath: repo.path, repoName: repo.name, action, ...selection })
+				body: JSON.stringify({
+					repoPath: repo.path,
+					repoName: repo.name,
+					action,
+					...selection,
+					...(services.length > 0 ? { services } : {})
+				})
 			});
 			await onRefresh();
 		} catch (cause) {
@@ -229,15 +327,25 @@
 		void inspect();
 	}
 
-	/** Follow service logs in an operator terminal; closing the tab stops only the log view. */
+	/**
+	 * Follow logs of the selected services in an operator terminal. Closing the tab stops only
+	 * the log view.
+	 */
 	function openLogs() {
 		if (!inspection || !fresh) return;
 		onOpenTerminal(
 			generateId(),
-			shellCommand(composeLogsCommand(repo.path, selection)),
+			shellCommand(composeLogsCommand(repo.path, selection, serviceArgs)),
 			`Logs ${inspection.projectName}`,
 			inspection.projectDirectory
 		);
+	}
+
+	/** Name the action of a run, with its services when it ran on a subset. */
+	function runLabel(activeRun: ComposeRunData): string {
+		const label = COMPOSE_ACTION_LABELS[activeRun.action];
+		const services = activeRun.services ?? [];
+		return services.length > 0 ? `${label} ${services.join(', ')}` : label;
 	}
 
 	/** Describe a container set for one service. */
@@ -254,8 +362,9 @@
 {#snippet actionButton(action: ComposeAction, tone: string)}
 	<button
 		type="button"
-		onclick={() => void start(action)}
-		disabled={blocked}
+		onclick={() => void start(action, actionServices(action))}
+		disabled={blocked || (action !== 'stop' && effective.length === 0)}
+		title={action === 'stop' ? 'Stop every service of this project' : undefined}
 		class="flex items-center gap-1 rounded-lg border border-[#d8dee9] bg-white px-2.5 py-1 text-xs font-medium {tone} transition-colors hover:bg-[#e5e9f0] disabled:cursor-not-allowed disabled:opacity-50 dark:border-[#4c566a] dark:bg-[#2e3440] dark:hover:bg-[#434c5e]"
 	>
 		{#if starting === action}
@@ -384,16 +493,62 @@
 				No services in the selected files and profiles.
 			</p>
 		{:else}
+			<div class="mt-3 flex flex-wrap items-center gap-2 text-xs">
+				<span class="font-semibold text-[#4c566a] dark:text-[#d8dee9]/70">Services</span>
+				<span class="text-[#4c566a] dark:text-[#d8dee9]/60"
+					>{effective.length} of {serviceNames.length} selected</span
+				>
+				<button
+					type="button"
+					onclick={() => selectAllServices(true)}
+					disabled={chosen.length === serviceNames.length}
+					class="rounded px-1.5 font-medium text-[#5e81ac] hover:bg-[#81a1c1]/10 disabled:opacity-50 dark:text-[#88c0d0]"
+				>
+					All
+				</button>
+				<button
+					type="button"
+					onclick={() => selectAllServices(false)}
+					disabled={chosen.length === 0}
+					class="rounded px-1.5 font-medium text-[#5e81ac] hover:bg-[#81a1c1]/10 disabled:opacity-50 dark:text-[#88c0d0]"
+				>
+					None
+				</button>
+				<span class="text-[#4c566a]/80 dark:text-[#d8dee9]/50"
+					>Build and Start use the selection. Other services keep their state.</span
+				>
+			</div>
 			<ul
-				class="mt-3 divide-y divide-[#d8dee9]/60 rounded-lg border border-[#d8dee9] bg-white text-xs dark:divide-[#4c566a]/60 dark:border-[#4c566a] dark:bg-[#2e3440]"
+				class="mt-1.5 divide-y divide-[#d8dee9]/60 rounded-lg border border-[#d8dee9] bg-white text-xs dark:divide-[#4c566a]/60 dark:border-[#4c566a] dark:bg-[#2e3440]"
 			>
 				{#each inspection.services as service (service.name)}
 					{@const status = serviceState(service.name)}
-					<li class="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1.5">
-						<span class="inline-block h-1.5 w-1.5 shrink-0 rounded-full {status.tone}"></span>
-						<span class="w-40 truncate font-medium text-[#2e3440] dark:text-[#eceff4]"
-							>{service.name}</span
-						>
+					{@const dependency = implied.includes(service.name)}
+					{@const selected = effective.includes(service.name)}
+					<li
+						class="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1.5 {selected
+							? ''
+							: 'opacity-60'}"
+					>
+						<label class="flex w-44 min-w-0 items-center gap-1.5">
+							<input
+								type="checkbox"
+								checked={selected}
+								disabled={dependency}
+								onchange={() => toggleService(service.name)}
+								class="rounded border-[#4c566a] text-[#5e81ac] disabled:opacity-50"
+							/>
+							<span class="inline-block h-1.5 w-1.5 shrink-0 rounded-full {status.tone}"></span>
+							<span class="truncate font-medium text-[#2e3440] dark:text-[#eceff4]"
+								>{service.name}</span
+							>
+						</label>
+						{#if dependency}
+							<span
+								class="rounded bg-[#ebcb8b]/15 px-1.5 text-[#d08770]"
+								title="A selected service depends on this service">dependency</span
+							>
+						{/if}
 						<span
 							class="min-w-0 flex-1 truncate text-[#4c566a] dark:text-[#d8dee9]/60"
 							title={service.image}
@@ -442,12 +597,28 @@
 		{@render actionButton('up', 'text-[#a3be8c]')}
 		{@render actionButton('up-build', 'text-[#a3be8c]')}
 		{@render actionButton('stop', 'text-[#bf616a]')}
+		{#if fresh && runningOutside.length > 0}
+			<button
+				type="button"
+				onclick={() => void start('stop', runningOutside, 'stop-unselected')}
+				disabled={blocked}
+				class="flex items-center gap-1 rounded-lg border border-[#d8dee9] bg-white px-2.5 py-1 text-xs font-medium text-[#bf616a] transition-colors hover:bg-[#e5e9f0] disabled:cursor-not-allowed disabled:opacity-50 dark:border-[#4c566a] dark:bg-[#2e3440] dark:hover:bg-[#434c5e]"
+				title={`Stop ${runningOutside.join(', ')}`}
+			>
+				{#if starting === 'stop-unselected'}
+					<Loader size={12} class="animate-spin" />
+				{:else}
+					<Square size={12} />
+				{/if}
+				Stop unselected ({runningOutside.length})
+			</button>
+		{/if}
 		<button
 			type="button"
 			onclick={openLogs}
 			disabled={!fresh || !inspection?.containers.length}
 			class="flex items-center gap-1 rounded-lg border border-[#d8dee9] bg-white px-2.5 py-1 text-xs font-medium text-[#4c566a] transition-colors hover:bg-[#e5e9f0] disabled:cursor-not-allowed disabled:opacity-50 dark:border-[#4c566a] dark:bg-[#2e3440] dark:text-[#d8dee9] dark:hover:bg-[#434c5e]"
-			title="Follow service logs in a terminal"
+			title="Follow logs of the selected services in a terminal"
 		>
 			<ScrollText size={12} />
 			Service logs
@@ -470,9 +641,7 @@
 			<div class="flex items-center gap-2 bg-white px-3 py-1.5 text-xs dark:bg-[#2e3440]">
 				{#if activeRun.status === 'running'}
 					<Loader size={12} class="animate-spin text-[#ebcb8b]" />
-					<span class="font-medium text-[#ebcb8b]"
-						>{COMPOSE_ACTION_LABELS[activeRun.action]} running…</span
-					>
+					<span class="font-medium text-[#ebcb8b]">{runLabel(activeRun)} running…</span>
 					<button
 						type="button"
 						onclick={() => void removeRun(activeRun.id)}
@@ -484,17 +653,11 @@
 					</button>
 				{:else if activeRun.status === 'failed'}
 					<TriangleAlert size={12} class="text-[#bf616a]" />
-					<span class="font-medium text-[#bf616a]"
-						>{COMPOSE_ACTION_LABELS[activeRun.action]} failed</span
-					>
+					<span class="font-medium text-[#bf616a]">{runLabel(activeRun)} failed</span>
 					{#if activeRun.hasLog}
 						<button
 							type="button"
-							onclick={() =>
-								onOpenLog(
-									activeRun.id,
-									`${repo.name} ${COMPOSE_ACTION_LABELS[activeRun.action]} log`
-								)}
+							onclick={() => onOpenLog(activeRun.id, `${repo.name} ${runLabel(activeRun)} log`)}
 							class="ml-auto flex items-center gap-1 rounded-lg px-2 py-0.5 font-medium text-[#81a1c1] hover:bg-[#81a1c1]/10"
 						>
 							<FileText size={12} />
@@ -513,9 +676,7 @@
 						Dismiss
 					</button>
 				{:else}
-					<span class="font-medium text-[#a3be8c]"
-						>{COMPOSE_ACTION_LABELS[activeRun.action]} finished</span
-					>
+					<span class="font-medium text-[#a3be8c]">{runLabel(activeRun)} finished</span>
 					<button
 						type="button"
 						onclick={() => void removeRun(activeRun.id)}
