@@ -18,7 +18,8 @@ import {
 	tailscaleSettings,
 	ownsServeEntry,
 	removeOwnedServeEntry,
-	launchTailscaleService
+	launchTailscaleService,
+	serviceBinding
 } from '../../src/lib/server/tailscaleServiceRuntime.ts';
 
 const id = 'a'.repeat(64);
@@ -81,6 +82,7 @@ function fetchLocal(port, path = '/', headers = {}, method = 'GET', body = '') {
 
 /** Run a real LocalAPI HTTP protocol fixture and a mutable live Docker inspection. */
 async function fixture(t, overrides = {}) {
+	const { allowWildcardBindings = false, ...runtimeOverrides } = overrides;
 	const cleanups = [];
 	const parent = t;
 	t = { after: (cleanup) => cleanups.push(cleanup) };
@@ -95,6 +97,7 @@ async function fixture(t, overrides = {}) {
 	let running = true;
 	let inspectionError;
 	let hostIp = '127.0.0.1';
+	let hostPort;
 	let dropWriteResponse = false;
 	const received = [];
 	const upstream = await listen(t, (req, res) => {
@@ -162,7 +165,8 @@ async function fixture(t, overrides = {}) {
 		first: 8400,
 		last: 8405,
 		listenPort: port,
-		stateFile: join(directory, 'state.json')
+		stateFile: join(directory, 'state.json'),
+		allowWildcardBindings
 	};
 	const options = {
 		settings,
@@ -177,12 +181,12 @@ async function fixture(t, overrides = {}) {
 				Id: requested.startsWith('b') ? otherId : id,
 				State: { Running: running },
 				NetworkSettings: {
-					Ports: { '4096/tcp': [{ HostIp: hostIp, HostPort: String(upstream.port) }] }
+					Ports: { '4096/tcp': [{ HostIp: hostIp, HostPort: String(hostPort ?? upstream.port) }] }
 				}
 			};
 		},
 		ports: { 4096: 'http' },
-		...overrides
+		...runtimeOverrides
 	};
 	let runtime = await startTailscaleServices(options);
 	t.after(async () => {
@@ -214,6 +218,9 @@ async function fixture(t, overrides = {}) {
 		},
 		set hostIp(value) {
 			hostIp = value;
+		},
+		set hostPort(value) {
+			hostPort = value;
 		},
 		set dropWriteResponse(value) {
 			dropWriteResponse = value;
@@ -248,6 +255,11 @@ test('settings are disabled by default and validate loopback listener/range sepa
 	assert.equal(tailscaleSettings({}), null);
 	const base = { TAILSCALE_SOCKET: '/run/ts.sock', ORIGIN: dashboardOrigin };
 	assert.equal(tailscaleSettings(base).first, 8400);
+	assert.equal(tailscaleSettings(base).allowWildcardBindings, false);
+	assert.equal(
+		tailscaleSettings({ ...base, TAILSCALE_ALLOW_WILDCARD_BINDINGS: '1' }).allowWildcardBindings,
+		true
+	);
 	for (const values of [
 		{ ORIGIN: 'http://node.example.ts.net' },
 		{ ORIGIN: 'https://node.example.com' },
@@ -257,7 +269,8 @@ test('settings are disabled by default and validate loopback listener/range sepa
 		{ TAILSCALE_GATEWAY_PORT: '8401' },
 		{ PORT: '8400' },
 		{ ORIGIN: `${dashboardOrigin}:8400` },
-		{ TAILSCALE_STATE_FILE: 'relative' }
+		{ TAILSCALE_STATE_FILE: 'relative' },
+		{ TAILSCALE_ALLOW_WILDCARD_BINDINGS: 'true' }
 	])
 		assert.throws(() => tailscaleSettings({ ...base, ...values }));
 });
@@ -273,6 +286,76 @@ test('allocation is idempotent per full identity and port, including concurrent 
 	assert.equal((await f.state()).entries.length, 1);
 	assert.deepEqual(f.config.TCP['443'], { HTTPS: true });
 	assert.deepEqual(f.config.Unknown, { preserve: true });
+});
+
+test('binding policy permits IPv4 wildcard only with opt-in and preserves strict validation', () => {
+	const inspect = (addresses, hostPort = '18080') => ({
+		Id: id,
+		State: { Running: true },
+		NetworkSettings: {
+			Ports: { '8080/tcp': addresses.map((HostIp) => ({ HostIp, HostPort: hostPort })) }
+		}
+	});
+	for (const addresses of [['127.0.0.1'], ['127.0.0.1', '::1']]) {
+		assert.equal(serviceBinding(inspect(addresses), id, '8080'), 18080);
+	}
+	for (const addresses of [['0.0.0.0'], ['0.0.0.0', '::']]) {
+		assert.throws(() => serviceBinding(inspect(addresses), id, '8080'), {
+			code: 'wildcard-binding-disabled'
+		});
+		assert.equal(serviceBinding(inspect(addresses), id, '8080', true), 18080);
+	}
+	for (const addresses of [['::'], ['::1'], ['192.168.1.10'], ['127.0.0.1', '192.168.1.10']]) {
+		assert.throws(() => serviceBinding(inspect(addresses), id, '8080', true), {
+			code: 'unsupported-binding'
+		});
+	}
+	for (const hostPort of ['0', '65536', 'abc', '']) {
+		assert.throws(() => serviceBinding(inspect(['0.0.0.0'], hostPort), id, '8080', true), {
+			code: 'invalid-service-binding'
+		});
+	}
+	const ambiguous = inspect(['0.0.0.0', '::']);
+	ambiguous.NetworkSettings.Ports['8080/tcp'][1].HostPort = '18081';
+	assert.throws(() => serviceBinding(ambiguous, id, '8080', true), { code: 'ambiguous-binding' });
+	assert.throws(
+		() => serviceBinding({ ...inspect(['0.0.0.0']), State: { Running: false } }, id, '8080', true),
+		{ code: 'not-running' }
+	);
+	assert.throws(() => serviceBinding(inspect(['0.0.0.0']), otherId, '8080', true), {
+		code: 'unknown-container'
+	});
+	assert.throws(() => serviceBinding(inspect(['0.0.0.0']), id, '9001', true), {
+		code: 'no-published-binding'
+	});
+});
+
+test('opt-in wildcard services retain auth, root assets, redirects and live binding checks', async (t) => {
+	const f = await fixture(t, { allowWildcardBindings: true });
+	f.hostIp = '0.0.0.0';
+	await f.runtime.ensure(id, '4096');
+	assert.equal((await fetchLocal(f.port, '/assets/main.js')).text, '/assets/main.js');
+	assert.equal(
+		(await fetchLocal(f.port, '/redirect')).headers.location,
+		`https://${publicHost}:8400/assets/main.js`
+	);
+	assert.equal((await fetchLocal(f.port, '/', { cookie: '' })).status, 403);
+	assert.equal((await fetchLocal(f.port, '/', { origin: dashboardOrigin }, 'POST')).status, 403);
+	const count = f.received.length;
+	f.hostIp = '192.168.1.10';
+	assert.equal((await fetchLocal(f.port)).status, 403);
+	assert.equal(f.received.length, count);
+	await until(async () => (await f.state()).entries.length === 0);
+	assert.deepEqual(f.config.TCP['443'], { HTTPS: true });
+});
+
+test('unreachable local targets fail before an HTTPS listener is allocated', async (t) => {
+	const f = await fixture(t, { allowWildcardBindings: true });
+	f.hostIp = '0.0.0.0';
+	f.hostPort = await freePort();
+	await assert.rejects(f.runtime.ensure(id, '4096'), { code: 'service-unreachable' });
+	assert.equal((await f.state()).entries.length, 0);
+	assert.equal(f.config.TCP['8400'], undefined);
 });
 
 test('HTTP roots, absolute assets, POST, redirects and credential filtering work through the listener', async (t) => {
@@ -466,60 +549,66 @@ test('disabling the feature leaves the viewer runtime unavailable', () => {
 	assert.throws(() => launchTailscaleService(id, '4096'), /unavailable/);
 });
 
-test('WebSocket upgrades preserve root paths and strip dashboard credentials', async (t) => {
-	const f = await fixture(t);
-	await f.runtime.ensure(id, '4096');
-	const origin = `https://${publicHost}:8400`;
-	const result = await new Promise((resolve, reject) => {
-		const req = http.request({
-			host: '127.0.0.1',
-			port: f.port,
-			path: '/ws?root=yes',
-			headers: {
-				host: `${publicHost}:8400`,
-				cookie: session,
-				origin,
-				connection: 'Upgrade',
-				upgrade: 'websocket'
-			}
-		});
-		req.on('error', reject);
-		req.on('upgrade', (_res, socket) => {
-			socket.once('data', (chunk) => {
-				resolve(chunk.toString());
-				socket.destroy();
-			});
-			socket.write('echo-payload');
-		});
-		req.end();
-	});
-	assert.equal(result, 'echo-payload');
-	assert.equal(f.received.at(-1).url, '/ws?root=yes');
-	assert.equal(f.received.at(-1).headers.cookie, undefined);
-});
-
-test('logout closes an existing stream without waiting for another request', async (t) => {
-	const f = await fixture(t);
-	await f.runtime.ensure(id, '4096');
-	await new Promise((resolve, reject) => {
-		const req = http.get(
-			{
+for (const wildcard of [false, true]) {
+	test(`WebSocket upgrades preserve paths and credentials policy (wildcard=${wildcard})`, async (t) => {
+		const f = await fixture(t, { allowWildcardBindings: wildcard });
+		if (wildcard) f.hostIp = '0.0.0.0';
+		await f.runtime.ensure(id, '4096');
+		const origin = `https://${publicHost}:8400`;
+		const result = await new Promise((resolve, reject) => {
+			const req = http.request({
 				host: '127.0.0.1',
 				port: f.port,
-				path: '/stream',
-				headers: { host: `${publicHost}:8400`, cookie: session }
-			},
-			(res) => {
-				res.once('data', () => {
-					f.authenticated = false;
+				path: '/ws?root=yes',
+				headers: {
+					host: `${publicHost}:8400`,
+					cookie: session,
+					origin,
+					connection: 'Upgrade',
+					upgrade: 'websocket'
+				}
+			});
+			req.on('error', reject);
+			req.on('upgrade', (_res, socket) => {
+				socket.once('data', (chunk) => {
+					resolve(chunk.toString());
+					socket.destroy();
 				});
-				res.once('close', resolve);
-			}
-		);
-		req.on('error', reject);
+				socket.write('echo-payload');
+			});
+			req.end();
+		});
+		assert.equal(result, 'echo-payload');
+		assert.equal(f.received.at(-1).url, '/ws?root=yes');
+		assert.equal(f.received.at(-1).headers.cookie, undefined);
 	});
-	assert.equal((await fetchLocal(f.port)).status, 403);
-});
+}
+
+for (const wildcard of [false, true]) {
+	test(`logout closes an existing stream (wildcard=${wildcard})`, async (t) => {
+		const f = await fixture(t, { allowWildcardBindings: wildcard });
+		if (wildcard) f.hostIp = '0.0.0.0';
+		await f.runtime.ensure(id, '4096');
+		await new Promise((resolve, reject) => {
+			const req = http.get(
+				{
+					host: '127.0.0.1',
+					port: f.port,
+					path: '/stream',
+					headers: { host: `${publicHost}:8400`, cookie: session }
+				},
+				(res) => {
+					res.once('data', () => {
+						f.authenticated = false;
+					});
+					res.once('close', resolve);
+				}
+			);
+			req.on('error', reject);
+		});
+		assert.equal((await fetchLocal(f.port)).status, 403);
+	});
+}
 
 test('launcher passes explicit socket/range flags, uses host networking and disables publication', async (t) => {
 	const directory = await mkdtemp(join(tmpdir(), 'ddash-launch-test-'));
@@ -564,8 +653,20 @@ if [ "$1" = run ]; then printf '<%s>\\n' "$@"; fi
 	assert.match(result.stdout, /SERVICE_PROXY_ENABLED=1/);
 	assert.match(result.stdout, /target=\/var\/run\/tailscale\/tailscaled.sock/);
 	assert.doesNotMatch(result.stdout, /--publish|not-logged/);
+	assert.match(result.stdout, /TAILSCALE_ALLOW_WILDCARD_BINDINGS=0/);
+	const compatible = run([
+		'--tailscale-socket',
+		'/run/tailscale.sock',
+		'--origin',
+		dashboardOrigin,
+		'--tailscale-allow-wildcard-bindings'
+	]);
+	assert.equal(compatible.status, 0, compatible.stderr);
+	assert.match(compatible.stdout, /TAILSCALE_ALLOW_WILDCARD_BINDINGS=1/);
+	assert.match(compatible.stdout, /does not close existing all-interface service ports/);
 	for (const extra of [
 		['--tailscale-ports', '8400-8410'],
+		['--tailscale-allow-wildcard-bindings'],
 		['--tailscale-socket', '/run/ts.sock'],
 		['--tailscale-socket', '/run/ts.sock', '--origin', dashboardOrigin, '--gateway'],
 		[
@@ -633,6 +734,30 @@ test('the viewer allocates a root HTTPS iframe and does not fall back on failure
 	const failed = await module.load({ url });
 	assert.equal(failed.viewer.kind, 'unavailable');
 	assert.equal(failed.viewer.target, undefined);
+	assert.equal(failed.viewer.reason, 'tailscale-allocation-failed');
+	for (const code of [
+		'wildcard-binding-disabled',
+		'unsupported-binding',
+		'ambiguous-binding',
+		'invalid-service-binding',
+		'port-not-allowed',
+		'not-running',
+		'no-published-binding',
+		'unknown-container',
+		'service-unreachable'
+	]) {
+		globalThis.__testTailscaleLaunch = async () => {
+			throw Object.assign(new Error('private upstream details'), { code });
+		};
+		const response = await module.load({ url });
+		assert.equal(response.viewer.reason, code);
+		assert.equal(response.viewer.target, undefined);
+		assert.doesNotMatch(JSON.stringify(response.viewer), /private upstream details/);
+	}
+	globalThis.__testTailscaleLaunch = async () => {
+		throw Object.assign(new Error('secret'), { code: 'untrusted-code' });
+	};
+	assert.equal((await module.load({ url })).viewer.reason, 'tailscale-allocation-failed');
 	const legacy = await module.load({
 		url: new URL('/service?url=http://evil.example', dashboardOrigin)
 	});
