@@ -632,7 +632,10 @@ test('reports depends_on in map and list form', () => {
 		name: 'x',
 		services: { a: { depends_on: ['b'] }, b: {}, c: { depends_on: { a: { required: true } } } }
 	});
-	assert.deepEqual(summary.services.map((service) => service.dependsOn), [['b'], [], ['a']]);
+	assert.deepEqual(
+		summary.services.map((service) => service.dependsOn),
+		[['b'], [], ['a']]
+	);
 });
 
 test('validates a service subset against the resolved services', () => {

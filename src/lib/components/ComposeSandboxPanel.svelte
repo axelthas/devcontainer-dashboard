@@ -170,9 +170,7 @@
 		selectedFiles.length === 0
 			? ''
 			: COMPOSE_ACTIONS.map((action) =>
-					shellCommand(
-						composeActionCommand(repo.path, selection, action, actionServices(action))
-					)
+					shellCommand(composeActionCommand(repo.path, selection, action, actionServices(action)))
 				).join('\n')
 	);
 
