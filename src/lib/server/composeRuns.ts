@@ -172,7 +172,9 @@ function cleanupOldRuns(now = Date.now()): void {
 async function restoreFailedRuns(): Promise<void> {
 	for (const log of await listRunLogs()) {
 		if (log.kind !== 'compose' || activeRuns.has(log.id)) continue;
-		const action = (['build', 'up', 'up-build', 'stop'] as const).find((item) => item === log.action);
+		const action = (['build', 'up', 'up-build', 'stop'] as const).find(
+			(item) => item === log.action
+		);
 		if (!action) continue;
 		activeRuns.set(log.id, {
 			id: log.id,

@@ -142,7 +142,10 @@ function resolvedConfig(name = 'keflavik') {
 				profiles: ['sim'],
 				container_name: 'keflavik-fdp'
 			},
-			builder: { build: { context: '.', args: { TOKEN: 'never-return-this' } }, networks: ['oplan'] }
+			builder: {
+				build: { context: '.', args: { TOKEN: 'never-return-this' } },
+				networks: ['oplan']
+			}
 		},
 		networks: {
 			oplan: { name: 'keflavik_oplan', ipam: { config: [{ subnet: '192.168.103.0/24' }] } },
@@ -237,7 +240,10 @@ test('resolves a valid selection to lexical and canonical project paths', async 
 		profiles: ['sim'],
 		envFile: '.env.sandbox'
 	});
-	const nested = await sandbox.resolveComposeTarget(root, input({ files: ['sandbox/compose.yaml'] }));
+	const nested = await sandbox.resolveComposeTarget(
+		root,
+		input({ files: ['sandbox/compose.yaml'] })
+	);
 	assert.equal(nested.projectDirectory, join(repo, 'sandbox'));
 });
 
@@ -347,7 +353,8 @@ test('inspection runs config with literal argv and a filtered environment', asyn
 test('inspection returns structure only, never environment, build arguments or secrets', async () => {
 	state.configResult = {
 		stdout: resolvedConfig(),
-		stderr: 'time="x" level=warning msg="The \\"TAG\\" variable is not set. Defaulting to a blank string."\nPulling\n'
+		stderr:
+			'time="x" level=warning msg="The \\"TAG\\" variable is not set. Defaulting to a blank string."\nPulling\n'
 	};
 	const target = await sandbox.resolveComposeTarget(root, input());
 	const inspection = await sandbox.inspectComposeTarget(target, async (options) => {
@@ -409,13 +416,25 @@ test('classifies stack ownership by Compose working directory', () => {
 test('maps missing CLI, rejected configuration and unreadable output to distinct errors', async () => {
 	const target = await sandbox.resolveComposeTarget(root, input());
 	state.configResult = { error: { code: 'ENOENT' } };
-	await assert.rejects(sandbox.inspectComposeTarget(target, async () => []), sandbox.ComposeUnavailableError);
+	await assert.rejects(
+		sandbox.inspectComposeTarget(target, async () => []),
+		sandbox.ComposeUnavailableError
+	);
 	state.configResult = { error: { code: 1 }, stderr: "docker: 'compose' is not a docker command." };
-	await assert.rejects(sandbox.inspectComposeTarget(target, async () => []), sandbox.ComposeUnavailableError);
+	await assert.rejects(
+		sandbox.inspectComposeTarget(target, async () => []),
+		sandbox.ComposeUnavailableError
+	);
 	state.configResult = { error: { code: 1 }, stderr: 'required variable TAG is missing a value' };
-	await assert.rejects(sandbox.inspectComposeTarget(target, async () => []), /TAG is missing/);
+	await assert.rejects(
+		sandbox.inspectComposeTarget(target, async () => []),
+		/TAG is missing/
+	);
 	state.configResult = { stdout: 'not json' };
-	await assert.rejects(sandbox.inspectComposeTarget(target, async () => []), /unreadable/);
+	await assert.rejects(
+		sandbox.inspectComposeTarget(target, async () => []),
+		/unreadable/
+	);
 });
 
 test('run uses a structured persistent PTY in the project directory', async () => {
@@ -434,7 +453,10 @@ test('run uses a structured persistent PTY in the project directory', async () =
 
 test('serializes operations by canonical project directory and by project name', async () => {
 	const target = await sandbox.resolveComposeTarget(root, input());
-	const nested = await sandbox.resolveComposeTarget(root, input({ files: ['sandbox/compose.yaml'] }));
+	const nested = await sandbox.resolveComposeTarget(
+		root,
+		input({ files: ['sandbox/compose.yaml'] })
+	);
 	runs.startComposeRun('first', target, 'solution', 'keflavik', 'build');
 	assert.throws(
 		() => runs.startComposeRun('same-dir', target, 'solution', 'other', 'up'),
@@ -444,14 +466,20 @@ test('serializes operations by canonical project directory and by project name',
 		() => runs.startComposeRun('same-name', nested, 'solution', 'keflavik', 'up'),
 		runs.ComposeRunConflict
 	);
-	assert.equal(runs.startComposeRun('independent', nested, 'solution', 'sandbox', 'up').status, 'running');
+	assert.equal(
+		runs.startComposeRun('independent', nested, 'solution', 'sandbox', 'up').status,
+		'running'
+	);
 	assert.equal(state.spawns.length, 2);
 });
 
 test('spawn failure releases the lock; failed exit keeps a Compose log', async () => {
 	const target = await sandbox.resolveComposeTarget(root, input());
 	state.spawnError = new Error('capacity');
-	assert.throws(() => runs.startComposeRun('broken', target, 'solution', 'keflavik', 'up'), /capacity/);
+	assert.throws(
+		() => runs.startComposeRun('broken', target, 'solution', 'keflavik', 'up'),
+		/capacity/
+	);
 	assert.deepEqual(runs.getActiveComposeRuns(), []);
 	state.spawnError = undefined;
 	const run = runs.startComposeRun('failing', target, 'solution', 'keflavik', 'up');
@@ -460,7 +488,10 @@ test('spawn failure releases the lock; failed exit keeps a Compose log', async (
 	assert.equal(state.logs[0].metadata.kind, 'compose');
 	assert.equal(state.logs[0].metadata.action, 'up');
 	assert.deepEqual(state.logs[0].metadata.files, target.selection.files);
-	assert.equal(runs.startComposeRun('retry', target, 'solution', 'keflavik', 'up').status, 'running');
+	assert.equal(
+		runs.startComposeRun('retry', target, 'solution', 'keflavik', 'up').status,
+		'running'
+	);
 });
 
 test('cancellation holds the lock until process-tree termination is verified', async () => {
@@ -517,22 +548,31 @@ test('run POST refuses a project name owned by another working directory', async
 			Labels: { 'com.docker.compose.project.working_dir': '/home/other/task/solution' }
 		}
 	];
-	await assert.rejects(runRoute.POST(postEvent({ ...input(), repoName: 'solution', action: 'up' })), {
-		status: 409,
-		message: /\/home\/other\/task\/solution/
-	});
+	await assert.rejects(
+		runRoute.POST(postEvent({ ...input(), repoName: 'solution', action: 'up' })),
+		{
+			status: 409,
+			message: /\/home\/other\/task\/solution/
+		}
+	);
 	assert.equal(state.spawns.length, 0);
 });
 
 test('run POST reports configuration errors as 422 and a missing CLI as 503', async () => {
 	state.configResult = { error: { code: 1 }, stderr: 'services.fdp.image must be a string' };
-	await assert.rejects(runRoute.POST(postEvent({ ...input(), repoName: 'solution', action: 'up' })), {
-		status: 422
-	});
+	await assert.rejects(
+		runRoute.POST(postEvent({ ...input(), repoName: 'solution', action: 'up' })),
+		{
+			status: 422
+		}
+	);
 	state.configResult = { error: { code: 'ENOENT' } };
-	await assert.rejects(runRoute.POST(postEvent({ ...input(), repoName: 'solution', action: 'up' })), {
-		status: 503
-	});
+	await assert.rejects(
+		runRoute.POST(postEvent({ ...input(), repoName: 'solution', action: 'up' })),
+		{
+			status: 503
+		}
+	);
 	assert.equal(state.spawns.length, 0);
 });
 

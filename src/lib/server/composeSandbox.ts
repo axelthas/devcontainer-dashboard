@@ -148,7 +148,8 @@ async function requireFileWithin(realRepo: string, path: string, label: string):
 		throw new ComposeTargetError(`${label} is missing or inaccessible`);
 	}
 	if (!info.isFile()) throw new ComposeTargetError(`${label} must be a file`);
-	if (!isWithin(realRepo, real)) throw new ComposeTargetError(`${label} symlink escapes the repository`);
+	if (!isWithin(realRepo, real))
+		throw new ComposeTargetError(`${label} symlink escapes the repository`);
 }
 
 /** Check lexical and real paths before any Compose process can read the selection. */
@@ -216,7 +217,10 @@ async function composeFilesIn(repoPath: string, directory: string): Promise<stri
 	try {
 		const entries = await readdir(join(repoPath, directory), { withFileTypes: true });
 		return entries
-			.filter((entry) => (entry.isFile() || entry.isSymbolicLink()) && COMPOSE_FILE_PATTERN.test(entry.name))
+			.filter(
+				(entry) =>
+					(entry.isFile() || entry.isSymbolicLink()) && COMPOSE_FILE_PATTERN.test(entry.name)
+			)
 			.map((entry) => (directory ? `${directory}/${entry.name}` : entry.name));
 	} catch {
 		return [];
@@ -248,7 +252,13 @@ export async function findComposeFiles(repoPath: string): Promise<string[]> {
 
 /** Remove dashboard credentials and editor hooks, as terminal.ts does for PTY children. */
 export function composeEnvironment(env: NodeJS.ProcessEnv = process.env): Record<string, string> {
-	const excluded = ['DASHBOARD_PASSWORD', 'TERM_PROGRAM', 'TERM_PROGRAM_VERSION', 'GIT_ASKPASS', 'BROWSER'];
+	const excluded = [
+		'DASHBOARD_PASSWORD',
+		'TERM_PROGRAM',
+		'TERM_PROGRAM_VERSION',
+		'GIT_ASKPASS',
+		'BROWSER'
+	];
 	const result: Record<string, string> = {};
 	for (const [key, value] of Object.entries(env)) {
 		if (value === undefined || key.startsWith('VSCODE_') || excluded.includes(key)) continue;
@@ -314,7 +324,9 @@ function record(value: unknown): Record<string, unknown> | undefined {
 
 /** Narrow an unknown value to a string list. */
 function strings(value: unknown): string[] {
-	return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+	return Array.isArray(value)
+		? value.filter((item): item is string => typeof item === 'string')
+		: [];
 }
 
 /** Read a scalar as text; Compose JSON uses strings for published ports. */
@@ -352,7 +364,9 @@ function summarizeService(name: string, raw: unknown): ComposeServiceSummary {
 /** Extract network identity, external flag, and the first IPAM subnet. */
 function summarizeNetwork(key: string, raw: unknown): ComposeNetworkSummary {
 	const network = record(raw) ?? {};
-	const config = Array.isArray(record(network.ipam)?.config) ? (record(network.ipam)!.config as unknown[]) : [];
+	const config = Array.isArray(record(network.ipam)?.config)
+		? (record(network.ipam)!.config as unknown[])
+		: [];
 	const subnet = config.map(record).find((entry) => typeof entry?.subnet === 'string')?.subnet;
 	return {
 		key,
@@ -418,7 +432,8 @@ export function classifyStack(
 	const others = new Set<string>();
 	const summaries: ComposeStackContainer[] = containers.map((container) => {
 		const workingDir = container.Labels?.[WORKING_DIR_LABEL];
-		if (!workingDir || !mine.has(workingDir.replace(/\/+$/, ''))) others.add(workingDir || 'unknown');
+		if (!workingDir || !mine.has(workingDir.replace(/\/+$/, '')))
+			others.add(workingDir || 'unknown');
 		return {
 			id: container.Id.slice(0, 12),
 			name: (container.Names?.[0] ?? '').replace(/^\//, ''),

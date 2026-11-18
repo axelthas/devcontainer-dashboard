@@ -94,11 +94,17 @@ export function composeActionCommand(
 	selection: ComposeSelection,
 	action: ComposeAction
 ): ComposeCommand {
-	return { file: 'docker', args: [...composeGlobalArgs(repoPath, selection), ...ACTION_ARGS[action]] };
+	return {
+		file: 'docker',
+		args: [...composeGlobalArgs(repoPath, selection), ...ACTION_ARGS[action]]
+	};
 }
 
 /** Build the argv that resolves and validates the effective configuration. */
-export function composeConfigCommand(repoPath: string, selection: ComposeSelection): ComposeCommand {
+export function composeConfigCommand(
+	repoPath: string,
+	selection: ComposeSelection
+): ComposeCommand {
 	return {
 		file: 'docker',
 		args: [...composeGlobalArgs(repoPath, selection), 'config', '--format', 'json']

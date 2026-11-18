@@ -56,12 +56,12 @@ commands.
 
 ## Actions
 
-| Button          | Docker call                    | Effect                                   |
-| --------------- | ------------------------------ | ---------------------------------------- |
-| Build           | `docker compose build`         | Builds service images                    |
-| Start           | `docker compose up --detach`   | Creates or reconciles and starts the stack |
-| Build and start | `docker compose up --detach --build` | Builds, then starts                |
-| Stop            | `docker compose stop`          | Stops containers; keeps containers and volumes |
+| Button          | Docker call                          | Effect                                         |
+| --------------- | ------------------------------------ | ---------------------------------------------- |
+| Build           | `docker compose build`               | Builds service images                          |
+| Start           | `docker compose up --detach`         | Creates or reconciles and starts the stack     |
+| Build and start | `docker compose up --detach --build` | Builds, then starts                            |
+| Stop            | `docker compose stop`                | Stops containers; keeps containers and volumes |
 
 Each call also has `--project-directory`, one `--file` per selected file, the optional
 `--env-file`, and one `--profile` per profile. The panel shows the exact calls under
