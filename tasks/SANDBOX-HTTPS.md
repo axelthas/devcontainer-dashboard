@@ -30,6 +30,21 @@ For an unlisted web service, also set its **container port** and upstream protoc
 These are example ports, not automatic discovery. Never enable a database or other
 non-HTTP protocol as a web service. Upstream HTTPS certificate validation remains on.
 
+## Web services and TCP-only ports
+
+Docker does not report which protocol a published port speaks, and the dashboard does not
+probe ports. A container port is a web service only when the service port policy names it
+`http` or `https`. The policy is the built-in default list plus `--gateway-ports`:
+
+- Defaults: `80:http`, `443:https`, and `4096`, `6904`, `8000`, `8080`, `9001` as `http`.
+  Tailscale mode also adds `3000:http`.
+- `--gateway-ports 5904:http` adds a port. `--gateway-ports 8080:off` removes one.
+- UDP ports are never web services.
+
+In each Docker Services row, the Services menu opens web services in the dashboard. It
+copies the host address of every other port, for example for VNC, MySQL or a raw TCP
+interface. The expanded details show the same split per port.
+
 Open the service from Docker Services. Its iframe and Open directly action use an
 allocated HTTPS origin. Browser traffic is HTTPS; the gateway connects locally to
 `127.0.0.1:<published-host-port>` with the configured upstream HTTP/HTTPS protocol.
@@ -49,8 +64,8 @@ allocated HTTPS origin. Browser traffic is HTTPS; the gateway connects locally t
 **HTTPS proxying does not close the original service port.** An all-interface binding
 remains accessible according to the host firewall. It can bypass dashboard authentication
 through its original endpoint. Change Compose publishing separately if you want to
-remove that access. Published bindings are shown in the container details, not treated
-as authorization data.
+remove that access. Published bindings are shown in the expanded row details, not treated
+as authorization data. A Compose group header counts its containers on all interfaces.
 
 Applications can still refuse embedding with CSP or X-Frame-Options. Configure their
 allowed dashboard origin where supported, or use Open directly over HTTPS. The gateway
@@ -77,6 +92,7 @@ host, use one disposable sandbox service and verify:
 3. A loopback-published devcontainer still works.
 4. Signed-out HTTPS service access is refused.
 5. Stop or replace the service and verify stale allocations are removed.
-6. Published-binding details correctly distinguish loopback and all interfaces.
+6. Row details distinguish loopback and all interfaces, and fold IPv4/IPv6 pairs.
+   The Services menu opens web ports and copies the address of TCP-only ports.
 7. Existing direct HTTP access remains unchanged.
 8. An application that refuses framing still works through HTTPS Open directly.
