@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PublishedPorts from './PublishedPorts.svelte';
 	import { onDestroy } from 'svelte';
 	import { Check, ChevronRight, Copy, FolderGit2, Loader2, Play, Plus } from 'lucide-svelte';
 	import type { ContainerData } from '$lib/types';
@@ -292,6 +293,7 @@
 					{:else}
 						<span class="text-[#4c566a] dark:text-[#d8dee9]/60">No published ports</span>
 					{/if}
+					<PublishedPorts bindings={container.portBindings} />
 				</dd>
 
 				<dt class="text-[#4c566a] dark:text-[#d8dee9]/60">Networks</dt>
@@ -361,8 +363,8 @@
 			</dl>
 			{#if !isRunning}
 				<p class="text-xs text-[#4c566a] dark:text-[#d8dee9]/60">
-					The commands run when the container is running. While it is stopped, Open with opens
-					the host folder.
+					The commands run when the container is running. While it is stopped, Open with opens the
+					host folder.
 				</p>
 			{/if}
 			{#if copyError}

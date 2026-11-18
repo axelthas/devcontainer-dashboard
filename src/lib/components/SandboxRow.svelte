@@ -4,6 +4,7 @@
 	import { buildContainerVscodeUri } from '$lib/vscode';
 	import ServiceButton from './ServiceButton.svelte';
 	import ActionControls from './ActionControls.svelte';
+	import PublishedPorts from './PublishedPorts.svelte';
 
 	interface Props {
 		container: ContainerData;
@@ -90,3 +91,9 @@
 		/>
 	</div>
 </div>
+{#if container.portBindings?.length}
+	<details class="px-5 pb-3 text-xs text-[#4c566a] dark:text-[#d8dee9]/70">
+		<summary class="cursor-pointer">Published bindings: {container.projectName}</summary>
+		<div class="pt-2"><PublishedPorts bindings={container.portBindings} /></div>
+	</details>
+{/if}
