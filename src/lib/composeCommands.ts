@@ -129,6 +129,15 @@ export function shellCommand(command: ComposeCommand): string {
 	return [command.file, ...command.args].map(shellQuote).join(' ');
 }
 
+/** Encode a selection as the query string of `GET /api/compose`. Repeated keys keep order. */
+export function composeQuery(repoPath: string, selection: ComposeSelection): string {
+	const parts = [`repoPath=${encodeURIComponent(repoPath)}`];
+	for (const file of selection.files) parts.push(`file=${encodeURIComponent(file)}`);
+	if (selection.envFile) parts.push(`envFile=${encodeURIComponent(selection.envFile)}`);
+	for (const profile of selection.profiles) parts.push(`profile=${encodeURIComponent(profile)}`);
+	return parts.join('&');
+}
+
 /** Split a comma or whitespace separated profile field and remove duplicates. */
 export function parseProfiles(text: string): string[] {
 	return [...new Set(text.split(/[\s,]+/).filter(Boolean))];

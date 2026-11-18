@@ -85,13 +85,22 @@ function isSameOrWithin(root: string, path: string): boolean {
 	return root === path || isWithin(root, path);
 }
 
+/** Detect C0 control characters, including NUL, CR, and LF, without a control-character regex. */
+function hasControlCharacter(value: string): boolean {
+	for (let index = 0; index < value.length; index++) {
+		if (value.charCodeAt(index) < 0x20) return true;
+	}
+	return false;
+}
+
 /** Accept a plain relative path: no empty, dot, or parent segments, and no control characters. */
 function validRelative(value: unknown, label: string): string {
 	if (
 		typeof value !== 'string' ||
 		!value ||
 		value.length > 512 ||
-		/[\0-\x1f\\]/.test(value) ||
+		hasControlCharacter(value) ||
+		value.includes('\\') ||
 		isAbsolute(value)
 	) {
 		throw new ComposeTargetError(`${label} must be a relative path inside the repository`);
@@ -158,7 +167,7 @@ export async function resolveComposeTarget(
 	input: ComposeTargetInput
 ): Promise<ComposeTarget> {
 	const { repoPath } = input;
-	if (typeof repoPath !== 'string' || !isAbsolute(repoPath) || /[\0-\x1f]/.test(repoPath)) {
+	if (typeof repoPath !== 'string' || !isAbsolute(repoPath) || hasControlCharacter(repoPath)) {
 		throw new ComposeTargetError('Repository must be an absolute local path');
 	}
 	const files = validFiles(input.files);
@@ -234,7 +243,7 @@ async function composeFilesIn(repoPath: string, directory: string): Promise<stri
  */
 export async function findComposeFiles(repoPath: string): Promise<string[]> {
 	const files = await composeFilesIn(repoPath, '');
-	let directories: string[] = [];
+	let directories: string[];
 	try {
 		const entries = await readdir(repoPath, { withFileTypes: true });
 		directories = entries

@@ -26,6 +26,7 @@
 		composeActionCommand,
 		composeDirectory,
 		composeLogsCommand,
+		composeQuery,
 		defaultComposeSelection,
 		parseProfiles,
 		shellCommand,
@@ -153,15 +154,12 @@
 			return;
 		}
 		const key = selectionKey;
-		const params = new URLSearchParams({ repoPath: repo.path });
-		for (const file of selection.files) params.append('file', file);
-		if (selection.envFile) params.set('envFile', selection.envFile);
-		for (const profile of selection.profiles) params.append('profile', profile);
+		const query = composeQuery(repo.path, selection);
 		inspecting = true;
 		inspectError = '';
 		try {
 			const applied = await reads.run(
-				(signal) => requestJson<ComposeInspection>(`/api/compose?${params}`, { signal }),
+				(signal) => requestJson<ComposeInspection>(`/api/compose?${query}`, { signal }),
 				(value) => {
 					inspection = value;
 					inspectedKey = key;
