@@ -22,6 +22,9 @@ export const COMPOSE_FILE_PATTERN = /^(?:docker-)?compose(?:\.[A-Za-z0-9_-]+)*\.
 export const COMPOSE_PROFILE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
 export const MAX_COMPOSE_FILES = 8;
 export const MAX_COMPOSE_PROFILES = 16;
+/** Compose service names, kept strict so they never look like options. */
+export const COMPOSE_SERVICE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
+export const MAX_COMPOSE_SERVICES = 128;
 
 /** Base names that Compose itself loads by default, in its precedence order. */
 export const DEFAULT_COMPOSE_FILES = [
@@ -88,15 +91,16 @@ const ACTION_ARGS: Record<ComposeAction, string[]> = {
 	stop: ['stop']
 };
 
-/** Build the argv for one lifecycle action. */
+/** Build the argv for one lifecycle action. No services means every service. */
 export function composeActionCommand(
 	repoPath: string,
 	selection: ComposeSelection,
-	action: ComposeAction
+	action: ComposeAction,
+	services: string[] = []
 ): ComposeCommand {
 	return {
 		file: 'docker',
-		args: [...composeGlobalArgs(repoPath, selection), ...ACTION_ARGS[action]]
+		args: [...composeGlobalArgs(repoPath, selection), ...ACTION_ARGS[action], ...services]
 	};
 }
 
@@ -112,11 +116,13 @@ export function composeConfigCommand(
 }
 
 /** Build the argv that follows service logs in an operator terminal. */
-export function composeLogsCommand(repoPath: string, selection: ComposeSelection): ComposeCommand {
-	return {
-		file: 'docker',
-		args: [...composeGlobalArgs(repoPath, selection), 'logs', '--follow', '--tail', '200']
-	};
+export function composeLogsCommand(
+	repoPath: string,
+	selection: ComposeSelection,
+	services: string[] = []
+): ComposeCommand {
+	const tail = ['logs', '--follow', '--tail', '200', ...services];
+	return { file: 'docker', args: [...composeGlobalArgs(repoPath, selection), ...tail] };
 }
 
 /** POSIX single-quote one argument when it contains characters outside a safe set. */
@@ -175,4 +181,31 @@ export function defaultComposeSelection(files: string[], directory?: string): st
 		new RegExp(`^${stem.replace('.', '\\.')}\\.override\\.ya?ml$`).test(composeBaseName(file))
 	);
 	return override ? [primary, override] : [primary];
+}
+
+/** Return the selected services plus their transitive `depends_on` services, in config order. */
+export function withDependencies(
+	services: { name: string; dependsOn: string[] }[],
+	selected: string[]
+): string[] {
+	const byName = new Map(services.map((service) => [service.name, service]));
+	const included = new Set<string>();
+	const pending = [...selected];
+	while (pending.length > 0) {
+		const name = pending.pop();
+		const service = name === undefined ? undefined : byName.get(name);
+		if (!service || included.has(service.name)) continue;
+		included.add(service.name);
+		pending.push(...service.dependsOn);
+	}
+	return services.map((service) => service.name).filter((name) => included.has(name));
+}
+
+/**
+ * Identify the kind of a sandbox: the repository name and the selected files.
+ * Clones of one solution in different task workspaces share the kind, so they share a
+ * remembered service selection.
+ */
+export function composeSandboxKind(repoName: string, files: string[]): string {
+	return `${repoName}:${files.join(',')}`;
 }

@@ -9,6 +9,7 @@ import {
 	ComposeTargetError,
 	ComposeUnavailableError,
 	inspectComposeTarget,
+	resolveComposeServices,
 	resolveComposeTarget
 } from '$lib/server/composeSandbox';
 import { ComposeRunConflict, removeComposeRun, startComposeRun } from '$lib/server/composeRuns';
@@ -18,7 +19,8 @@ const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT ?? '/workspaces';
 export const POST: RequestHandler = async ({ request }) => {
 	const body = await request.json().catch(() => null);
 	if (!body || typeof body !== 'object') throw error(400, 'Invalid JSON body');
-	const { repoPath, repoName, files, envFile, profiles, action } = body as Record<string, unknown>;
+	const fields = body as Record<string, unknown>;
+	const { repoPath, repoName, files, envFile, profiles, action, services } = fields;
 	if (typeof repoName !== 'string' || !repoName.trim() || repoName.length > 200) {
 		throw error(400, 'repoName is required');
 	}
@@ -36,6 +38,14 @@ export const POST: RequestHandler = async ({ request }) => {
 		if (cause instanceof ComposeUnavailableError) throw error(503, cause.message);
 		throw error(503, 'Could not inspect the Compose configuration. Check Docker availability.');
 	}
+	let selectedServices: string[];
+	try {
+		const available = inspection.services.map((service) => service.name);
+		selectedServices = resolveComposeServices(services, available);
+	} catch (cause) {
+		if (cause instanceof ComposeTargetError) throw error(400, cause.message);
+		throw cause;
+	}
 	if (inspection.ownership === 'other') {
 		throw error(
 			409,
@@ -49,7 +59,8 @@ export const POST: RequestHandler = async ({ request }) => {
 			target,
 			repoName.trim(),
 			inspection.projectName,
-			action
+			action,
+			selectedServices
 		);
 		return json({ id: run.id, repoPath: run.repoPath, projectName: inspection.projectName });
 	} catch (cause) {

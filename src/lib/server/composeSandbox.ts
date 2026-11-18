@@ -10,8 +10,10 @@ import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
 	COMPOSE_FILE_PATTERN,
 	COMPOSE_PROFILE_PATTERN,
+	COMPOSE_SERVICE_PATTERN,
 	MAX_COMPOSE_FILES,
 	MAX_COMPOSE_PROFILES,
+	MAX_COMPOSE_SERVICES,
 	compareComposeFiles,
 	composeBaseName,
 	composeConfigCommand,
@@ -145,6 +147,31 @@ function validProfiles(value: unknown): string[] {
 		}
 	}
 	return [...new Set(value as string[])];
+}
+
+/**
+ * Validate a service subset against the resolved services, in config order.
+ * An absent list and a list of every service both mean every service, which is no names.
+ */
+export function resolveComposeServices(value: unknown, available: string[]): string[] {
+	if (value === undefined) return [];
+	if (!Array.isArray(value) || value.length > MAX_COMPOSE_SERVICES) {
+		throw new ComposeTargetError(`Select at most ${MAX_COMPOSE_SERVICES} services`);
+	}
+	if (value.length === 0) throw new ComposeTargetError('Select at least one service');
+	const known = new Set(available);
+	const selected = new Set<string>();
+	for (const service of value) {
+		if (typeof service !== 'string' || !COMPOSE_SERVICE_PATTERN.test(service)) {
+			throw new ComposeTargetError('Service names use letters, digits, dot, dash, and underscore');
+		}
+		if (!known.has(service)) {
+			throw new ComposeTargetError(`Service ${service} is not in the selected files and profiles`);
+		}
+		selected.add(service);
+	}
+	if (selected.size === known.size) return [];
+	return available.filter((service) => selected.has(service));
 }
 
 /** Resolve a path and require a regular file inside the canonical repository. */
@@ -359,6 +386,10 @@ function summarizeService(name: string, raw: unknown): ComposeServiceSummary {
 	const networks = Array.isArray(service.networks)
 		? strings(service.networks)
 		: Object.keys(record(service.networks) ?? {});
+	// Compose normalizes depends_on to a map; accept the short list form as well.
+	const dependsOn = Array.isArray(service.depends_on)
+		? strings(service.depends_on)
+		: Object.keys(record(service.depends_on) ?? {});
 	return {
 		name,
 		...(typeof service.image === 'string' ? { image: service.image } : {}),
@@ -366,6 +397,7 @@ function summarizeService(name: string, raw: unknown): ComposeServiceSummary {
 		profiles: strings(service.profiles),
 		ports,
 		networks: networks.sort(),
+		dependsOn: dependsOn.sort(),
 		...(typeof service.container_name === 'string' ? { containerName: service.container_name } : {})
 	};
 }

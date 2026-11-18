@@ -27,6 +27,8 @@ export interface ActiveComposeRun {
 	repoName: string;
 	action: ComposeAction;
 	files: string[];
+	/** Services passed to Compose; empty means every service. */
+	services: string[];
 	projectName?: string;
 	/** Canonical project directory; one run per directory at a time. */
 	canonicalProjectDirectory?: string;
@@ -58,7 +60,8 @@ export function startComposeRun(
 	target: ComposeTarget,
 	repoName: string,
 	projectName: string,
-	action: ComposeAction
+	action: ComposeAction,
+	services: string[] = []
 ): ActiveComposeRun {
 	cleanupOldRuns();
 	for (const existing of activeRuns.values()) {
@@ -70,7 +73,7 @@ export function startComposeRun(
 			throw new ComposeRunConflict();
 		}
 	}
-	const executable = composeActionCommand(target.repoPath, target.selection, action);
+	const executable = composeActionCommand(target.repoPath, target.selection, action, services);
 
 	// Replace a finished entry for the same repository, so the row shows the newest run.
 	for (const [existingId, existing] of activeRuns) {
@@ -85,6 +88,7 @@ export function startComposeRun(
 		repoName,
 		action,
 		files: [...target.selection.files],
+		services: [...services],
 		projectName,
 		canonicalProjectDirectory: target.canonicalProjectDirectory,
 		status: 'running',
@@ -129,6 +133,7 @@ function keepFailedRunLog(run: ActiveComposeRun, output: string): void {
 		path: run.repoPath,
 		action: run.action,
 		files: run.files,
+		services: run.services,
 		startedAt: run.startedAt,
 		endedAt: new Date().toISOString(),
 		exitCode: run.exitCode ?? 1
@@ -182,6 +187,7 @@ async function restoreFailedRuns(): Promise<void> {
 			repoName: log.name,
 			action,
 			files: log.files ?? [],
+			services: log.services ?? [],
 			status: 'failed',
 			startedAt: log.startedAt,
 			exitCode: log.exitCode,
