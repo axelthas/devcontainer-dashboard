@@ -11,7 +11,7 @@ import { Duplex } from 'node:stream';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const repository = fileURLToPath(new URL('../../', import.meta.url));
-const BRAIN_MODULES = ['state', 'exposure', 'executions', 'access', 'tools', 'mcp', 'gateway'];
+const BRAIN_MODULES = ['state', 'exposure', 'executions', 'access', 'tools', 'mcp', 'gateway', 'startup'];
 
 /** Copy one stripped module into the temporary tree. */
 async function copyStripped(source, target) {
@@ -25,11 +25,13 @@ export async function loadBrain() {
 	await mkdir(join(root, 'server/brain'), { recursive: true });
 	await writeFile(join(root, 'server/docker.js'), 'export default {};\n');
 	await copyStripped('src/lib/brainTypes.ts', join(root, 'brainTypes.js'));
+	await copyStripped('src/lib/server/tailscaleServe.ts', join(root, 'server/tailscaleServe.js'));
 	const modules = {};
 	for (const name of BRAIN_MODULES)
 		await copyStripped(`src/lib/server/brain/${name}.ts`, join(root, `server/brain/${name}.js`));
 	for (const name of BRAIN_MODULES)
 		modules[name] = await import(pathToFileURL(join(root, `server/brain/${name}.js`)).href);
+	modules.serve = await import(pathToFileURL(join(root, 'server/tailscaleServe.js')).href);
 	modules.cleanup = () => rm(root, { recursive: true, force: true });
 	return modules;
 }
