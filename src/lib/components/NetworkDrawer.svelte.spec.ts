@@ -3,7 +3,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { page } from 'vitest/browser';
 import { mount, unmount } from 'svelte';
 import NetworkDrawer from './NetworkDrawer.svelte';
+import TerminalManager from './TerminalManager.svelte';
 import type { ContainerData, NetworkData } from '$lib/types';
+import '../../routes/layout.css';
 
 const container: ContainerData = {
 	id: 'bbbbbbbbbbbb',
@@ -73,6 +75,64 @@ afterEach(async () => {
 });
 
 describe('Network drawer', () => {
+	it.each(['collapsed', 'expanded', 'maximized'])(
+		'keeps Connect above the %s terminal with a long network list',
+		async (terminalState) => {
+			const fetch = vi.fn(async () => Response.json({ steps: [], networks: [] }));
+			vi.stubGlobal('fetch', fetch);
+			const networks = Array.from({ length: 20 }, (_, index) => ({
+				...sandbox,
+				name: `sandbox_${index}`,
+				endpoints: []
+			}));
+			const { onConnected } = drawer({ network: networks[0].name, networks });
+			const target = document.createElement('div');
+			document.body.append(target);
+			targets.push(target);
+			// Match the dashboard: the terminal is mounted after the network drawer.
+			mounted.push(
+				mount(TerminalManager, {
+					target,
+					props: {
+						open: terminalState !== 'collapsed',
+						sessions: [],
+						activeId: null,
+						workspaceRoot: '/workspaces',
+						onToggle: vi.fn(),
+						onAddSession: vi.fn(),
+						onCloseSession: vi.fn(async () => {}),
+						onSetActive: vi.fn()
+					}
+				})
+			);
+			if (terminalState === 'maximized') {
+				// Change only the fixture state; the modal must still intercept pointer input.
+				const maximize = document.querySelector<HTMLButtonElement>(
+					'button[aria-label="Maximize terminal"]'
+				);
+				maximize?.click();
+			}
+			await vi.waitFor(() => {
+				const button = document.querySelector<HTMLButtonElement>(
+					'div[role="dialog"] footer button:last-child'
+				);
+				expect(button).not.toBeNull();
+				if (!button) return;
+				const bounds = button.getBoundingClientRect();
+				expect(bounds.top).toBeGreaterThanOrEqual(0);
+				expect(bounds.bottom).toBeLessThanOrEqual(window.innerHeight);
+				expect(bounds.width).toBeGreaterThan(0);
+				const hit = document.elementFromPoint(
+					bounds.left + bounds.width / 2,
+					bounds.top + bounds.height / 2
+				);
+				expect(hit === button || (hit !== null && button.contains(hit))).toBe(true);
+			});
+			await page.getByRole('button', { name: 'Connect', exact: true }).click();
+			await vi.waitFor(() => expect(onConnected).toHaveBeenCalled());
+		}
+	);
+
 	it('offers free seats only and previews the exact Docker calls', async () => {
 		drawer({ network: 'keflavik_oplan', seatIp: '192.168.103.101' });
 		await expect.element(page.getByRole('radio', { name: /twr-fdd-1-sup/ })).toBeChecked();

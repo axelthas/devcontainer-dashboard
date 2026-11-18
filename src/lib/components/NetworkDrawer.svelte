@@ -262,7 +262,8 @@
 />
 
 {#if container}
-	<div class="fixed inset-0 z-40 flex justify-end">
+	<!-- Modal drawers must cover the terminal manager, including its collapsed bar. -->
+	<div class="fixed inset-0 z-50 flex justify-end">
 		<button
 			type="button"
 			tabindex="-1"
@@ -274,10 +275,10 @@
 			role="dialog"
 			aria-modal="true"
 			aria-labelledby={headingId}
-			class="relative flex h-full w-full max-w-xl flex-col border-l border-[#d8dee9] bg-white text-[#2e3440] shadow-xl dark:border-[#4c566a] dark:bg-[#3b4252] dark:text-[#eceff4]"
+			class="relative flex h-full min-h-0 w-full max-w-xl flex-col overflow-hidden border-l border-[#d8dee9] bg-white text-[#2e3440] shadow-xl dark:border-[#4c566a] dark:bg-[#3b4252] dark:text-[#eceff4]"
 		>
 			<header
-				class="flex items-start justify-between gap-3 border-b border-[#d8dee9] px-5 py-4 dark:border-[#4c566a]"
+				class="flex shrink-0 items-start justify-between gap-3 border-b border-[#d8dee9] px-5 py-4 dark:border-[#4c566a]"
 			>
 				<div class="min-w-0">
 					<h2
@@ -301,7 +302,7 @@
 				</button>
 			</header>
 
-			<div class="grid flex-1 content-start gap-6 overflow-y-auto px-5 py-4 text-sm">
+			<div class="grid min-h-0 flex-1 content-start gap-6 overflow-y-auto px-5 py-4 text-sm">
 				<fieldset disabled={busy}>
 					<legend class={legend}>Network · existing networks only</legend>
 					{#if networksError}
@@ -511,7 +512,7 @@
 			</div>
 
 			<footer
-				class="flex justify-end gap-2 border-t border-[#d8dee9] px-5 py-3 dark:border-[#4c566a]"
+				class="flex shrink-0 justify-end gap-2 border-t border-[#d8dee9] px-5 py-3 dark:border-[#4c566a]"
 			>
 				<button
 					type="button"
