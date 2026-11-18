@@ -14,7 +14,8 @@
 		ArrowUpRight,
 		TriangleAlert,
 		FileText,
-		X
+		X,
+		Boxes
 	} from 'lucide-svelte';
 	import { onDestroy, untrack } from 'svelte';
 	import {
@@ -32,6 +33,7 @@
 	import ServiceButton from './ServiceButton.svelte';
 	import OpenWithMenu from './OpenWithMenu.svelte';
 	import WorkspaceMoreMenu from './WorkspaceMoreMenu.svelte';
+	import ComposeSandboxPanel from './ComposeSandboxPanel.svelte';
 	import { resolve } from '$app/paths';
 	import TerminalTab from './TerminalTab.svelte';
 
@@ -81,6 +83,8 @@
 	});
 	let expanded = new SvelteSet<string>();
 	let expandedRepos = new SvelteSet<string>();
+	// Repositories whose Compose sandbox panel is open
+	const sandboxRepos = new SvelteSet<string>();
 	let refreshing = $state(false);
 	let buildingRepos = $state<Set<string>>(new Set());
 	let deletingWorkspaces = $state<Set<string>>(new Set());
@@ -105,6 +109,26 @@
 	onDestroy(() => {
 		disposed = true;
 		branchReads.cancel();
+	});
+
+	// Poll while a Compose run is active, so a collapsed row still shows completion.
+	const hasActiveComposeRuns = $derived(
+		workspaces.some((ws) => ws.repos.some((repo) => repo.composeRun?.status === 'running'))
+	);
+
+	$effect(() => {
+		if (!hasActiveComposeRuns) return;
+		let stopped = false;
+		let timer: ReturnType<typeof setTimeout>;
+		async function poll() {
+			await onRefreshWorkspaces().catch(() => {});
+			if (!stopped) timer = setTimeout(poll, 3000);
+		}
+		timer = setTimeout(poll, 3000);
+		return () => {
+			stopped = true;
+			clearTimeout(timer);
+		};
 	});
 
 	/** Catch event-handler failures and keep the error next to its workspace or repository. */
@@ -189,6 +213,12 @@
 	function toggleRepoExpand(path: string) {
 		if (expandedRepos.has(path)) expandedRepos.delete(path);
 		else expandedRepos.add(path);
+	}
+
+	/** Open or close the Compose sandbox panel; closing never stops a running action. */
+	function toggleSandbox(path: string) {
+		if (sandboxRepos.has(path)) sandboxRepos.delete(path);
+		else sandboxRepos.add(path);
 	}
 
 	function openLog(id: string, title: string) {
@@ -743,6 +773,25 @@
 
 									<!-- Action column: devcontainer actions, then Open with pinned to the right edge -->
 									<div class="ml-auto flex shrink-0 items-center justify-end gap-2">
+										{#if repo.composeFiles?.length}
+											<!-- Compose sandbox controls; no devcontainer is required -->
+											<button
+												onclick={() => toggleSandbox(repo.path)}
+												aria-expanded={sandboxRepos.has(repo.path)}
+												class="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium whitespace-nowrap text-[#5e81ac] transition-colors hover:bg-[#e5e9f0] aria-expanded:bg-[#e5e9f0] dark:text-[#88c0d0] dark:hover:bg-[#3b4252] dark:aria-expanded:bg-[#3b4252]"
+												type="button"
+												title="Build and run the Compose sandbox of this repository"
+											>
+												{#if repo.composeRun?.status === 'running'}
+													<Loader size={12} class="animate-spin" />
+												{:else if repo.composeRun?.status === 'failed'}
+													<TriangleAlert size={12} class="text-[#bf616a]" />
+												{:else}
+													<Boxes size={12} />
+												{/if}
+												Sandbox
+											</button>
+										{/if}
 										{#if repo.hasDevcontainer}
 											<div class="flex items-center gap-1">
 												{#if matchedContainer && matchedContainer.state === 'running'}
@@ -903,6 +952,15 @@
 											/>
 										</div>
 									</div>
+								{/if}
+								{#if repo.composeFiles?.length && sandboxRepos.has(repo.path)}
+									<ComposeSandboxPanel
+										{repo}
+										onRefresh={onRefreshWorkspaces}
+										{onRefreshContainers}
+										{onOpenTerminal}
+										onOpenLog={openLog}
+									/>
 								{/if}
 							{/each}
 						</div>
