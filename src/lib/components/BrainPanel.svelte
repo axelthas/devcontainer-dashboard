@@ -64,7 +64,7 @@
 	}
 </script>
 
-{#if status?.enabled}
+{#if status}
 	<button
 		type="button"
 		onclick={() => dialog?.showModal()}
@@ -72,7 +72,9 @@
 		class="flex items-center gap-1.5 rounded-full border border-[#b48ead]/40 bg-[#b48ead]/10 px-3 py-1.5 text-sm font-medium text-[#b48ead] transition-colors hover:bg-[#b48ead]/20"
 	>
 		<BrainCircuit size={16} />
-		<span>Brain · {grants.length} {grants.length === 1 ? 'grant' : 'grants'}</span>
+		<span>{status.enabled
+			? `Brain · ${grants.length} ${grants.length === 1 ? 'grant' : 'grants'}`
+			: 'Brain disabled'}</span>
 	</button>
 
 	<dialog
@@ -103,6 +105,25 @@
 					<p role="alert" class="text-xs text-[#bf616a]">{failure}</p>
 				{/if}
 
+				{#if !status.enabled}
+					<section class="grid gap-3">
+						<h3 class="font-semibold">Brain shell access is disabled</h3>
+						<p class="text-xs">
+							Add <code>--brain</code> to your production launcher command, then recreate the
+							dashboard container. This creates a persistent token and a loopback-only MCP listener.
+						</p>
+						<pre class="overflow-auto rounded-lg bg-[#2e3440] p-3 font-mono text-xs text-[#d8dee9]">bash scripts/run-dashboard.sh --build --brain</pre>
+						<p class="text-xs">
+							For ClickUp access over the internet, also add <code>--brain-funnel</code> to
+							your existing Tailscale launch command. It requires <code>--tailscale-socket</code>,
+							an HTTPS <code>--origin</code>, and tailnet Funnel permission.
+						</p>
+						<p class="text-xs text-[#bf616a]">
+							Funnel makes only the token-protected MCP endpoint public, not the dashboard.
+							You must still grant access to each container.
+						</p>
+					</section>
+				{:else}
 				<section class="grid gap-2">
 					<h3 class="text-xs font-semibold text-[#4c566a] uppercase dark:text-[#d8dee9]/60">
 						Endpoint
@@ -113,7 +134,8 @@
 						</p>
 					{:else}
 						<p class="text-xs text-[#4c566a] dark:text-[#d8dee9]/70">
-							The MCP endpoint is running. Set BRAIN_MCP_PUBLIC_URL to show its public address here.
+							The MCP endpoint is running locally. Add --brain-funnel to your Tailscale launch command
+							to publish it and show its connection URL here.
 						</p>
 					{/if}
 					<p class="flex flex-wrap gap-1">
@@ -125,7 +147,8 @@
 						{/each}
 					</p>
 					<p class="text-xs text-[#4c566a] dark:text-[#d8dee9]/60">
-						Brain cannot create grants or reach Docker, networks or the host through the endpoint.
+						Brain cannot create grants. Commands can reach everything available inside a granted
+						container, including its mounted sockets, credentials and networks.
 					</p>
 				</section>
 
@@ -263,6 +286,7 @@
 						</ol>
 					{/if}
 				</section>
+				{/if}
 			</div>
 		</div>
 	</dialog>

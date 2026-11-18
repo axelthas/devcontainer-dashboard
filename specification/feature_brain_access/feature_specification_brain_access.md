@@ -39,7 +39,61 @@ The modules that the custom server imports use relative imports only, because `t
 
 ## Configuration
 
-The endpoint is disabled unless a token is set.
+Use launcher flags instead of creating an environment file:
+
+```bash
+# Local MCP, published only on host loopback.
+bash scripts/run-dashboard.sh --build --brain
+
+# Public MCP through the existing mounted Tailscale socket.
+bash scripts/run-dashboard.sh --build \
+  --tailscale-socket /var/run/tailscale/tailscaled.sock \
+  --origin https://YOUR-NODE.YOUR-TAILNET.ts.net \
+  --brain-funnel
+```
+
+`--brain-funnel` implies `--brain`. It exposes only the dedicated bearer-protected MCP
+listener, never the dashboard or the authenticated service gateway. It does not grant
+access to any container. The operator must still use **Grant Brain**.
+
+| Launcher flag | Purpose |
+| --- | --- |
+| `--brain` | Enable MCP. Create or reuse a private 64-character token in `/data/brain-mcp-token`. |
+| `--brain-token-file PATH` | Enable MCP with an existing Docker-host file, mounted read-only at `/run/brain-mcp-token`. |
+| `--brain-port N` | Local MCP port, default `3100`. Implies `--brain`. |
+| `--brain-funnel` | Explicit public opt-in through LocalAPI. Requires the Tailscale socket and HTTPS origin. |
+| `--brain-funnel-port N` | Public HTTPS port, default `10000`. Requires `--brain-funnel`. |
+
+The public port must be `443`, `8443` or `10000`. It must not overlap the dashboard,
+MCP, AI, gateway, or service allocation ports. The default `10000` is outside the
+default service range `8400-8499`. Existing daemon entries on the requested port are
+refused, including foreground, service, and disabled Funnel reservations.
+
+In bridge mode the launcher publishes MCP as `127.0.0.1:<port>:<port>`, even when
+the dashboard uses a wildcard bind. In Tailscale mode it uses host networking and the
+MCP listener binds directly to host loopback. No separate CLI Funnel command is needed.
+
+Tailscale must already have MagicDNS, HTTPS, and Funnel permission for this node.
+The dashboard does not change tailnet policy or claim external reachability from a
+successful LocalAPI write. A daemon/API or port-conflict failure prevents readiness.
+
+Retrieve the generated token explicitly:
+
+```bash
+docker exec <dashboard-container> cat /data/brain-mcp-token
+```
+
+Use the URL from the Brain panel (also printed in startup logs) in the ClickUp MCP
+connection. Set `Authorization: Bearer <token>`. The token is not returned by the
+dashboard API or printed in logs. A supplied token file must be readable by the
+container operator. Do not commit a token file.
+
+The generated token persists in the dashboard data volume. A container restart reuses
+it. Each new `--build` instance has a separate data volume, so a new build instance
+gets a new token unless a stable `--brain-token-file` is supplied.
+
+Without startup configuration the header shows **Brain disabled** with launch instructions.
+The following environment variables remain available for direct deployments:
 
 | Variable               | Default | Purpose                                                              |
 | ---------------------- | ------- | -------------------------------------------------------------------- |
@@ -47,18 +101,33 @@ The endpoint is disabled unless a token is set.
 | `BRAIN_MCP_TOKEN_FILE` | (empty) | Absolute path of a file that contains the token. Use one of the two. |
 | `BRAIN_MCP_PORT`       | `3100`  | Listener port                                                        |
 | `BRAIN_MCP_PUBLIC_URL` | (empty) | HTTPS URL that the panel shows, for example the Funnel URL           |
+| `BRAIN_MCP_ENABLED` | `0` | `1` creates/reuses the automatic token when no explicit credential is set. |
+| `BRAIN_MCP_FUNNEL` | `0` | `1` opts into public Funnel setup through the mounted socket. |
+| `BRAIN_MCP_FUNNEL_PORT` | `10000` | Public port for automatic Funnel setup. |
 
 The server reads the token at startup and removes `BRAIN_MCP_TOKEN` from its environment, so terminals and other child processes do not inherit it. A token in `--env-file` is still visible in `docker inspect` of the dashboard container. A token file keeps it out of the container configuration.
 
-In Tailscale mode the dashboard uses host networking, and the listener binds to host loopback. Example:
+Explicit Brain launcher flags override legacy Brain settings from `--env-file`, including
+the inline token and public URL. Other environment-file values are unchanged.
 
-1. Create a token: `openssl rand -hex 32`.
-2. Create an environment file with `BRAIN_MCP_TOKEN=<token>`, `BRAIN_MCP_PORT=3100` and `BRAIN_MCP_PUBLIC_URL=https://<node>.<tailnet>.ts.net:8443/mcp`.
-3. Start the dashboard with `--env-file <file>`.
-4. Publish the listener: `tailscale funnel --bg --https=8443 http://127.0.0.1:3100`.
-5. In ClickUp, add a custom MCP server with the public URL and the header `Authorization: Bearer <token>`.
+### Funnel ownership and cleanup
 
-Verify the Funnel command against the installed Tailscale version. In bridge mode the launcher does not publish the listener yet (see follow-ups).
+`src/lib/server/brain/startup.ts` reuses the ETag-protected Serve configuration client.
+It adds the MCP TCP/Web pair and `AllowFunnel` entry only. It never resets Serve config.
+A private journal at `/data/brain-funnel.json` records intent before the daemon write.
+A process lock prevents concurrent use of the same journal.
+
+Graceful shutdown removes only an exact owned TCP/Web/Funnel triple. Operator edits
+transfer ownership and are preserved. The next start recovers a retained intent,
+including when Funnel is now disabled, provided the same data volume and Tailscale
+socket are retained. A hard kill or power loss can leave the route until this recovery;
+the bearer-protected upstream is unavailable while the dashboard is stopped. Do not
+reuse its local port for an unrelated unauthenticated service while a stale route remains.
+Corrupt journals or uncertain locks require manual inspection rather than unsafe cleanup.
+
+`npm run test:brain` includes launcher argument, token persistence, ownership, conflict,
+restart recovery, ETag retry, and lost-response cleanup regressions. They use fake
+Docker boundaries and a disposable Unix LocalAPI fixture, not a real public Funnel.
 
 ## Grants
 
@@ -113,7 +182,6 @@ The panel shows the newest 50 of 200 retained entries: tool, target, command or 
 
 ## Follow-ups
 
-- Launcher flags to publish the listener in bridge mode (`127.0.0.1:<port>:3100`) and to mount a token file.
 - Show Brain commands as read-only tabs in the terminal drawer, with an explicit take-over.
 - Bind grants to a workspace or ticket, so `list_targets` can explain why a target matches a task.
 - Replace the hand-written JSON-RPC layer with the MCP TypeScript SDK if more protocol features are needed.

@@ -81,6 +81,44 @@ invoke the launcher inside a devcontainer.
   HTTPS origins for OpenCode, OpenChamber, noVNC, and other allowed services. This is
   opt-in, requires a native Linux Docker host, and grants broad access to tailscaled.
 
+### Give ClickUp Brain access to selected containers
+
+Add `--brain` to enable the MCP listener on host loopback. For public access from
+ClickUp, add `--brain-funnel` to your Tailscale launch command:
+
+```bash
+bash scripts/run-dashboard.sh --build \
+  --workspace "$HOME/git.workspaces" \
+  --tailscale-socket /var/run/tailscale/tailscaled.sock \
+  --origin https://YOUR-NODE.YOUR-TAILNET.ts.net \
+  --brain-funnel
+```
+
+Replace the example hostname with your actual node hostname. Keep your existing
+workspace and Tailscale options. `--brain-funnel` implies `--brain`; no env file or
+separate `tailscale funnel` command is needed. Tailscale HTTPS, MagicDNS, and Funnel
+permission must already be enabled. The dashboard does not change tailnet policy.
+
+- The launcher creates/reuses a private token in the retained data volume.
+- Get it with `docker exec <dashboard-container> cat /data/brain-mcp-token`.
+- Copy the public `/mcp` URL from the **Brain** panel into your ClickUp MCP connection.
+- Set its header to `Authorization: Bearer <token>`.
+- Select **Grant Brain** on each running container that Brain may use.
+- Review the container user, mounts, credentials and network reach before granting.
+
+The default public Funnel port is `10000`, outside the default service allocation
+range. Use `--brain-port N` to change the local port, or `--brain-funnel-port N` to
+select a permitted public port (`443`, `8443`, or `10000`). Conflicts are refused.
+Only MCP is made public, never the dashboard. All MCP requests require the token.
+
+Use `--brain-token-file /absolute/host/path` for a stable, operator-readable token
+file mounted read-only. Each new `--build` instance otherwise gets its own data
+volume and token. A restart of the same container reuses its token.
+
+The header shows **Brain disabled** with setup instructions when MCP is off.
+See the [Brain access specification](specification/feature_brain_access/feature_specification_brain_access.md)
+for ownership cleanup, crash recovery, limits and trust boundaries.
+
 ## Work with a devcontainer
 
 Each devcontainer row and card has three controls. Each control has one job.
