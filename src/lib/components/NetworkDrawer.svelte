@@ -99,9 +99,7 @@
 			: []
 	);
 	const leaving = $derived(
-		(container?.networks ?? [])
-			.map((entry) => entry.name)
-			.filter((name) => name !== networkName)
+		(container?.networks ?? []).map((entry) => entry.name).filter((name) => name !== networkName)
 	);
 	const aliasForHostname = $derived(
 		mode === 'seat' ? seats.find((seat) => seat.ip === seatIp)?.hostname : customAlias
@@ -329,12 +327,14 @@
 									<span class="flex flex-wrap items-center gap-2">
 										<span class="font-mono font-semibold break-all">{entry.name}</span>
 										{#if container.networkPresets?.some((preset) => preset.network === entry.name)}
-											<span class="rounded border border-[#8fbcbb]/50 px-1.5 text-xs text-[#5e9c9b] dark:text-[#8fbcbb]"
+											<span
+												class="rounded border border-[#8fbcbb]/50 px-1.5 text-xs text-[#5e9c9b] dark:text-[#8fbcbb]"
 												>devcontainer.json</span
 											>
 										{/if}
 										{#if attached.some((current) => current.name === entry.name)}
-											<span class="rounded border border-[#81a1c1]/50 px-1.5 text-xs text-[#5e81ac] dark:text-[#81a1c1]"
+											<span
+												class="rounded border border-[#81a1c1]/50 px-1.5 text-xs text-[#5e81ac] dark:text-[#81a1c1]"
 												>connected</span
 											>
 										{/if}
@@ -372,7 +372,11 @@
 						</div>
 
 						{#if mode === 'seat'}
-							<div class="mt-3 grid gap-1.5" role="radiogroup" aria-label={`Seats on ${selected.name}`}>
+							<div
+								class="mt-3 grid gap-1.5"
+								role="radiogroup"
+								aria-label={`Seats on ${selected.name}`}
+							>
 								{#each seats as seat (seat.ip)}
 									{@const status = seatStatus(selected, seat, container.id)}
 									<label
@@ -443,8 +447,7 @@
 								<span class="text-xs {muted}"
 									>{leaving.length
 										? `Disconnects ${leaving.join(', ')} after the connect.`
-										: 'The container has no other network.'} Off by default: other connections
-									stay.</span
+										: 'The container has no other network.'} Off by default: other connections stay.</span
 								>
 							</span>
 						</label>
@@ -457,7 +460,9 @@
 							/>
 							<span class="grid gap-0.5">
 								<span class="font-medium"
-									>Set the container hostname{aliasForHostname ? ` to ${aliasForHostname}` : ''}</span
+									>Set the container hostname{aliasForHostname
+										? ` to ${aliasForHostname}`
+										: ''}</span
 								>
 								<span class="text-xs {muted}"
 									>Runs as root and needs CAP_SYS_ADMIN. The alias works without it.</span
