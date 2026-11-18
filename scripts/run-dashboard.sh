@@ -25,6 +25,13 @@ Options:
   --password VALUE         Visible in process lists; prefer file or prompt.
   --password-file PATH     Read password, trim one trailing newline.
   --env-file PATH          Extend container environment (Docker syntax; repeatable).
+  --brain                  Enable MCP; create/reuse /data/brain-mcp-token (mode 600).
+  --brain-token-file PATH  Enable MCP with an existing Docker-host token file, mounted read-only.
+  --brain-port N           MCP loopback port (default 3100); implies --brain.
+  --brain-funnel           Enable PUBLIC MCP access through Tailscale LocalAPI; implies --brain.
+                           Requires --tailscale-socket and tailnet Funnel permission/HTTPS.
+  --brain-funnel-port N    Public HTTPS port: 443, 8443 or 10000 (default 10000).
+                           Requires --brain-funnel. Must not overlap service allocation.
   --host-user NAME         All four identity values must be supplied together.
   --host-uid UID
   --host-gid GID
@@ -66,6 +73,7 @@ parse_arguments() {
   MODE=registry SHOW_HELP=0
   WORKSPACE='' SOCKET='' PORT='' BIND_ADDRESS='' ORIGIN=''
   AI_PORT='' AI_STATE_VOLUME=''
+  BRAIN=0 BRAIN_TOKEN_FILE='' BRAIN_PORT='' BRAIN_FUNNEL=0 BRAIN_FUNNEL_PORT=''
   PASSWORD='' PASSWORD_FILE='' HOST_USER='' HOST_UID='' HOST_GID='' HOST_HOME=''
   ENV_FILES=()
   BOOTSTRAP=0 SSH_DIR=0 CREATE_WORKSPACE=1 NON_INTERACTIVE=0 GATEWAY=0
@@ -76,7 +84,7 @@ parse_arguments() {
   while (( $# )); do
     case "$1" in
       --help|-h) SHOW_HELP=1; return ;;
-      --workspace|--socket|--port|--ai-port|--ai-state-volume|--bind-address|--origin|--password|--password-file|--env-file|--host-user|--host-uid|--host-gid|--host-home|--gateway-host|--gateway-ports|--vscode-ssh-host|--image|--platform|--name|--health-timeout|--tailscale-socket|--tailscale-ports|--tailscale-gateway-port)
+      --workspace|--socket|--port|--ai-port|--ai-state-volume|--bind-address|--origin|--password|--password-file|--env-file|--host-user|--host-uid|--host-gid|--host-home|--gateway-host|--gateway-ports|--vscode-ssh-host|--image|--platform|--name|--health-timeout|--tailscale-socket|--tailscale-ports|--tailscale-gateway-port|--brain-token-file|--brain-port|--brain-funnel-port)
         [[ $# -ge 2 && -n "$2" ]] || fail "$1 requires a value"
         case "$1" in
           --workspace) WORKSPACE=$2 ;;
@@ -89,6 +97,9 @@ parse_arguments() {
           --password) PASSWORD=$2 ;;
           --password-file) PASSWORD_FILE=$2 ;;
           --env-file) ENV_FILES+=("$2") ;;
+          --brain-token-file) BRAIN=1; BRAIN_TOKEN_FILE=$2 ;;
+          --brain-port) BRAIN=1; BRAIN_PORT=$2 ;;
+          --brain-funnel-port) BRAIN_FUNNEL_PORT=$2 ;;
           --host-user) HOST_USER=$2 ;;
           --host-uid) HOST_UID=$2 ;;
           --host-gid) HOST_GID=$2 ;;
@@ -105,6 +116,8 @@ parse_arguments() {
           --tailscale-gateway-port) TAILSCALE_GATEWAY_PORT=$2 ;;
         esac
         shift 2 ;;
+      --brain) BRAIN=1; shift ;;
+      --brain-funnel) BRAIN=1; BRAIN_FUNNEL=1; shift ;;
       --bootstrap) BOOTSTRAP=1; shift ;;
       --no-bootstrap) BOOTSTRAP=0; shift ;;
       --ssh-dir) SSH_DIR=1; shift ;;
@@ -137,6 +150,12 @@ validate_env_files() {
       fail 'Cannot resolve --env-file directory'
     ENV_FILES[$index]="$directory/$(basename -- "$path")"
   done
+  # A token bind is a Docker-host path. Validate syntax without reading its secret on the client.
+  if [[ -n "$BRAIN_TOKEN_FILE" ]]; then
+    [[ "$BRAIN_TOKEN_FILE" == /* && "$BRAIN_TOKEN_FILE" != *,* &&
+       "$BRAIN_TOKEN_FILE" != *$'\n'* && "$BRAIN_TOKEN_FILE" != *$'\r'* ]] ||
+      fail '--brain-token-file must be an absolute Docker-host path without commas or newlines'
+  fi
 }
 
 # Accept exact origins, including bracketed IPv6, but reject paths and credentials.
@@ -281,6 +300,34 @@ validate_options() {
     [[ -z "$TAILSCALE_PORTS" && -z "$TAILSCALE_GATEWAY_PORT" && "$TAILSCALE_ALLOW_WILDCARD_BINDINGS" == 0 ]] ||
       fail 'Tailscale port and binding flags require --tailscale-socket'
   fi
+  validate_brain_options
+}
+
+# Keep private MCP publication separate from the dashboard and every HTTPS service port.
+validate_brain_options() {
+  [[ -z "$BRAIN_FUNNEL_PORT" || "$BRAIN_FUNNEL" == 1 ]] ||
+    fail '--brain-funnel-port requires --brain-funnel'
+  if [[ "$BRAIN" != 1 ]]; then return; fi
+  BRAIN_PORT="${BRAIN_PORT:-3100}"
+  [[ "$BRAIN_PORT" =~ ^[0-9]{1,5}$ ]] || fail 'Invalid --brain-port'
+  BRAIN_PORT=$((10#$BRAIN_PORT))
+  (( BRAIN_PORT >= 1 && BRAIN_PORT <= 65535 && BRAIN_PORT != PORT && BRAIN_PORT != AI_PORT &&
+     BRAIN_PORT != 3000 && BRAIN_PORT != 3002 )) ||
+    fail '--brain-port must be valid and differ from dashboard and AI ports'
+  if [[ -n "$TAILSCALE_SOCKET" ]]; then
+    (( BRAIN_PORT != TAILSCALE_GATEWAY_PORT && BRAIN_PORT != external &&
+       (BRAIN_PORT < first || BRAIN_PORT > last) )) ||
+      fail 'Brain MCP port overlaps Tailscale listeners or service allocation'
+  fi
+  if [[ "$BRAIN_FUNNEL" == 1 ]]; then
+    [[ -n "$TAILSCALE_SOCKET" ]] || fail '--brain-funnel requires --tailscale-socket and --origin'
+    BRAIN_FUNNEL_PORT="${BRAIN_FUNNEL_PORT:-10000}"
+    case "$BRAIN_FUNNEL_PORT" in 443|8443|10000) ;; *) fail 'Funnel port must be 443, 8443 or 10000' ;; esac
+    (( BRAIN_FUNNEL_PORT != PORT && BRAIN_FUNNEL_PORT != AI_PORT && BRAIN_FUNNEL_PORT != BRAIN_PORT &&
+       BRAIN_FUNNEL_PORT != TAILSCALE_GATEWAY_PORT && BRAIN_FUNNEL_PORT != external &&
+       (BRAIN_FUNNEL_PORT < first || BRAIN_FUNNEL_PORT > last) )) ||
+      fail 'Brain Funnel port overlaps dashboard, MCP or service allocation'
+  fi
 }
 
 # Verify the daemon and Linux networking contract before pulling or building.
@@ -347,6 +394,20 @@ prepare_arguments() {
   elif [[ "$MODE" == build ]]; then PUBLICATION=(--publish "127.0.0.1:$PORT:3000" --publish "127.0.0.1:$AI_PORT:3002")
   else PUBLICATION=(--publish "$BIND_ADDRESS:$PORT:3000" --publish "$BIND_ADDRESS:$AI_PORT:3002")
   fi
+  if [[ "$BRAIN" == 1 ]]; then
+    # Explicit flags win over old env-file settings, including PUBLIC_URL and token values.
+    ARGS+=(--env BRAIN_MCP_ENABLED=1 --env BRAIN_MCP_TOKEN= --env BRAIN_MCP_PUBLIC_URL=
+      --env "BRAIN_MCP_PORT=$BRAIN_PORT" --env "BRAIN_MCP_FUNNEL=$BRAIN_FUNNEL"
+      --env "BRAIN_MCP_FUNNEL_PORT=${BRAIN_FUNNEL_PORT:-10000}")
+    if [[ -n "$BRAIN_TOKEN_FILE" ]]; then
+      ARGS+=(--env BRAIN_MCP_TOKEN_FILE=/run/brain-mcp-token
+        --mount "type=bind,source=$BRAIN_TOKEN_FILE,target=/run/brain-mcp-token,readonly")
+    else ARGS+=(--env BRAIN_MCP_TOKEN_FILE=)
+    fi
+    if [[ -z "$TAILSCALE_SOCKET" ]]; then
+      PUBLICATION+=(--publish "127.0.0.1:$BRAIN_PORT:$BRAIN_PORT")
+    fi
+  fi
   if [[ -n "${SSH_AUTH_SOCK:-}" ]]; then
     export SSH_AUTH_SOCK
     ARGS+=(--env SSH_AUTH_SOCK --mount "type=bind,source=$SSH_AUTH_SOCK,target=$SSH_AUTH_SOCK,readonly")
@@ -370,6 +431,18 @@ print_plan() {
   printf 'Retained AI volume: %s (reuse with --ai-state-volume after stopping its old instance)\n' "$AI_STATE_VOLUME"
   echo 'OpenChamber password: docker exec <container> cat /dashboard-ai/ui-password'
   echo 'All bind sources must exist on the Docker host. SSH resources are read-only.'
+  if [[ "$BRAIN" == 1 ]]; then
+    printf 'Brain MCP: host loopback port %s. Grant containers in the dashboard.\n' "$BRAIN_PORT"
+    if [[ -z "$BRAIN_TOKEN_FILE" ]]; then
+      echo 'Brain token: docker exec <container> cat /data/brain-mcp-token'
+      echo 'The token persists in the data volume. Reuse that volume to keep the connection credential.'
+    else echo 'Brain token: supplied read-only file; it must be readable by the container operator.'
+    fi
+    if [[ "$BRAIN_FUNNEL" == 1 ]]; then
+      printf 'WARNING: Brain MCP will be PUBLIC through Tailscale Funnel on HTTPS port %s.\n' "$BRAIN_FUNNEL_PORT"
+      echo 'Startup creates only the MCP route through LocalAPI; it never enables Funnel on the dashboard.'
+    fi
+  fi
   if [[ "$TAILSCALE_ALLOW_WILDCARD_BINDINGS" == 1 ]]; then
     echo 'WARNING: HTTPS proxying does not close existing all-interface service ports.'
     echo 'Their original HTTP/HTTPS endpoints remain accessible subject to host firewall rules.'
