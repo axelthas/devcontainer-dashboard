@@ -33,8 +33,10 @@
 	import TerminalManager from '$lib/components/TerminalManager.svelte';
 	import RequestError from '$lib/components/RequestError.svelte';
 	import NetworkDrawer from '$lib/components/NetworkDrawer.svelte';
+	import BrainPanel from '$lib/components/BrainPanel.svelte';
 	import { errorMessage, latestRequest, requestJson } from '$lib/requests';
 	import { networkMemory } from '$lib/networkMemory.svelte';
+	import { provideBrainAccess } from '$lib/brainAccess.svelte';
 	import type { ConnectRequest } from '$lib/networkRules';
 
 	interface Props {
@@ -51,6 +53,9 @@
 	}
 
 	let { data }: Props = $props();
+
+	// Brain grants for rows and cards; descendants read them through context.
+	const brainAccess = provideBrainAccess();
 
 	// untrack prevents svelte from treating data.containers as a reactive dep;
 	// polling handles subsequent updates
@@ -138,7 +143,12 @@
 		let stopped = false;
 		let timer: ReturnType<typeof setTimeout>;
 		async function poll() {
-			await Promise.allSettled([refreshContainers(), refreshTerminalSessions(), refreshNetworks()]);
+			await Promise.allSettled([
+				refreshContainers(),
+				refreshTerminalSessions(),
+				refreshNetworks(),
+				brainAccess.refresh()
+			]);
 			if (!stopped && workspaceError) await refreshWorkspaces().catch(() => {});
 			if (!stopped) timer = setTimeout(poll, 5000);
 		}
@@ -150,6 +160,7 @@
 			workspaceReads.cancel();
 			terminalReads.cancel();
 			networkReads.cancel();
+			brainAccess.dispose();
 		};
 	});
 
@@ -446,6 +457,9 @@
 						</div>
 					</div>
 
+					<!-- Brain MCP access: shown only while the endpoint runs -->
+					<BrainPanel access={brainAccess} />
+
 					<!-- SSH host for VS Code remote connections -->
 					<div
 						class="flex items-center gap-1.5 rounded-lg border border-[#d8dee9] bg-[#eceff4] px-3 py-1.5 dark:border-[#434c5e] dark:bg-[#2e3440]"
@@ -502,6 +516,7 @@
 					<RequestError message={networkError} onRetry={() => void refreshNetworks()} />
 				</div>
 			{/if}
+			<RequestError message={brainAccess.error} onRetry={() => void brainAccess.refresh()} />
 			<!-- Section 1: Active Devcontainers -->
 			<section>
 				<div
