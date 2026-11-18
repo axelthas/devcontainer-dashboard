@@ -47,6 +47,8 @@ export default defineConfig({
 		projects: [
 			{
 				extends: './vite.config.ts',
+				// Discover terminal dependencies before tests start, not halfway through a test.
+				optimizeDeps: { include: ['@xterm/addon-fit', '@xterm/xterm'] },
 				test: {
 					name: 'client',
 					browser: {
