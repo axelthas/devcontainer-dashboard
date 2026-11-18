@@ -223,6 +223,7 @@ export async function loadMergedWorkspaces(): Promise<LocalWorkspaceData[]> {
 					status: run.status,
 					startedAt: run.startedAt,
 					files: run.files,
+					services: run.services,
 					hasLog: run.hasLog
 				};
 			}

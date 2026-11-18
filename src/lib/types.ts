@@ -138,6 +138,8 @@ export interface ComposeRunData {
 	startedAt: string;
 	/** Selected files, in merge order, relative to the repository */
 	files: string[];
+	/** Services passed to Compose; empty means every service */
+	services: string[];
 	/** True when the output of a failed run is kept as a log */
 	hasLog?: boolean;
 }
@@ -150,6 +152,8 @@ export interface ComposeServiceSummary {
 	profiles: string[];
 	ports: { target: string; published?: string; protocol: string; hostIp?: string }[];
 	networks: string[];
+	/** Services from `depends_on`; Compose also starts them with this service */
+	dependsOn: string[];
 	containerName?: string;
 }
 

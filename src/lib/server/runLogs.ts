@@ -17,6 +17,8 @@ export interface RunLogMetadata {
 	action?: string;
 	/** Compose runs: the selected files, in merge order, relative to `path` */
 	files?: string[];
+	/** Compose runs: the selected services; empty or absent means every service */
+	services?: string[];
 	startedAt: string;
 	endedAt: string;
 	exitCode: number;
