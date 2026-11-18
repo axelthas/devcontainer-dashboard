@@ -20,7 +20,9 @@
 		LocalWorkspaceData,
 		NetworkData,
 		NetworkDrawerTarget,
-		TerminalSession
+		TerminalSession,
+		ServiceAccess,
+		ServicePortPolicy
 	} from '$lib/types';
 	import DevcontainerCard from '$lib/components/DevcontainerCard.svelte';
 	import DevcontainerRow from '$lib/components/DevcontainerRow.svelte';
@@ -43,6 +45,8 @@
 			workspaceRoot: string;
 			vscodeSshHost: string;
 			serviceProxyEnabled: boolean;
+			servicePorts: ServicePortPolicy;
+			serviceAccess: ServiceAccess;
 		};
 	}
 
@@ -639,6 +643,8 @@
 									containers={group.containers}
 									{vscodeSshHost}
 									serviceProxyEnabled={data.serviceProxyEnabled}
+									servicePorts={data.servicePorts}
+									serviceAccess={data.serviceAccess}
 									onRefresh={refreshContainersAndNetworks}
 									onOpenTerminal={handleOpenTerminal}
 									networks={projectNetworks(group.projectName)}
@@ -651,6 +657,9 @@
 									{container}
 									{vscodeSshHost}
 									serviceProxyEnabled={data.serviceProxyEnabled}
+									servicePorts={data.servicePorts}
+									serviceAccess={data.serviceAccess}
+									standalone
 									onRefresh={refreshContainers}
 									onOpenTerminal={handleOpenTerminal}
 								/>
