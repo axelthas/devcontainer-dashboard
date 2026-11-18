@@ -8,6 +8,7 @@ import {
 } from '$lib/server/workspaces';
 import { resolveNetworkPresets, resolveRemoteUser } from '$lib/server/devcontainerMetadata';
 import { containerNetworks } from '$lib/server/networkData';
+import { publishedBindings } from '$lib/server/publishedBindings';
 import { isServiceProxyEnabled } from '$lib/server/serviceGatewayRuntime';
 import type { ContainerData } from '$lib/types';
 import type { PageServerLoad } from './$types';
@@ -86,6 +87,7 @@ export const load: PageServerLoad = async () => {
 			state: c.State ?? 'unknown',
 			isDevcontainer: isDevcontainer(rawName, image),
 			ports,
+			portBindings: publishedBindings(c.Ports, inspectMap.get(c.Id)?.HostConfig?.PortBindings),
 			image,
 			localWorkspacePath,
 			devcontainerConfigFile: labels['devcontainer.config_file'] ?? undefined,

@@ -100,11 +100,28 @@ export const load: PageServerLoad = async ({ url }) => {
 				'[tailscale] Service launch failed:',
 				error instanceof Error ? error.message : 'unknown'
 			);
+			// Return only known diagnostic codes, never upstream exception text.
+			const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined;
+			const reason =
+				typeof code === 'string' &&
+				[
+					'wildcard-binding-disabled',
+					'unsupported-binding',
+					'ambiguous-binding',
+					'invalid-service-binding',
+					'port-not-allowed',
+					'unknown-container',
+					'not-running',
+					'no-published-binding',
+					'service-unreachable'
+				].includes(code)
+					? code
+					: 'tailscale-allocation-failed';
 			return {
 				...base,
 				viewer: {
 					kind: 'unavailable',
-					reason: 'tailscale-allocation-failed',
+					reason,
 					containerId: containerId ?? undefined,
 					containerPort: containerPort ?? undefined
 				} satisfies ViewerContract

@@ -5,6 +5,8 @@ export interface ContainerData {
 	state: 'running' | 'exited' | 'created' | string;
 	isDevcontainer: boolean;
 	ports: Record<string, string>;
+	/** Published addresses for display; service authorization always re-inspects Docker. */
+	portBindings?: PublishedPortBinding[];
 	image: string;
 	localWorkspacePath?: string;
 	/** Absolute host path of the devcontainer.json the container was built from */
@@ -25,6 +27,14 @@ export interface ContainerData {
 	networks?: ContainerNetwork[];
 	/** Networks and seats declared in devcontainer.json under customizations.devcontainer-dashboard */
 	networkPresets?: NetworkPreset[];
+}
+
+/** One published Docker host binding, preserving transport and address family. */
+export interface PublishedPortBinding {
+	containerPort: string;
+	hostPort: string;
+	hostIp: string;
+	protocol: string;
 }
 
 /** One network endpoint of a container. */
