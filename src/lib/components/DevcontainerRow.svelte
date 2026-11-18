@@ -17,6 +17,7 @@
 	import NetworkChips from './NetworkChips.svelte';
 	import OpenWithMenu from './OpenWithMenu.svelte';
 	import ContainerMoreMenu from './ContainerMoreMenu.svelte';
+	import BrainAccessButton from './BrainAccessButton.svelte';
 
 	interface Props {
 		container: ContainerData;
@@ -212,6 +213,9 @@
 					<Play size={12} class="fill-current" />
 					Start
 				</button>
+			{/if}
+			{#if !transition}
+				<BrainAccessButton {container} />
 			{/if}
 			<!-- The same pill as local workspaces: Open with first, then container control. -->
 			<div
