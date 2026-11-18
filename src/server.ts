@@ -11,9 +11,14 @@ import { allocateServePort, createServeConfigClient } from './lib/server/tailsca
 import { startTailscaleServices, tailscaleSettings } from './lib/server/tailscaleServiceRuntime.js';
 import { installShutdown } from './lib/server/shutdown.js';
 import { startAi, inspectAi } from './lib/server/aiRuntime.js';
+import { brainSettings, createBrainServer } from './lib/server/brain/gateway.js';
+import { stopAllExecutions } from './lib/server/brain/executions.js';
 
 const PORT = parseInt(process.env.PORT ?? '3000', 10);
 assertAuthConfigured();
+// Read the Brain MCP credential once, then remove it, so no child process inherits it.
+const brain = brainSettings(process.env);
+delete process.env.BRAIN_MCP_TOKEN;
 const tailscale = tailscaleSettings(process.env);
 const INTERNAL_PROTOCOL_HEADER = 'x-devcontainer-dashboard-protocol';
 const proxyConfigured = Boolean(process.env.ORIGIN || process.env.PROTOCOL_HEADER);
@@ -54,10 +59,18 @@ server.on('upgrade', (request, socket, head) => {
 	if (serviceGateway?.matches(request.url)) void serviceGateway.upgrade(request, socket, head);
 });
 attachTerminalServer(server);
+// The MCP endpoint has its own listener, so publishing it never exposes the dashboard.
+const brainServer = brain ? createBrainServer(brain) : null;
 installShutdown(server, async () => {
+	brainServer?.close();
+	await stopAllExecutions('The dashboard is shutting down');
 	await tailscaleRuntime?.close();
 	await ai?.close();
 });
 server.listen(PORT, tailscale ? '127.0.0.1' : '0.0.0.0', () =>
 	console.log(`DevDashboard server running on port ${PORT}`)
 );
+if (brain && brainServer)
+	brainServer.listen(brain.port, tailscale ? '127.0.0.1' : '0.0.0.0', () =>
+		console.log(`Brain MCP endpoint listening on port ${brain.port}`)
+	);
