@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { publishedBindings } from '../../src/lib/server/publishedBindings.ts';
 
-test('live bindings preserve IPv4, IPv6 and transport without collapsing addresses', () => {
+ test('live bindings preserve IPv4, IPv6 and transport without collapsing addresses', () => {
 	assert.deepEqual(
 		publishedBindings([
 			{ PrivatePort: 8080, PublicPort: 18080, IP: '0.0.0.0', Type: 'tcp' },
@@ -47,11 +47,14 @@ test('SSR and polling share the binding mapper and both row types show the metad
 			/portBindings: publishedBindings\(c\.Ports, inspectMap\.get\(c\.Id\)\?\.HostConfig\?\.PortBindings\)/
 		);
 	}
-	for (const name of ['SandboxRow', 'DevcontainerRow']) {
+	for (const [name, component] of [
+		['SandboxRow', 'PortLedger'],
+		['DevcontainerRow', 'PublishedPorts']
+	]) {
 		const source = await readFile(
 			new URL(`../../src/lib/components/${name}.svelte`, import.meta.url),
 			'utf8'
 		);
-		assert.match(source, /<PublishedPorts bindings=\{container\.portBindings\}/);
+		assert.match(source, new RegExp(`<${component}\\s+bindings=\\{container\\.portBindings\\}`));
 	}
 });
