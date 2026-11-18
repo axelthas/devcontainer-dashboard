@@ -64,7 +64,10 @@ export function createGrant(
 		throw new BrainAccessError(`Choose ${BRAIN_GRANT_MINUTES.join(', ')} minutes`, 400);
 	for (const grant of brainState.grants.values())
 		if (grant.containerId === target.containerId)
-			throw new BrainAccessError('Brain already has access to this container. Revoke it first.', 409);
+			throw new BrainAccessError(
+				'Brain already has access to this container. Revoke it first.',
+				409
+			);
 	if (brainState.grants.size >= MAX_GRANTS)
 		throw new BrainAccessError(`At most ${MAX_GRANTS} containers can be granted at once`, 409);
 	const grant: BrainGrant = {

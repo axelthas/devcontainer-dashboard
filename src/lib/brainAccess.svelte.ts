@@ -47,9 +47,7 @@ export class BrainAccess {
 
 	/** What a grant would allow, inspected from live Docker state. */
 	preview(containerId: string): Promise<BrainTargetPreview> {
-		return requestJson<BrainTargetPreview>(
-			`/api/brain/targets/${encodeURIComponent(containerId)}`
-		);
+		return requestJson<BrainTargetPreview>(`/api/brain/targets/${encodeURIComponent(containerId)}`);
 	}
 
 	async grant(request: BrainGrantRequest): Promise<void> {

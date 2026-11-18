@@ -4,7 +4,14 @@
  */
 import assert from 'node:assert/strict';
 import { after, before, beforeEach, test } from 'node:test';
-import { execStream, fakeDocker, frame, loadBrain, runningContainer, target } from './brain-harness.mjs';
+import {
+	execStream,
+	fakeDocker,
+	frame,
+	loadBrain,
+	runningContainer,
+	target
+} from './brain-harness.mjs';
 
 const ID = 'a'.repeat(64);
 const OTHER = 'b'.repeat(64);
@@ -59,21 +66,33 @@ test('a restarted, stopped or replaced container ends the grant', async () => {
 	containers.set(ID, runningContainer(ID, '2026-11-18T21:00:00.000000000Z'));
 	await assert.rejects(brain.access.liveGrant(grant.id), /Access ended/);
 	assert.equal(brain.state.brainState.grants.size, 0);
-	const second = brain.access.createGrant(target(ID, { startedAt: '2026-11-18T21:00:00.000000000Z' }), 60);
+	const second = brain.access.createGrant(
+		target(ID, { startedAt: '2026-11-18T21:00:00.000000000Z' }),
+		60
+	);
 	containers.delete(ID);
 	await brain.access.reconcileGrants();
 	assert.equal(brain.state.brainState.grants.has(second.id), false);
 });
 
 test('Brain lists only granted targets and runs commands only in them', async () => {
-	install(new Map([[ID, runningContainer(ID)], [OTHER, runningContainer(OTHER)]]));
+	install(
+		new Map([
+			[ID, runningContainer(ID)],
+			[OTHER, runningContainer(OTHER)]
+		])
+	);
 	const grant = brain.access.createGrant(target(ID, { composeService: 'fdp' }), 60);
 	const listed = await call('list_targets', {});
 	assert.deepEqual(
 		listed.data.targets.map((item) => [item.target_id, item.name, item.compose_service]),
 		[[grant.id, 'sample', 'fdp']]
 	);
-	const ran = await call('execute', { target_id: grant.id, command: 'echo greeting', wait_seconds: 1 });
+	const ran = await call('execute', {
+		target_id: grant.id,
+		command: 'echo greeting',
+		wait_seconds: 1
+	});
 	assert.equal(ran.data.status, 'exited');
 	assert.equal(ran.data.exit_code, 0);
 	assert.equal(ran.data.output, 'hello\n');
@@ -92,7 +111,11 @@ test('Brain lists only granted targets and runs commands only in them', async ()
 test('revocation removes access to earlier executions as well', async () => {
 	install(new Map([[ID, runningContainer(ID)]]));
 	const grant = brain.access.createGrant(target(ID), 60);
-	const ran = await call('execute', { target_id: grant.id, command: 'echo hello', wait_seconds: 1 });
+	const ran = await call('execute', {
+		target_id: grant.id,
+		command: 'echo hello',
+		wait_seconds: 1
+	});
 	brain.access.revokeGrant(grant.id, 'Revoked by the operator');
 	const read = await call('read_output', { execution_id: ran.data.execution_id });
 	assert.equal(read.result.isError, true);
@@ -116,7 +139,12 @@ test('reach analysis flags sockets, privileges, root and credentials', () => {
 			Config: { Env: ['SSH_AUTH_SOCK=/ssh', 'GITHUB_TOKEN=value', 'PATH=/bin'] },
 			HostConfig: { Privileged: true, NetworkMode: 'host', CapAdd: ['CAP_SYS_ADMIN', 'CHOWN'] },
 			Mounts: [
-				{ Type: 'bind', Source: '/var/run/docker.sock', Destination: '/var/run/docker.sock', RW: true },
+				{
+					Type: 'bind',
+					Source: '/var/run/docker.sock',
+					Destination: '/var/run/docker.sock',
+					RW: true
+				},
 				{ Type: 'bind', Source: '/home/axel/.ssh', Destination: '/home/developer/.ssh', RW: false },
 				{ Type: 'bind', Source: '/home/axel/work', Destination: '/workspaces', RW: true }
 			]

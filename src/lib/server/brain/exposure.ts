@@ -57,7 +57,8 @@ export function analyzeExposure(info: ExposureInspect, user: string): BrainExpos
 	const host = info.HostConfig ?? {};
 
 	const sockets = mounts.filter(
-		(mount) => RUNTIME_SOCKET.test(mount.Source ?? '') || RUNTIME_SOCKET.test(mount.Destination ?? '')
+		(mount) =>
+			RUNTIME_SOCKET.test(mount.Source ?? '') || RUNTIME_SOCKET.test(mount.Destination ?? '')
 	);
 	if (sockets.length)
 		exposure.push({
@@ -87,7 +88,8 @@ export function analyzeExposure(info: ExposureInspect, user: string): BrainExpos
 	if (isRootUser(user))
 		exposure.push({ level: 'warning', message: 'Commands run as root inside the container' });
 	const credentials = mounts.filter(
-		(mount) => CREDENTIAL_PATH.test(mount.Source ?? '') || CREDENTIAL_PATH.test(mount.Destination ?? '')
+		(mount) =>
+			CREDENTIAL_PATH.test(mount.Source ?? '') || CREDENTIAL_PATH.test(mount.Destination ?? '')
 	);
 	if (credentials.length)
 		exposure.push({
@@ -106,7 +108,10 @@ export function analyzeExposure(info: ExposureInspect, user: string): BrainExpos
 
 	const writable = mounts.filter(
 		(mount) =>
-			mount.Type === 'bind' && mount.RW !== false && !sockets.includes(mount) && mount.Source !== '/'
+			mount.Type === 'bind' &&
+			mount.RW !== false &&
+			!sockets.includes(mount) &&
+			mount.Source !== '/'
 	);
 	if (writable.length)
 		exposure.push({

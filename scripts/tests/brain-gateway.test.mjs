@@ -43,14 +43,22 @@ test('settings are opt-in and reject weak or ambiguous credentials', async (t) =
 	const { brainSettings } = brain.gateway;
 	assert.equal(brainSettings({}), null);
 	assert.throws(() => brainSettings({ BRAIN_MCP_TOKEN: 'short' }), /32 to 512/);
-	assert.throws(() => brainSettings({ BRAIN_MCP_TOKEN: TOKEN, BRAIN_MCP_TOKEN_FILE: '/x' }), /not both/);
+	assert.throws(
+		() => brainSettings({ BRAIN_MCP_TOKEN: TOKEN, BRAIN_MCP_TOKEN_FILE: '/x' }),
+		/not both/
+	);
 	assert.throws(() => brainSettings({ BRAIN_MCP_TOKEN_FILE: 'relative' }), /absolute/);
 	assert.throws(() => brainSettings({ BRAIN_MCP_TOKEN: TOKEN, BRAIN_MCP_PORT: '70000' }), /PORT/);
 	assert.throws(
-		() => brainSettings({ BRAIN_MCP_TOKEN: TOKEN, BRAIN_MCP_PUBLIC_URL: 'http://example.test/mcp' }),
+		() =>
+			brainSettings({ BRAIN_MCP_TOKEN: TOKEN, BRAIN_MCP_PUBLIC_URL: 'http://example.test/mcp' }),
 		/HTTPS/
 	);
-	assert.deepEqual(brainSettings({ BRAIN_MCP_TOKEN: TOKEN }), { token: TOKEN, port: 3100, publicUrl: undefined });
+	assert.deepEqual(brainSettings({ BRAIN_MCP_TOKEN: TOKEN }), {
+		token: TOKEN,
+		port: 3100,
+		publicUrl: undefined
+	});
 	const directory = await mkdtemp(join(tmpdir(), 'ddash-brain-token-'));
 	t.after(() => rm(directory, { recursive: true, force: true }));
 	const file = join(directory, 'token');
@@ -74,7 +82,11 @@ test('requests without the token never reach the MCP handler', async (t) => {
 		return null;
 	});
 	for (const authorization of ['', 'Bearer wrong', `Basic ${TOKEN}`]) {
-		const response = await post(base, { jsonrpc: '2.0', method: 'ping', id: 1 }, { Authorization: authorization });
+		const response = await post(
+			base,
+			{ jsonrpc: '2.0', method: 'ping', id: 1 },
+			{ Authorization: authorization }
+		);
 		assert.equal(response.status, 401);
 		assert.match(response.headers.get('www-authenticate'), /Bearer/);
 	}
@@ -100,7 +112,10 @@ test('only authenticated JSON POSTs to /mcp are handled', async (t) => {
 	const reply = await post(base, { jsonrpc: '2.0', id: 3, method: 'ping' });
 	assert.equal(reply.status, 200);
 	assert.deepEqual(await reply.json(), { jsonrpc: '2.0', id: 3, result: {} });
-	assert.equal((await post(base, { jsonrpc: '2.0', method: 'notifications/initialized' })).status, 202);
+	assert.equal(
+		(await post(base, { jsonrpc: '2.0', method: 'notifications/initialized' })).status,
+		202
+	);
 	assert.equal(calls, 2);
 });
 
@@ -116,7 +131,11 @@ test('oversized bodies are refused before parsing', async (t) => {
 });
 
 test('the listener marks the endpoint enabled only while it exists', async () => {
-	const server = brain.gateway.createBrainServer({ token: TOKEN, port: 0, publicUrl: 'https://n.ts.net/mcp' });
+	const server = brain.gateway.createBrainServer({
+		token: TOKEN,
+		port: 0,
+		publicUrl: 'https://n.ts.net/mcp'
+	});
 	assert.deepEqual(brain.access.brainStatus().enabled, true);
 	assert.equal(brain.access.brainStatus().publicUrl, 'https://n.ts.net/mcp');
 	await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));

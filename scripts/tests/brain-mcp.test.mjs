@@ -35,15 +35,24 @@ test('the tool set is fixed and offers no grant, Docker or host tools', async ()
 
 test('notifications and client responses are acknowledged without a reply', async () => {
 	const { handleMcpMessage } = brain.mcp;
-	assert.equal(await handleMcpMessage({ jsonrpc: '2.0', method: 'notifications/initialized' }), null);
+	assert.equal(
+		await handleMcpMessage({ jsonrpc: '2.0', method: 'notifications/initialized' }),
+		null
+	);
 	assert.equal(await handleMcpMessage({ jsonrpc: '2.0', id: 7, result: {} }), null);
 });
 
 test('malformed messages, batches and unknown methods are JSON-RPC errors', async () => {
 	const { handleMcpMessage } = brain.mcp;
 	assert.equal((await handleMcpMessage([request('ping')])).error.code, -32600);
-	assert.equal((await handleMcpMessage({ jsonrpc: '1.0', id: 1, method: 'ping' })).error.code, -32600);
-	assert.equal((await handleMcpMessage({ jsonrpc: '2.0', id: {}, method: 'ping' })).error.code, -32600);
+	assert.equal(
+		(await handleMcpMessage({ jsonrpc: '1.0', id: 1, method: 'ping' })).error.code,
+		-32600
+	);
+	assert.equal(
+		(await handleMcpMessage({ jsonrpc: '2.0', id: {}, method: 'ping' })).error.code,
+		-32600
+	);
 	assert.equal((await handleMcpMessage(request('resources/list'))).error.code, -32601);
 	assert.equal((await handleMcpMessage(request('ping', []))).error.code, -32602);
 	assert.deepEqual((await handleMcpMessage(request('ping', undefined, 'a'))).result, {});
@@ -51,9 +60,12 @@ test('malformed messages, batches and unknown methods are JSON-RPC errors', asyn
 
 test('tools/call rejects unknown tools before calling anything', async () => {
 	let called = false;
-	const reply = await brain.mcp.handleMcpMessage(request('tools/call', { name: 'docker_run' }), () => {
-		called = true;
-	});
+	const reply = await brain.mcp.handleMcpMessage(
+		request('tools/call', { name: 'docker_run' }),
+		() => {
+			called = true;
+		}
+	);
 	assert.equal(reply.error.code, -32602);
 	assert.equal(called, false);
 });

@@ -201,8 +201,9 @@
 												class="transition-transform {selected === execution.id ? 'rotate-90' : ''}"
 											/>
 										</button>
-										<code class="min-w-0 flex-1 truncate font-mono text-xs" title={execution.command}
-											>{execution.command}</code
+										<code
+											class="min-w-0 flex-1 truncate font-mono text-xs"
+											title={execution.command}>{execution.command}</code
 										>
 										<span class="shrink-0 text-xs {STATUS_CLASS[execution.status]}"
 											>{outcome(execution)}</span
@@ -243,9 +244,7 @@
 						<ol class="grid gap-1.5">
 							{#each audit as entry, index (`${entry.at}-${index}`)}
 								<li class="grid grid-cols-[max-content_1fr] gap-x-3 text-xs">
-									<time
-										datetime={entry.at}
-										class="font-mono text-[#4c566a] dark:text-[#d8dee9]/60"
+									<time datetime={entry.at} class="font-mono text-[#4c566a] dark:text-[#d8dee9]/60"
 										>{new Date(entry.at).toLocaleTimeString()}</time
 									>
 									<span class="min-w-0">
@@ -253,7 +252,8 @@
 										{#if entry.target}<span class="text-[#4c566a] dark:text-[#d8dee9]/60">
 												→ {entry.target}</span
 											>{/if}
-										<span class="block truncate font-mono" title={entry.detail}>{entry.detail}</span>
+										<span class="block truncate font-mono" title={entry.detail}>{entry.detail}</span
+										>
 										<span class={OUTCOME_CLASS[entry.outcome]}
 											>{entry.outcome === 'denied' ? 'Refused' : entry.outcome}</span
 										>

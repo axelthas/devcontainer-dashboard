@@ -153,7 +153,8 @@
 				{#if grant}
 					<dt class="text-[#4c566a] dark:text-[#d8dee9]/60">Expires</dt>
 					<dd>
-						in {formatRemaining(grant.expiresAt, access.now)}, or when the container stops or restarts
+						in {formatRemaining(grant.expiresAt, access.now)}, or when the container stops or
+						restarts
 					</dd>
 					<dt class="text-[#4c566a] dark:text-[#d8dee9]/60">Running</dt>
 					<dd>
@@ -234,9 +235,7 @@
 		{/if}
 	</div>
 
-	<div
-		class="flex justify-end gap-2 border-t border-[#d8dee9] px-5 py-3 dark:border-[#4c566a]"
-	>
+	<div class="flex justify-end gap-2 border-t border-[#d8dee9] px-5 py-3 dark:border-[#4c566a]">
 		<button
 			type="button"
 			onclick={() => dialog?.close()}

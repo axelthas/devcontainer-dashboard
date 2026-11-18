@@ -5,7 +5,14 @@
  */
 import assert from 'node:assert/strict';
 import { after, before, beforeEach, test } from 'node:test';
-import { execStream, fakeDocker, frame, loadBrain, runningContainer, target } from './brain-harness.mjs';
+import {
+	execStream,
+	fakeDocker,
+	frame,
+	loadBrain,
+	runningContainer,
+	target
+} from './brain-harness.mjs';
 
 const ID = 'c'.repeat(64);
 const MARKER = '\u001eddb-pgid:4242\u001e';
@@ -43,7 +50,10 @@ function install({ alive = () => false, exitCode = 0 } = {}) {
 			setImmediate(() => stream.push(null));
 			return { stream, inspect: async () => ({ Running: false, ExitCode: code }) };
 		}
-		return { stream: main, inspect: async () => ({ Running: !finished, ExitCode: finished ? exitCode : null }) };
+		return {
+			stream: main,
+			inspect: async () => ({ Running: !finished, ExitCode: finished ? exitCode : null })
+		};
 	});
 	brain.state.resetBrainStateForTesting(docker);
 	const grant = brain.access.createGrant(target(ID), 60);
@@ -61,7 +71,9 @@ function install({ alive = () => false, exitCode = 0 } = {}) {
 
 test('the demuxer reassembles frames split across chunks', () => {
 	const frames = [];
-	const demux = brain.executions.createDemuxer((stream, payload) => frames.push([stream, payload.toString()]));
+	const demux = brain.executions.createDemuxer((stream, payload) =>
+		frames.push([stream, payload.toString()])
+	);
 	const bytes = Buffer.concat([frame(1, 'hello '), frame(2, 'warn'), frame(1, 'world')]);
 	for (let index = 0; index < bytes.length; index += 3) demux(bytes.subarray(index, index + 3));
 	assert.deepEqual(frames, [
@@ -89,7 +101,9 @@ test('a command runs as the granted user, strips the marker and reports its exit
 	assert.equal(options.Tty, false);
 	assert.equal(options.AttachStdin, false);
 	assert.equal(options.Cmd.at(-1), 'npm test');
-	assert.ok(!options.Env.some((entry) => entry.startsWith('BRAIN_MCP') || entry.startsWith('DASHBOARD')));
+	assert.ok(
+		!options.Env.some((entry) => entry.startsWith('BRAIN_MCP') || entry.startsWith('DASHBOARD'))
+	);
 	fake.main.push(frame(1, MARKER.slice(0, 5)));
 	fake.main.push(frame(1, `${MARKER.slice(5)}ok\n`));
 	// A multibyte character split across frames decodes once.
@@ -106,7 +120,14 @@ test('a command runs as the granted user, strips the marker and reports its exit
 
 test('output beyond the retention limit drops the oldest text and keeps cursors absolute', () => {
 	const { appendOutput, readOutput, EXECUTION_LIMITS } = brain.executions;
-	const execution = { id: 'x', output: '', outputStart: 0, version: 0, waiters: new Set(), status: 'running' };
+	const execution = {
+		id: 'x',
+		output: '',
+		outputStart: 0,
+		version: 0,
+		waiters: new Set(),
+		status: 'running'
+	};
 	appendOutput(execution, 'a'.repeat(EXECUTION_LIMITS.output + 70_000));
 	appendOutput(execution, 'END');
 	assert.equal(execution.output.length, EXECUTION_LIMITS.output + 3);
@@ -125,7 +146,10 @@ test('stdin is refused for non-interactive commands and after a stop begins', as
 	const fake = install({ alive: () => true });
 	const closed = await brain.executions.startExecution(fake.grant, { command: 'cat' });
 	assert.throws(() => brain.executions.writeInput(closed, 'x'), /without stdin/);
-	const open = await brain.executions.startExecution(fake.grant, { command: 'cat', interactive: true });
+	const open = await brain.executions.startExecution(fake.grant, {
+		command: 'cat',
+		interactive: true
+	});
 	brain.executions.writeInput(open, 'line\n');
 	assert.deepEqual(fake.main.written, ['line\n']);
 	const stopping = brain.executions.stopExecution(open.id, 'test');
@@ -159,8 +183,14 @@ test('limits reject oversized commands, relative directories and too many runnin
 	const fake = install();
 	const { startExecution, EXECUTION_LIMITS } = brain.executions;
 	await assert.rejects(startExecution(fake.grant, { command: ' ' }), /1 to/);
-	await assert.rejects(startExecution(fake.grant, { command: 'x'.repeat(EXECUTION_LIMITS.command + 1) }), /1 to/);
-	await assert.rejects(startExecution(fake.grant, { command: 'ls', workdir: 'relative' }), /absolute/);
+	await assert.rejects(
+		startExecution(fake.grant, { command: 'x'.repeat(EXECUTION_LIMITS.command + 1) }),
+		/1 to/
+	);
+	await assert.rejects(
+		startExecution(fake.grant, { command: 'ls', workdir: 'relative' }),
+		/absolute/
+	);
 	for (let index = 0; index < EXECUTION_LIMITS.runningPerGrant; index++)
 		await startExecution(fake.grant, { command: 'sleep 300' });
 	await assert.rejects(startExecution(fake.grant, { command: 'sleep 300' }), /At most/);

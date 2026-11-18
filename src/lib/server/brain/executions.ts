@@ -81,7 +81,8 @@ export function createDemuxer(
  * is ordinary output and the process group is unknown.
  */
 export function parseMarker(text: string): { pgid: number; rest: string } | 'incomplete' | null {
-	if (text.length < MARKER_PREFIX.length) return MARKER_PREFIX.startsWith(text) ? 'incomplete' : null;
+	if (text.length < MARKER_PREFIX.length)
+		return MARKER_PREFIX.startsWith(text) ? 'incomplete' : null;
 	if (!text.startsWith(MARKER_PREFIX)) return null;
 	const end = text.indexOf(MARKER_END, MARKER_PREFIX.length);
 	if (end === -1) return text.length > MARKER_PREFIX.length + 12 ? null : 'incomplete';
@@ -136,7 +137,10 @@ export function waitForChange(execution: BrainExecution, timeoutMs: number): Pro
 }
 
 /** Wait until the execution has a final status, or until the timeout. */
-export async function waitUntilSettled(execution: BrainExecution, timeoutMs: number): Promise<void> {
+export async function waitUntilSettled(
+	execution: BrainExecution,
+	timeoutMs: number
+): Promise<void> {
 	const deadline = Date.now() + timeoutMs;
 	while (isActive(execution) && Date.now() < deadline)
 		await waitForChange(execution, deadline - Date.now());
@@ -269,7 +273,10 @@ export async function startExecution(
 	const active = [...brainState.executions.values()].filter(isActive);
 	if (active.length >= EXECUTION_LIMITS.running)
 		throw new BrainExecutionError('Too many running commands. Wait or cancel one.', 429);
-	if (active.filter((execution) => execution.grantId === grant.id).length >= EXECUTION_LIMITS.runningPerGrant)
+	if (
+		active.filter((execution) => execution.grantId === grant.id).length >=
+		EXECUTION_LIMITS.runningPerGrant
+	)
 		throw new BrainExecutionError(
 			`At most ${EXECUTION_LIMITS.runningPerGrant} commands can run in one target. Wait or cancel one.`,
 			429
