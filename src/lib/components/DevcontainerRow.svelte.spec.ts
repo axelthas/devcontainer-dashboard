@@ -244,7 +244,10 @@ describe('Devcontainer row', () => {
 	});
 
 	it('disconnects after confirmation and refreshes the row', async () => {
-		vi.stubGlobal('confirm', vi.fn(() => true));
+		vi.stubGlobal(
+			'confirm',
+			vi.fn(() => true)
+		);
 		const fetch = vi.fn(async () => Response.json({ steps: [], networks: running.networks }));
 		vi.stubGlobal('fetch', fetch);
 		const { onRefresh } = row(standingIn);
