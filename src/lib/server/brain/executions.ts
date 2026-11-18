@@ -63,7 +63,7 @@ export function isActive(execution: BrainExecution): boolean {
 export function createDemuxer(
 	onFrame: (stream: number, payload: Buffer) => void
 ): (chunk: Buffer) => void {
-	let pending = Buffer.alloc(0);
+	let pending: Buffer = Buffer.alloc(0);
 	return (chunk) => {
 		pending = pending.length ? Buffer.concat([pending, chunk]) : chunk;
 		while (pending.length >= 8) {
