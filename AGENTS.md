@@ -16,6 +16,7 @@ npm run format           # prettier --write
 npm run test:deployment  # Entrypoint and deployment regressions (no Docker needed)
 npm run test:production  # Built custom-server smoke test (build both outputs first)
 npm run test:gateway     # Standalone service-gateway regressions (build both outputs first)
+npm run test:brain       # Brain MCP access regressions (no Docker or dependencies needed)
 bash scripts/tests/container-smoke.sh # Build and test an isolated container deployment
 npm run test:unit        # vitest (interactive watch mode)
 npm run test:unit -- --run  # vitest single run
@@ -33,22 +34,27 @@ npm run test             # deployment + unit + e2e combined
 - **Authentication**: Required shared password creates opaque, process-local sessions; `src/hooks.server.ts` gates HTTP and `src/lib/server/terminal.ts` gates WebSocket upgrades
 - **Deployment**: Multi-stage Docker build. The build image runs `npm run build && npm run build:server`; the runtime image starts the custom Node server on port 3000.
 - **Server entry point**: `src/server.ts` creates the HTTP server, attaches the terminal WebSocket handler, and listens on `PORT`
+- **Brain shell access**: Opt-in MCP endpoint on its own listener. The operator grants ClickUp Brain shell access to individual containers; see [specification/feature_brain_access/feature_specification_brain_access.md](specification/feature_brain_access/feature_specification_brain_access.md)
 
 ### Environment variables
 
-| Variable                   | Default                          | Purpose                                               |
-| -------------------------- | -------------------------------- | ----------------------------------------------------- |
-| `DASHBOARD_PASSWORD`       | required                         | Shared password used to create authenticated sessions |
-| `WORKSPACE_ROOT`           | `/workspaces`                    | Root directory scanned for local workspace discovery  |
-| `HOST_HOSTNAME`            | `os.hostname()`                  | Displayed hostname in dashboard header                |
-| `VSCODE_SSH_HOST`          | (empty)                          | SSH host for VS Code remote URIs                      |
-| `PRESETS_FILE`             | `/data/presets.json`             | Path to bootstrap presets JSON file                   |
-| `BOOTSTRAP_PROVIDERS_FILE` | `/data/bootstrap-providers.json` | Path to bootstrap provider definitions                |
-| `PORT`                     | `3000`                           | Port used by the custom server entry point            |
-| `DASHBOARD_BIND_ADDRESS`   | `127.0.0.1`                      | Launcher publication address; pass `--bind-address`   |
-| `SERVICE_PROXY_ENABLED`    | (empty)                          | Set to `1` to enable the opt-in service gateway       |
-| `SERVICE_PROXY_HOST`       | (empty)                          | Operator-owned host route for gateway upstreams       |
-| `SERVICE_PROXY_PORTS`      | (empty)                          | `port:http\|https\|off` policy overrides              |
+| Variable                   | Default                          | Purpose                                                                  |
+| -------------------------- | -------------------------------- | ------------------------------------------------------------------------ |
+| `DASHBOARD_PASSWORD`       | required                         | Shared password used to create authenticated sessions                    |
+| `WORKSPACE_ROOT`           | `/workspaces`                    | Root directory scanned for local workspace discovery                     |
+| `HOST_HOSTNAME`            | `os.hostname()`                  | Displayed hostname in dashboard header                                   |
+| `VSCODE_SSH_HOST`          | (empty)                          | SSH host for VS Code remote URIs                                         |
+| `PRESETS_FILE`             | `/data/presets.json`             | Path to bootstrap presets JSON file                                      |
+| `BOOTSTRAP_PROVIDERS_FILE` | `/data/bootstrap-providers.json` | Path to bootstrap provider definitions                                   |
+| `PORT`                     | `3000`                           | Port used by the custom server entry point                               |
+| `DASHBOARD_BIND_ADDRESS`   | `127.0.0.1`                      | Launcher publication address; pass `--bind-address`                      |
+| `SERVICE_PROXY_ENABLED`    | (empty)                          | Set to `1` to enable the opt-in service gateway                          |
+| `SERVICE_PROXY_HOST`       | (empty)                          | Operator-owned host route for gateway upstreams                          |
+| `SERVICE_PROXY_PORTS`      | (empty)                          | `port:http\|https\|off` policy overrides                                 |
+| `BRAIN_MCP_TOKEN`          | (empty)                          | Bearer token that enables the Brain MCP endpoint (32 to 512 characters)  |
+| `BRAIN_MCP_TOKEN_FILE`     | (empty)                          | Absolute path of a file with the token; use instead of `BRAIN_MCP_TOKEN` |
+| `BRAIN_MCP_PORT`           | `3100`                           | Port of the dedicated Brain MCP listener                                 |
+| `BRAIN_MCP_PUBLIC_URL`     | (empty)                          | Public HTTPS URL of the endpoint, shown in the Brain panel               |
 
 ### Runtime notes
 
@@ -59,32 +65,40 @@ npm run test             # deployment + unit + e2e combined
 - Runtime startup fails when `DASHBOARD_PASSWORD` is empty. Sessions are in memory and end on logout, browser close, or process restart.
 - Keep `DASHBOARD_PASSWORD` excluded from terminal child-process environments in [src/lib/server/terminal.ts](src/lib/server/terminal.ts).
 - The service gateway is disabled unless `SERVICE_PROXY_ENABLED=1`. When enabled, [src/routes/service/+page.server.ts](src/routes/service/+page.server.ts) is the authoritative viewer contract: the server validates the container/port and picks the iframe target. Keep the client-side `src/lib/serviceTargets.ts` free of server imports.
+- The Brain MCP endpoint is disabled unless `BRAIN_MCP_TOKEN` or `BRAIN_MCP_TOKEN_FILE` is set. `src/server.ts` reads the token, removes `BRAIN_MCP_TOKEN` from its environment, and starts a separate listener; never route MCP requests through the dashboard listener. Only dashboard routes create grants, and the MCP tool set never includes grant, Docker, network or host operations.
+- Brain modules that `src/server.ts` imports (`src/lib/server/brain/` except `targets.ts` and `http.ts`) use relative `.js` imports only. Grants and executions live on `globalThis`, shared by both server bundles.
 - Container startup also fails if `/var/run/docker.sock` is missing, inaccessible, or group setup fails. Do not change host socket permissions.
 - `/healthz` is a public production-only application readiness probe with no sensitive state. It does not check Docker daemon availability.
 - Use `npm start`, not Vite preview, for production and terminal integration checks.
 
 ### Route structure
 
-| Route                                  | Purpose                                                                                      |
-| -------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `/`                                    | Main dashboard: SSR loads containers via `+page.server.ts`, polls `/api/containers` every 5s |
-| `/service`                             | Identity-validated service viewer; SSR load decides the iframe target                        |
-| `/service-proxy/[id]/[port]/`          | Opt-in authenticated streaming gateway to a running container web service                    |
-| `/demo/playwright`                     | Playwright test target page                                                                  |
-| `/healthz`                             | Public production readiness (GET or HEAD)                                                    |
-| `/api/containers` (GET)                | Returns all containers with exposed ports as JSON                                            |
-| `/api/containers/[id]/[action]` (POST) | Executes `start`, `stop`, `restart`, or `delete` on a container                              |
-| `/api/presets` (GET)                   | Returns bootstrap presets from `PRESETS_FILE`                                                |
-| `/api/workspaces` (GET, DELETE)        | Returns discovered local workspaces or removes a workspace directory with `path` in the body |
-| `/api/bootstrap` (GET)                 | Returns active bootstrap provider install status, branches, and version                      |
-| `/api/bootstrap/providers` (GET)       | Returns configured bootstrap providers and fallback provider info                            |
-| `/api/bootstrap/run` (POST)            | Starts a bootstrap run for a preset or custom command                                        |
-| `/api/bootstrap/pull` (POST)           | Pulls the active bootstrap provider repository                                               |
-| `/api/bootstrap/checkout` (POST)       | Checks out a branch in the active bootstrap provider repository                              |
-| `/api/repos/branches` (GET)            | Returns branches, tags, and current ref information for a repository path                    |
-| `/api/repos/checkout` (POST)           | Checks out a branch or tag in a repository path                                              |
-| `/api/devcontainer/build` (POST)       | Starts a devcontainer build session for a repository                                         |
-| `/api/terminal` (WebSocket)            | PTY terminal sessions via upgrade on the HTTP server                                         |
+| Route                                      | Purpose                                                                                      |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| `/`                                        | Main dashboard: SSR loads containers via `+page.server.ts`, polls `/api/containers` every 5s |
+| `/service`                                 | Identity-validated service viewer; SSR load decides the iframe target                        |
+| `/service-proxy/[id]/[port]/`              | Opt-in authenticated streaming gateway to a running container web service                    |
+| `/demo/playwright`                         | Playwright test target page                                                                  |
+| `/healthz`                                 | Public production readiness (GET or HEAD)                                                    |
+| `/api/containers` (GET)                    | Returns all containers with exposed ports as JSON                                            |
+| `/api/containers/[id]/[action]` (POST)     | Executes `start`, `stop`, `restart`, or `delete` on a container                              |
+| `/api/presets` (GET)                       | Returns bootstrap presets from `PRESETS_FILE`                                                |
+| `/api/workspaces` (GET, DELETE)            | Returns discovered local workspaces or removes a workspace directory with `path` in the body |
+| `/api/bootstrap` (GET)                     | Returns active bootstrap provider install status, branches, and version                      |
+| `/api/bootstrap/providers` (GET)           | Returns configured bootstrap providers and fallback provider info                            |
+| `/api/bootstrap/run` (POST)                | Starts a bootstrap run for a preset or custom command                                        |
+| `/api/bootstrap/pull` (POST)               | Pulls the active bootstrap provider repository                                               |
+| `/api/bootstrap/checkout` (POST)           | Checks out a branch in the active bootstrap provider repository                              |
+| `/api/repos/branches` (GET)                | Returns branches, tags, and current ref information for a repository path                    |
+| `/api/repos/checkout` (POST)               | Checks out a branch or tag in a repository path                                              |
+| `/api/devcontainer/build` (POST)           | Starts a devcontainer build session for a repository                                         |
+| `/api/terminal` (WebSocket)                | PTY terminal sessions via upgrade on the HTTP server                                         |
+| `/api/brain` (GET)                         | Brain endpoint status, grants checked against Docker, recent commands, and activity          |
+| `/api/brain/targets/[id]` (GET)            | Preview of a grant: user, start directory, and reach. Grants nothing                         |
+| `/api/brain/grants` (POST, DELETE)         | Grants one reviewed container run, or revokes every grant                                    |
+| `/api/brain/grants/[id]` (DELETE)          | Revokes one grant and stops its running commands                                             |
+| `/api/brain/executions/[id]` (GET, DELETE) | Reads retained output from a cursor, or stops the command                                    |
+| `POST /mcp` on `BRAIN_MCP_PORT`            | MCP endpoint for Brain; bearer token, separate listener                                      |
 
 ### Key files
 
@@ -103,6 +117,10 @@ npm run test             # deployment + unit + e2e combined
 | `src/lib/server/serviceGateway.ts`        | Streaming gateway core: auth, origin checks, cookie scoping, redirects, upgrades               |
 | `src/lib/server/serviceGatewayRuntime.ts` | Docker/session wiring, opt-in flag, `SERVICE_PROXY_PORTS` policy, viewer target validation     |
 | `src/routes/service/+page.server.ts`      | Validated viewer contract; server decides the iframe target from live Docker state             |
+| `src/lib/brainTypes.ts`                   | Client-safe Brain access shapes: previews, grants, executions, audit entries                   |
+| `src/lib/server/brain/gateway.ts`         | Brain MCP listener: configuration, bearer authentication, request limits                       |
+| `src/lib/server/brain/access.ts`          | Brain grant lifecycle: expiry, revocation, container-run checks                                |
+| `src/lib/server/brain/executions.ts`      | Brain commands through the Docker exec API, output, stdin, verified cancellation               |
 | `src/lib/components/`                     | UI components (see conventions below)                                                          |
 | `src/routes/+page.server.ts`              | SSR data loader: filters containers, builds port maps                                          |
 | `src/routes/api/containers/+server.ts`    | REST endpoint duplicating page.server logic for client polling                                 |
@@ -172,6 +190,7 @@ Important:
 - `test:deployment` uses Node's test runner with mocked privileged commands and a real temporary Unix socket. It requires no npm dependencies.
 - `test:production` exercises the compiled custom server, HTTP login, WebSocket authorization, and PTY output. `SMOKE_BASE_URL` targets a disposable external container.
 - `test:gateway` runs disposable HTTP/upgrade regressions against the compiled gateway module in `build/lib/server/serviceGateway.js`; `GATEWAY_MODULE_URL` can point at an isolated transpiled build when project dependencies are unavailable.
+- `test:brain` strips the Brain TypeScript modules into a temporary tree (`scripts/tests/brain-harness.mjs`) and runs them against a fake Docker client. It needs Node 22.13+ and no npm dependencies.
 - `container-smoke.sh` requires Docker, Node 22, util-linux `script`, and installed project dependencies. It cleans up only its isolated containers, volumes and test resources.
 
 ## Svelte MCP Tools
@@ -193,6 +212,7 @@ Project skills live in `.opencode/skills/` and are invoked explicitly:
 
 - [specification/initial_specification.md](specification/initial_specification.md): Core product behavior and terminology
 - [specification/feature_bootstrap/feature_specification_bootstrap.md](specification/feature_bootstrap/feature_specification_bootstrap.md): Bootstrap workflow details
+- [specification/feature_brain_access/feature_specification_brain_access.md](specification/feature_brain_access/feature_specification_brain_access.md): Brain MCP shell access, grants, and trust model
 - [src/lib/types.ts](src/lib/types.ts): Shared data models and session state shapes
 - [src/routes/api/\*_/_.ts](src/routes/api): Route names, request validation, and response contracts
 - [src/server.ts](src/server.ts): Production server entry point and PORT handling
