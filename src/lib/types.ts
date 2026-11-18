@@ -29,6 +29,15 @@ export interface ContainerData {
 	networkPresets?: NetworkPreset[];
 }
 
+/** Web-service protocol per container port: built-in defaults plus `--gateway-ports`. */
+export type ServicePortPolicy = Record<string, 'http' | 'https' | 'off'>;
+
+/**
+ * How the dashboard opens a web port: a Tailscale HTTPS origin, the same-origin gateway,
+ * or a direct `http://host:port` URL.
+ */
+export type ServiceAccess = 'https' | 'gateway' | 'direct';
+
 /** One published Docker host binding, preserving transport and address family. */
 export interface PublishedPortBinding {
 	containerPort: string;
