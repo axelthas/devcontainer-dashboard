@@ -6,13 +6,17 @@ export const RUN_LOG_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 export const RUN_LOG_MAX_CHARS = 5_000_000;
 export const RUN_LOG_FALLBACK_MAX_CHARS = 20_000_000;
 export const RUN_LOG_FALLBACK_MAX_COUNT = 32;
-export type RunLogKind = 'devcontainer-build' | 'bootstrap';
+export type RunLogKind = 'devcontainer-build' | 'bootstrap' | 'compose';
 export interface RunLogMetadata {
 	id: string;
 	kind: RunLogKind;
 	name: string;
 	path: string;
 	configPath?: string;
+	/** Compose runs: the allowlisted action */
+	action?: string;
+	/** Compose runs: the selected files, in merge order, relative to `path` */
+	files?: string[];
 	startedAt: string;
 	endedAt: string;
 	exitCode: number;

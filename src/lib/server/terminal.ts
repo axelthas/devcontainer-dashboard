@@ -11,7 +11,7 @@ import { sameOrigin } from './requestPolicy.js';
 
 const CANCEL_SIGNALS = new Set([1, 2, 15]);
 const limits = terminalLimits();
-export type PersistentSessionKind = 'shell' | 'bootstrap' | 'devcontainer-build';
+export type PersistentSessionKind = 'shell' | 'bootstrap' | 'devcontainer-build' | 'compose';
 export interface PersistentSessionExit {
 	exitCode: number;
 	signal?: number;
@@ -59,7 +59,12 @@ export function validSessionId(value: unknown): value is string {
 }
 /** Reject malformed kinds rather than silently creating a shell. */
 export function validSessionKind(value: unknown): value is PersistentSessionKind {
-	return value === 'shell' || value === 'bootstrap' || value === 'devcontainer-build';
+	return (
+		value === 'shell' ||
+		value === 'bootstrap' ||
+		value === 'devcontainer-build' ||
+		value === 'compose'
+	);
 }
 /** Classify deliberate process cancellation separately from command failure. */
 export function isCancelledExit(exitCode: number, signal?: number): boolean {

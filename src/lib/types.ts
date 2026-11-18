@@ -121,6 +121,74 @@ export interface RepositoryData {
 		/** True when the output of a failed build is kept as a log */
 		hasLog?: boolean;
 	};
+	/**
+	 * Compose files at the repository root and one directory deep, relative to `path`.
+	 * Hidden directories such as `.devcontainer/` are not scanned.
+	 */
+	composeFiles?: string[];
+	/** Newest Compose operation for this repo */
+	composeRun?: ComposeRunData;
+}
+
+/** One tracked Compose lifecycle operation. */
+export interface ComposeRunData {
+	id: string;
+	action: 'build' | 'up' | 'up-build' | 'stop';
+	status: 'running' | 'success' | 'failed';
+	startedAt: string;
+	/** Selected files, in merge order, relative to the repository */
+	files: string[];
+	/** True when the output of a failed run is kept as a log */
+	hasLog?: boolean;
+}
+
+/** Non-secret structure of one resolved Compose service. */
+export interface ComposeServiceSummary {
+	name: string;
+	image?: string;
+	hasBuild: boolean;
+	profiles: string[];
+	ports: { target: string; published?: string; protocol: string; hostIp?: string }[];
+	networks: string[];
+	containerName?: string;
+}
+
+/** One network of the resolved configuration. External networks must already exist. */
+export interface ComposeNetworkSummary {
+	key: string;
+	name: string;
+	external: boolean;
+	subnet?: string;
+}
+
+/** One existing container of the resolved project name. */
+export interface ComposeStackContainer {
+	/** Short (12 character) container ID */
+	id: string;
+	name: string;
+	service: string;
+	state: string;
+	/** `com.docker.compose.project.working_dir` label, when present */
+	workingDir?: string;
+}
+
+/** Result of resolving one Compose selection and comparing it with live Docker state. */
+export interface ComposeInspection {
+	projectName: string;
+	/** Absolute project directory used for relative paths and the default `.env` */
+	projectDirectory: string;
+	selection: { files: string[]; envFile?: string; profiles: string[] };
+	services: ComposeServiceSummary[];
+	networks: ComposeNetworkSummary[];
+	/** Compose warnings, for example unset variables */
+	warnings: string[];
+	/**
+	 * `none`: no containers of this project exist. `this`: all belong to this project directory.
+	 * `other`: some belong to another working directory; the dashboard refuses actions.
+	 */
+	ownership: 'none' | 'this' | 'other';
+	containers: ComposeStackContainer[];
+	otherWorkingDirs: string[];
 }
 
 export interface LocalWorkspaceData {

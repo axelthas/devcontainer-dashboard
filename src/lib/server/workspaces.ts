@@ -6,6 +6,8 @@ import docker from '$lib/server/docker';
 import { readGitHead, readCurrentTag } from '$lib/server/git';
 import { getActiveRuns } from '$lib/server/bootstrapRuns';
 import { getActiveBuilds } from '$lib/server/devcontainerBuilds';
+import { getActiveComposeRuns } from '$lib/server/composeRuns';
+import { findComposeFiles } from '$lib/server/composeSandbox';
 import type { LocalWorkspaceData, SolutionMetadata } from '$lib/types';
 
 export const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT ?? '/workspaces';
@@ -122,6 +124,7 @@ export async function loadWorkspaces(): Promise<LocalWorkspaceData[]> {
 			const isRunning = runningPaths.has(repoPath);
 			const currentBranch = await readGitHead(repoPath);
 			const currentTag = !currentBranch ? await readCurrentTag(repoPath) : undefined;
+			const composeFiles = await findComposeFiles(repoPath);
 			repos.push({
 				name: repoName,
 				path: repoPath,
@@ -129,7 +132,8 @@ export async function loadWorkspaces(): Promise<LocalWorkspaceData[]> {
 				devcontainerConfigs,
 				isRunning,
 				currentBranch,
-				currentTag
+				currentTag,
+				composeFiles
 			});
 		}
 
@@ -150,15 +154,16 @@ export async function loadWorkspaces(): Promise<LocalWorkspaceData[]> {
 }
 
 /**
- * Returns workspaces from disk merged with any in-memory active bootstrap runs
- * and devcontainer builds. Use this in both SSR and the API route so that
- * ongoing builds are visible immediately after a page load or refresh.
+ * Returns workspaces from disk merged with any in-memory active bootstrap runs,
+ * devcontainer builds, and Compose runs. Use this in both SSR and the API route so
+ * that ongoing work is visible immediately after a page load or refresh.
  */
 export async function loadMergedWorkspaces(): Promise<LocalWorkspaceData[]> {
-	const [workspaces, runs, devcontainerBuilds] = await Promise.all([
+	const [workspaces, runs, devcontainerBuilds, composeRuns] = await Promise.all([
 		loadWorkspaces(),
 		Promise.resolve(getActiveRuns()),
-		Promise.resolve(getActiveBuilds())
+		Promise.resolve(getActiveBuilds()),
+		Promise.resolve(getActiveComposeRuns())
 	]);
 
 	// Merge active bootstrap runs into the workspace list
@@ -198,6 +203,30 @@ export async function loadMergedWorkspaces(): Promise<LocalWorkspaceData[]> {
 				};
 				break;
 			}
+		}
+	}
+
+	// Merge the newest Compose run into the matching repo. A running run always wins.
+	for (const run of composeRuns) {
+		for (const ws of workspaces) {
+			const repo = ws.repos.find((r) => r.path === run.repoPath);
+			if (!repo) continue;
+			const current = repo.composeRun;
+			if (
+				!current ||
+				run.status === 'running' ||
+				(current.status !== 'running' && run.startedAt > current.startedAt)
+			) {
+				repo.composeRun = {
+					id: run.id,
+					action: run.action,
+					status: run.status,
+					startedAt: run.startedAt,
+					files: run.files,
+					hasLog: run.hasLog
+				};
+			}
+			break;
 		}
 	}
 

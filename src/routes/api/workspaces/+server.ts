@@ -3,6 +3,7 @@ import { rm } from 'node:fs/promises';
 import { loadMergedWorkspaces, WORKSPACE_ROOT } from '$lib/server/workspaces';
 import { getActiveRuns, removeBootstrapRun } from '$lib/server/bootstrapRuns';
 import { getActiveBuilds, removeDevcontainerBuild } from '$lib/server/devcontainerBuilds';
+import { getActiveComposeRuns, removeComposeRun } from '$lib/server/composeRuns';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async () => {
@@ -41,6 +42,14 @@ export const DELETE: RequestHandler = async ({ request }) => {
 	for (const build of getActiveBuilds()) {
 		if (build.repoPath === normalized || build.repoPath.startsWith(normalized + '/')) {
 			removeDevcontainerBuild(build.id);
+		}
+	}
+
+	// Release Compose run tracking for repos under the deleted workspace. Containers that
+	// Compose already created are not removed; they remain visible under Docker Services.
+	for (const run of getActiveComposeRuns()) {
+		if (run.repoPath === normalized || run.repoPath.startsWith(normalized + '/')) {
+			void removeComposeRun(run.id).catch(() => {});
 		}
 	}
 
