@@ -67,6 +67,9 @@ export type BrainExecutionStatus =
 	| 'stop_unconfirmed'
 	| 'failed';
 
+/** Who may type into a Brain terminal: Brain (through write_stdin) or the operator. */
+export type BrainController = 'brain' | 'operator';
+
 export interface BrainExecutionView {
 	id: string;
 	grantId: string;
@@ -75,12 +78,36 @@ export interface BrainExecutionView {
 	user: string;
 	workdir?: string;
 	interactive: boolean;
+	controller: BrainController;
 	status: BrainExecutionStatus;
 	exitCode?: number;
 	error?: string;
 	stopReason?: string;
 	startedAt: string;
 	endedAt?: string;
+}
+
+/** Server message on the Brain terminal WebSocket. */
+export type BrainTerminalMessage =
+	| {
+			type: 'ready';
+			/** Tail of the retained output */
+			output: string;
+			/** True when older output is not part of `output` */
+			truncated: boolean;
+			state: BrainTerminalState;
+	  }
+	| { type: 'data'; data: string }
+	| { type: 'state'; state: BrainTerminalState }
+	| { type: 'error'; message: string }
+	| { type: 'missing' };
+
+/** Live state of one Brain terminal. */
+export interface BrainTerminalState {
+	status: BrainExecutionStatus;
+	controller: BrainController;
+	interactive: boolean;
+	exitCode?: number;
 }
 
 /** One Brain call or operator decision. Details never contain stdin or output. */

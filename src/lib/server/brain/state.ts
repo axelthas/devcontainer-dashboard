@@ -7,6 +7,7 @@ import type Dockerode from 'dockerode';
 import type { Duplex } from 'node:stream';
 import type {
 	BrainAuditEntry,
+	BrainController,
 	BrainExecutionStatus,
 	BrainExposure,
 	BrainTargetKind
@@ -46,7 +47,12 @@ export interface BrainExecution {
 	execUser?: string;
 	user: string;
 	workdir?: string;
+	/** True when Brain may write to the terminal with write_stdin */
 	interactive: boolean;
+	/** Who may type into the terminal. The operator takes control explicitly. */
+	controller: BrainController;
+	/** True after Brain sent end-of-file; Brain cannot write again */
+	stdinClosed: boolean;
 	status: BrainExecutionStatus;
 	exitCode?: number;
 	error?: string;
@@ -63,8 +69,12 @@ export interface BrainExecution {
 	/** Increments on every output or status change */
 	version: number;
 	waiters: Set<() => void>;
-	/** Hijacked Docker stream for stdin; only interactive executions keep it */
+	/** Terminal viewers. Each call receives new output, or no text for a state change. */
+	listeners: Set<(text?: string) => void>;
+	/** Hijacked Docker stream to the PTY. It carries Brain input and operator input. */
 	stdin?: Duplex;
+	/** PTY size control of the Docker exec */
+	terminal?: { resize(size: { h: number; w: number }): Promise<unknown> };
 	stopping?: Promise<BrainExecutionStatus>;
 }
 
@@ -103,12 +113,20 @@ export function recordAudit(entry: Omit<BrainAuditEntry, 'at'>, now = Date.now()
 		brainState.audit.splice(0, brainState.audit.length - AUDIT_LIMIT);
 }
 
-/** Wake every waiter after an output or status change. */
-export function notify(execution: BrainExecution): void {
+/** Wake every waiter and terminal viewer after an output (`text`) or state change. */
+export function notify(execution: BrainExecution, text?: string): void {
 	execution.version++;
 	const waiters = [...execution.waiters];
 	execution.waiters.clear();
 	for (const waiter of waiters) waiter();
+	for (const listener of [...(execution.listeners ?? [])]) {
+		try {
+			listener(text);
+		} catch (cause) {
+			// One failing viewer must not stop output to Brain or to other viewers.
+			console.error('[brain] terminal viewer failed', cause);
+		}
+	}
 }
 
 /** Reset process-local test state. */

@@ -1,6 +1,7 @@
 // Custom production entry point: HTTP, terminal WebSockets, and coordinated shutdown.
 import { createServer } from 'node:http';
 import { attachTerminalServer } from './lib/server/terminal.js';
+import { attachBrainTerminalServer } from './lib/server/brainTerminal.js';
 import { assertAuthConfigured, isCookieHeaderAuthenticated } from './lib/server/auth.js';
 import {
 	createRuntimeServiceGateway,
@@ -69,6 +70,8 @@ server.on('upgrade', (request, socket, head) => {
 	if (serviceGateway?.matches(request.url)) void serviceGateway.upgrade(request, socket, head);
 });
 attachTerminalServer(server);
+// Brain terminal tabs use the dashboard's authenticated listener, never the MCP listener.
+attachBrainTerminalServer(server);
 // The MCP endpoint has its own listener, so publishing it never exposes the dashboard.
 const brainServer = brain ? createBrainServer(brain) : null;
 let funnel: Awaited<ReturnType<typeof startBrainFunnel>> | null = null;

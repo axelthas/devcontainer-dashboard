@@ -11,7 +11,7 @@ import {
 	EXECUTION_LIMITS,
 	readOutput,
 	startExecution,
-	stopExecution,
+	stopExecutionForBrain,
 	waitForOutput,
 	waitUntilSettled,
 	writeInput
@@ -54,7 +54,7 @@ export const BRAIN_TOOLS: ToolDefinition[] = [
 		name: 'execute',
 		title: 'Run a command',
 		description:
-			'Run a shell command in one granted container as the granted user. The command runs with bash -lc, or sh -lc when bash is missing. Every call starts a new process: the working directory and variables do not carry over between calls. stdin is closed unless interactive is true. Returns the output so far and an execution_id; when the status is still running, call read_output with next_cursor.',
+			'Run a shell command in one granted container as the granted user. The command runs with bash -lc, or sh -lc when bash is missing, in a terminal that the operator can watch. Every call starts a new process: the working directory and variables do not carry over between calls. stdin is /dev/null unless interactive is true. The operator can take control of the terminal at any time; write_stdin and cancel_execution are then refused until the operator hands control back. Returns the output so far and an execution_id; when the status is still running, call read_output with next_cursor.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -67,7 +67,7 @@ export const BRAIN_TOOLS: ToolDefinition[] = [
 				interactive: {
 					type: 'boolean',
 					default: false,
-					description: 'Keep stdin open for write_stdin'
+					description: 'Connect stdin to the terminal for write_stdin'
 				},
 				wait_seconds: waitSeconds(20)
 			},
@@ -97,7 +97,7 @@ export const BRAIN_TOOLS: ToolDefinition[] = [
 		name: 'write_stdin',
 		title: 'Write to stdin',
 		description:
-			'Write text to the stdin of an execution that was started with interactive set to true. Include a trailing newline to submit a line. Set close_stdin to send end-of-file.',
+			'Type text into the terminal of an execution that was started with interactive set to true. Include a trailing newline to submit a line. The terminal echoes input into the output. Set close_stdin to send end-of-file (Ctrl+D); after that, the execution accepts no more input. Refused while the operator has control.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -114,7 +114,7 @@ export const BRAIN_TOOLS: ToolDefinition[] = [
 		name: 'cancel_execution',
 		title: 'Cancel a command',
 		description:
-			'Stop an execution: send TERM to its process group, then KILL. The result says whether the stop was confirmed.',
+			'Stop an execution: send TERM to its process group, then KILL. The result says whether the stop was confirmed. Refused while the operator has control.',
 		inputSchema: {
 			type: 'object',
 			properties: { execution_id: id },
@@ -183,6 +183,8 @@ function outputResult(execution: BrainExecution, cursor?: number) {
 		execution_id: execution.id,
 		target_id: execution.grantId,
 		status: view.status,
+		// `operator`: the operator is typing; Brain input and cancel are refused.
+		controller: execution.controller,
 		...(view.exitCode === undefined ? {} : { exit_code: view.exitCode }),
 		...(execution.error ? { error: execution.error } : {}),
 		output: view.text,
@@ -308,7 +310,7 @@ async function runTool(
 		const executionId = text(args, 'execution_id', true, 64);
 		describe(brainState.executions.get(executionId)?.containerName, executionId);
 		const execution = await ownedExecution(executionId);
-		const status = await stopExecution(execution.id, 'Cancelled by Brain');
+		const status = await stopExecutionForBrain(execution);
 		return success({ execution_id: execution.id, status, confirmed: status === 'stopped' });
 	}
 	throw new ToolInputError(`Unknown tool: ${name}`);
