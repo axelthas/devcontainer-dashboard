@@ -2,6 +2,9 @@
  * The MCP tools that Brain sees. The tool set is fixed: grants change which targets
  * `list_targets` returns, never which tools exist. There are no tools for grants, Docker,
  * networks or the host, so Brain cannot widen its own access.
+ *
+ * `open_shell` starts a persistent shell; `execute` with its `shell_id` types a command into
+ * it. Without `shell_id`, `execute` starts one process per call, as before.
  */
 import type { BrainExecution } from './state.js';
 import { brainState, recordAudit } from './state.js';
@@ -16,6 +19,17 @@ import {
 	waitUntilSettled,
 	writeInput
 } from './executions.js';
+import {
+	commandOutput,
+	openShell,
+	readShellOutput,
+	runInShell,
+	shellOf,
+	shellsOf,
+	shellView,
+	waitForCommand,
+	waitForPrompt
+} from './shells.js';
 
 export interface ToolDefinition {
 	name: string;
@@ -51,15 +65,44 @@ export const BRAIN_TOOLS: ToolDefinition[] = [
 		annotations: { readOnlyHint: true, openWorldHint: false }
 	},
 	{
+		name: 'open_shell',
+		title: 'Open a persistent shell',
+		description:
+			'Start a persistent interactive bash in one granted container, in a terminal that the operator watches. Prefer a shell for multi-step work: pass its shell_id to execute, and the working directory, variables and history carry over between commands. The shell loads the user\'s ~/.bashrc, so output can contain the user\'s prompt. Open a second shell, with a name such as build, only for work that must run in parallel. Open shells count toward the running-command limit of the target; close a shell with cancel_execution. Waits for the first prompt and returns shell_id and ready.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				target_id: { ...id, description: 'target_id from list_targets' },
+				name: {
+					type: 'string',
+					pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$',
+					description: 'Short shell name, unique in the target. Default: main, then shell-2.'
+				},
+				workdir: {
+					type: 'string',
+					description: 'Absolute start directory. Defaults to the target workdir.'
+				},
+				wait_seconds: waitSeconds(15)
+			},
+			required: ['target_id'],
+			additionalProperties: false
+		},
+		annotations: { destructiveHint: false, openWorldHint: true }
+	},
+	{
 		name: 'execute',
 		title: 'Run a command',
 		description:
-			'Run a shell command in one granted container as the granted user. The command runs with bash -lc, or sh -lc when bash is missing, in a terminal that the operator can watch. Every call starts a new process: the working directory and variables do not carry over between calls. stdin is /dev/null unless interactive is true. The operator can take control of the terminal at any time; write_stdin and cancel_execution are then refused until the operator hands control back. Returns the output so far and an execution_id; when the status is still running, call read_output with next_cursor.',
+			'Run a shell command in one granted container as the granted user, in a terminal that the operator can watch. With shell_id from open_shell, the command is typed into that persistent shell: the working directory and variables carry over, the result has command_id, exit_code and cwd, and status is the command\'s status. A shell runs one command at a time; a busy shell refuses another command. Without shell_id, every call starts a new process with bash -lc (or sh -lc when bash is missing), and nothing carries over; stdin is /dev/null unless interactive is true. The operator can take control of the terminal at any time; execute in that shell, write_stdin and cancel_execution are then refused until the operator hands control back. When the status is still running, call read_output with execution_id and next_cursor.',
 		inputSchema: {
 			type: 'object',
 			properties: {
 				target_id: { ...id, description: 'target_id from list_targets' },
 				command: { type: 'string', minLength: 1, maxLength: EXECUTION_LIMITS.command },
+				shell_id: {
+					...id,
+					description: 'shell_id from open_shell. Not combined with workdir or interactive.'
+				},
 				workdir: {
 					type: 'string',
 					description: 'Absolute working directory. Defaults to the target workdir.'
@@ -80,7 +123,7 @@ export const BRAIN_TOOLS: ToolDefinition[] = [
 		name: 'read_output',
 		title: 'Read command output',
 		description:
-			'Read output of an execution from a cursor. Use next_cursor from the previous result. With wait_seconds, wait for new output or completion first.',
+			'Read output of an execution or shell from a cursor. Use next_cursor from the previous result. With wait_seconds, wait for new output or completion first. For a shell, output is plain text without colours, status is the shell\'s status, and command reports the current or last command with its status, exit_code and cwd; output stops at the end of that command until the cursor passes it.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -97,7 +140,7 @@ export const BRAIN_TOOLS: ToolDefinition[] = [
 		name: 'write_stdin',
 		title: 'Write to stdin',
 		description:
-			'Type text into the terminal of an execution that was started with interactive set to true. Include a trailing newline to submit a line. The terminal echoes input into the output. Set close_stdin to send end-of-file (Ctrl+D); after that, the execution accepts no more input. Refused while the operator has control.',
+			'Type text into the terminal of an execution that was started with interactive set to true, or of a shell. Include a trailing newline to submit a line. The terminal echoes input into the output. Send "\\u0003" (Ctrl+C) to interrupt the command that runs in a shell. Set close_stdin to send end-of-file (Ctrl+D); after that, the execution accepts no more input. Refused while the operator has control.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -114,7 +157,7 @@ export const BRAIN_TOOLS: ToolDefinition[] = [
 		name: 'cancel_execution',
 		title: 'Cancel a command',
 		description:
-			'Stop an execution: send TERM to its process group, then KILL. The result says whether the stop was confirmed. Refused while the operator has control.',
+			'Stop an execution: send TERM to its process group, then KILL. For a shell_id, this closes the whole shell and every job in it; to interrupt only its current command, use write_stdin with "\\u0003". The result says whether the stop was confirmed. Refused while the operator has control.',
 		inputSchema: {
 			type: 'object',
 			properties: { execution_id: id },
@@ -176,8 +219,42 @@ async function ownedExecution(executionId: string): Promise<BrainExecution> {
 	return execution;
 }
 
+/** Current or last command of a shell, in the tool result shape. */
+function commandResult(execution: BrainExecution) {
+	const current = execution.shell?.current;
+	if (!current) return {};
+	return {
+		command: {
+			command_id: current.id,
+			status: current.status,
+			...(current.exitCode === undefined ? {} : { exit_code: current.exitCode }),
+			...(current.cwd === undefined ? {} : { cwd: current.cwd })
+		}
+	};
+}
+
 /** Output page in the tool result shape. */
 function outputResult(execution: BrainExecution, cursor?: number) {
+	if (execution.kind === 'shell') {
+		const page = readShellOutput(execution, cursor);
+		return {
+			execution_id: execution.id,
+			shell_id: execution.id,
+			target_id: execution.grantId,
+			status: execution.status,
+			controller: execution.controller,
+			...(execution.exitCode === undefined ? {} : { exit_code: execution.exitCode }),
+			...(execution.error ? { error: execution.error } : {}),
+			ready: execution.shell?.ready ?? false,
+			...(execution.shell?.cwd === undefined ? {} : { cwd: execution.shell.cwd }),
+			...commandResult(execution),
+			output: page.text,
+			cursor: page.cursor,
+			next_cursor: page.nextCursor,
+			truncated_before: page.truncatedBefore,
+			more_output: page.more
+		};
+	}
 	const view = readOutput(execution, cursor);
 	return {
 		execution_id: execution.id,
@@ -256,28 +333,93 @@ async function runTool(
 				user: view.user,
 				...(view.workdir ? { workdir: view.workdir } : {}),
 				expires_at: view.expiresAt,
-				running_executions: view.runningExecutions
+				running_executions: view.runningExecutions,
+				shells: shellsOf(grant.id).map((execution) => {
+					const shell = shellView(shellOf(execution));
+					return {
+						shell_id: execution.id,
+						name: shell.name,
+						ready: shell.ready,
+						busy: shell.busy,
+						controller: execution.controller,
+						...(shell.cwd === undefined ? {} : { cwd: shell.cwd })
+					};
+				})
 			};
 		});
 		describe(undefined, `${targets.length} targets`);
 		return success({ targets });
 	}
+	if (name === 'open_shell') {
+		const args = argumentsOf(input, ['target_id', 'name', 'workdir', 'wait_seconds']);
+		const targetId = text(args, 'target_id', true, 64);
+		const shellName = text(args, 'name', false, 32);
+		const workdir = text(args, 'workdir', false);
+		const wait = integer(args, 'wait_seconds', MAX_WAIT_SECONDS) ?? 15;
+		describe(
+			brainState.grants.get(targetId)?.containerName ?? targetId,
+			`open shell ${shellName ?? '(default name)'}`
+		);
+		const grant = await liveGrant(targetId);
+		const execution = await openShell(grant, { name: shellName, workdir });
+		await waitForPrompt(execution, wait * 1000);
+		return success({ ...outputResult(execution, 0), name: execution.shell?.name });
+	}
 	if (name === 'execute') {
 		const args = argumentsOf(input, [
 			'target_id',
 			'command',
+			'shell_id',
 			'workdir',
 			'interactive',
 			'wait_seconds'
 		]);
 		const targetId = text(args, 'target_id', true, 64);
 		const command = text(args, 'command', true, EXECUTION_LIMITS.command);
+		const shellId = text(args, 'shell_id', false, 64);
 		const workdir = text(args, 'workdir', false);
-		const interactive = flag(args, 'interactive') ?? false;
+		const interactive = flag(args, 'interactive');
 		const wait = integer(args, 'wait_seconds', MAX_WAIT_SECONDS) ?? 20;
+		if (shellId !== undefined) {
+			const shellExecution = brainState.executions.get(shellId);
+			describe(
+				shellExecution?.containerName ?? brainState.grants.get(targetId)?.containerName ?? targetId,
+				`${shellExecution?.shell?.name ?? shellId}: ${command}`
+			);
+			if (workdir !== undefined || interactive !== undefined)
+				throw new ToolInputError(
+					'workdir and interactive do not apply to a shell. Use cd in the shell instead.'
+				);
+			const execution = await ownedExecution(shellId);
+			if (execution.grantId !== targetId)
+				throw new ToolInputError('shell_id belongs to another target_id');
+			const current = await runInShell(execution, command);
+			await waitForCommand(execution, current, wait * 1000);
+			const page = commandOutput(execution, current);
+			return success({
+				execution_id: execution.id,
+				shell_id: execution.id,
+				target_id: execution.grantId,
+				command_id: current.id,
+				status: current.status,
+				shell_status: execution.status,
+				controller: execution.controller,
+				...(current.exitCode === undefined ? {} : { exit_code: current.exitCode }),
+				...(current.cwd === undefined ? {} : { cwd: current.cwd }),
+				output: page.text,
+				cursor: page.cursor,
+				next_cursor: page.nextCursor,
+				truncated_before: page.truncatedBefore,
+				more_output: page.more
+			});
+		}
 		describe(brainState.grants.get(targetId)?.containerName ?? targetId, command);
 		const grant = await liveGrant(targetId);
-		const execution = await startExecution(grant, { command, workdir, interactive });
+		const execution = await startExecution(grant, {
+			command,
+			workdir,
+			interactive: interactive ?? false
+		});
 		await waitUntilSettled(execution, wait * 1000);
 		return success(outputResult(execution, 0));
 	}
