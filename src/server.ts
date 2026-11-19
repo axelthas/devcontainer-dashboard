@@ -13,7 +13,12 @@ import { installShutdown } from './lib/server/shutdown.js';
 import { startAi, inspectAi } from './lib/server/aiRuntime.js';
 import { createBrainServer } from './lib/server/brain/gateway.js';
 import { stopAllExecutions } from './lib/server/brain/executions.js';
-import { prepareBrain, brainFunnelSettings, startBrainFunnel } from './lib/server/brain/startup.js';
+import {
+	prepareBrain,
+	brainFunnelSettings,
+	preflightBrainFunnel,
+	startBrainFunnel
+} from './lib/server/brain/startup.js';
 import { brainState } from './lib/server/brain/state.js';
 
 const PORT = parseInt(process.env.PORT ?? '3000', 10);
@@ -23,6 +28,8 @@ const brain = await prepareBrain(process.env);
 delete process.env.BRAIN_MCP_TOKEN;
 const tailscale = tailscaleSettings(process.env);
 const funnelSettings = brainFunnelSettings(process.env, brain);
+// Check permissions before any Serve cleanup, daemon writes, child processes or listeners.
+if (tailscale && funnelSettings) await preflightBrainFunnel(tailscale.socket, funnelSettings);
 const INTERNAL_PROTOCOL_HEADER = 'x-devcontainer-dashboard-protocol';
 const proxyConfigured = Boolean(process.env.ORIGIN || process.env.PROTOCOL_HEADER);
 if (!proxyConfigured) process.env.PROTOCOL_HEADER = INTERNAL_PROTOCOL_HEADER;

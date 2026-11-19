@@ -4,6 +4,7 @@
  * a durable intent and a process lock constrain recovery and cleanup to our route.
  */
 import { randomBytes } from 'node:crypto';
+import { request } from 'node:http';
 import { mkdir, open, readFile, rename, rm, lstat } from 'node:fs/promises';
 import { dirname, isAbsolute, join } from 'node:path';
 import { hostname } from 'node:os';
@@ -23,6 +24,141 @@ type Funnel = {
 	upstream: number;
 	stateFile: string;
 };
+
+const FUNNEL_PORTS_CAPABILITY = 'https://tailscale.com/cap/funnel-ports';
+
+/** A display-safe preflight failure, without daemon bodies, credentials or peer information. */
+function preflightError(message: string): Error {
+	return new Error(`Brain Funnel preflight failed: ${message}`);
+}
+
+/**
+ * Match Tailscale's HTTPS, funnel and port capability checks. Older daemons report
+ * Capabilities; newer daemons use CapMap keys. Values in CapMap are not booleans.
+ */
+export function validateBrainFunnelStatus(
+	value: unknown,
+	settings: Pick<Funnel, 'hostname' | 'port'>
+): void {
+	if (!value || typeof value !== 'object' || Array.isArray(value))
+		throw preflightError('invalid Tailscale status response.');
+	const status = value as Record<string, unknown>;
+	if (status.BackendState !== 'Running')
+		throw preflightError('Tailscale is not running and logged in. Check tailscale status.');
+	if (!status.Self || typeof status.Self !== 'object' || Array.isArray(status.Self))
+		throw preflightError('Tailscale did not report this node. Check tailscale status.');
+	const self = status.Self as Record<string, unknown>;
+	if (
+		(self.Capabilities != null &&
+			(!Array.isArray(self.Capabilities) ||
+				!self.Capabilities.every((cap) => typeof cap === 'string'))) ||
+		(self.CapMap != null &&
+			(typeof self.CapMap !== 'object' || Array.isArray(self.CapMap)))
+	)
+		throw preflightError('invalid node capability data from Tailscale.');
+	const capabilities = new Set<string>([
+		...((self.Capabilities ?? []) as string[]),
+		...Object.keys(self.CapMap ?? {})
+	]);
+	const missing: string[] = [];
+	if (!capabilities.has('funnel'))
+		missing.push(
+			'Funnel permission is missing for this node. Add the "funnel" node attribute ' +
+			'for its user or tag in the Tailscale access-control policy. ' +
+			'Tagged devices need a matching tag target. See https://tailscale.com/s/no-funnel.'
+		);
+	if (!capabilities.has('https'))
+		missing.push('HTTPS is not enabled for this node/tailnet. See https://tailscale.com/s/https.');
+	if (missing.length) throw preflightError(missing.join(' '));
+	const dnsName = typeof self.DNSName === 'string'
+		? self.DNSName.replace(/\.$/, '').toLowerCase()
+		: '';
+	if (!dnsName || dnsName !== settings.hostname.toLowerCase())
+		throw preflightError(
+			'the --origin hostname does not match this node\'s Self.DNSName. ' +
+			'Use the hostname reported by tailscale status --json.'
+		);
+	const portCapabilities = [...capabilities].filter((cap) =>
+		cap.startsWith(FUNNEL_PORTS_CAPABILITY)
+	);
+	const allowed = portCapabilities.some((cap) => {
+		let parsed: URL;
+		try { parsed = new URL(cap); } catch { return false; }
+		if (
+			`${parsed.origin}${parsed.pathname}` !== FUNNEL_PORTS_CAPABILITY ||
+			parsed.username || parsed.password || parsed.hash
+		) return false;
+		return (parsed.searchParams.get('ports') ?? '').split(',').some((part) => {
+			const range = /^([0-9]{1,5})(?:-([0-9]{1,5}))?$/.exec(part);
+			if (!range) return false;
+			const first = Number(range[1]);
+			const last = Number(range[2] ?? range[1]);
+			return first >= 1 && last <= 65535 && first <= last &&
+				settings.port >= first && settings.port <= last;
+		});
+	});
+	if (!allowed)
+		throw preflightError(
+			`port ${settings.port} is not allowed by this node's Funnel port capability. ` +
+			'Check the tailnet policy and --brain-funnel-port; no route was created.'
+		);
+}
+
+/**
+ * Read status only through the explicitly mounted Unix socket. No CLI, remote URL,
+ * policy update or Serve write. Bound the response and elapsed time, and fail closed.
+ */
+export async function preflightBrainFunnel(
+	socketPath: string,
+	settings: Pick<Funnel, 'hostname' | 'port'>
+): Promise<void> {
+	if (!isAbsolute(socketPath))
+		throw preflightError('the Tailscale socket path must be absolute.');
+	const body = await new Promise<string>((resolve, reject) => {
+		const req = request(
+			{
+				socketPath,
+				path: '/localapi/v0/status?peers=false',
+				method: 'GET',
+				signal: AbortSignal.timeout(5000),
+				headers: { Host: 'local-tailscaled.sock' }
+			},
+			(response) => {
+				if (response.statusCode !== 200) {
+					response.resume();
+					reject(preflightError(
+						`cannot read Tailscale status (HTTP ${response.statusCode}). ` +
+						'Check the mounted socket and operator permissions.'
+					));
+					return;
+				}
+				const chunks: Buffer[] = [];
+				let size = 0;
+				response.on('error', () => reject(preflightError('Tailscale status response was interrupted.')));
+				response.on('aborted', () => reject(preflightError('Tailscale status response was interrupted.')));
+				response.on('data', (chunk: Buffer) => {
+					size += chunk.length;
+					if (size > 1_048_576) {
+						reject(preflightError('Tailscale status response exceeds 1 MiB.'));
+						req.destroy();
+						return;
+					}
+					chunks.push(chunk);
+				});
+				response.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+			}
+		);
+		req.on('error', () => reject(preflightError(
+			'cannot read Tailscale status within 5 seconds. Check the mounted socket, ' +
+			'daemon and operator permissions.'
+		)));
+		req.end();
+	});
+	let status: unknown;
+	try { status = JSON.parse(body); }
+	catch { throw preflightError('Tailscale returned invalid status JSON.'); }
+	validateBrainFunnelStatus(status, settings);
+}
 
 /** Read strict boolean settings; a typo must not silently change public exposure. */
 function enabled(value: string | undefined, name: string): boolean {

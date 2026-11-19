@@ -20,6 +20,106 @@ const TOKEN = 'a'.repeat(64);
 const HOST = 'test.tailnet.ts.net';
 const root = fileURLToPath(new URL('../../', import.meta.url));
 
+/** Valid status without peer data; capabilities can be advertised in either supported shape. */
+function funnelStatus(capMap = false) {
+	const capabilities = ['https', 'funnel', 'https://tailscale.com/cap/funnel-ports?ports=443,8443,10000'];
+	return {
+		BackendState: 'Running',
+		Self: {
+			DNSName: `${HOST}.`,
+			...(capMap
+				? { CapMap: Object.fromEntries(capabilities.map((cap) => [cap, []])) }
+				: { Capabilities: capabilities })
+		}
+	};
+}
+
+test('preflight accepts legacy capabilities, CapMap keys and allowed port ranges', () => {
+	const target = { hostname: HOST, port: 10000 };
+	for (const map of [false, true])
+		assert.doesNotThrow(() => brain.startup.validateBrainFunnelStatus(funnelStatus(map), target));
+	const status = funnelStatus();
+	status.Self.Capabilities[2] = 'https://tailscale.com/cap/funnel-ports?ports=443,9999-10001';
+	assert.doesNotThrow(() => brain.startup.validateBrainFunnelStatus(status, target));
+});
+
+test('preflight gives actionable errors for missing Funnel or HTTPS without changing policy', () => {
+	for (const [cap, message] of [['funnel', /Funnel permission is missing.*"funnel".*Tagged devices/],
+		['https', /HTTPS is not enabled/]]) {
+		for (const map of [false, true]) {
+			const status = funnelStatus(map);
+			if (map) delete status.Self.CapMap[cap];
+			else status.Self.Capabilities = status.Self.Capabilities.filter((item) => item !== cap);
+			const before = structuredClone(status);
+			assert.throws(() => brain.startup.validateBrainFunnelStatus(status, { hostname: HOST, port: 10000 }), message);
+			assert.deepEqual(status, before);
+		}
+	}
+});
+
+test('preflight rejects stopped nodes, wrong hostnames, malformed status and disallowed ports', () => {
+	const target = { hostname: HOST, port: 10000 };
+	for (const value of [null, [], {}, { BackendState: 'NeedsLogin' },
+		{ BackendState: 'Running', Self: [] }])
+		assert.throws(() => brain.startup.validateBrainFunnelStatus(value, target), /preflight failed/);
+	const wrong = funnelStatus();
+	wrong.Self.DNSName = 'different.tailnet.ts.net.';
+	assert.throws(() => brain.startup.validateBrainFunnelStatus(wrong, target), /Self.DNSName/);
+	for (const cap of [
+		'https://tailscale.com/cap/funnel-ports?ports=443,8443',
+		'https://tailscale.com/cap/funnel-ports?ports=10001-9999',
+		'https://tailscale.com/cap/funnel-ports-extra?ports=10000',
+		'https://tailscale.com/cap/funnel-ports?ports=0-99999',
+		'https://tailscale.com/cap/funnel-ports?ports=bad'
+	]) {
+		const status = funnelStatus();
+		status.Self.Capabilities[2] = cap;
+		assert.throws(() => brain.startup.validateBrainFunnelStatus(status, target), /10000 is not allowed/);
+	}
+	for (const self of [{ Capabilities: 'funnel' }, { CapMap: [] }]) {
+		assert.throws(() => brain.startup.validateBrainFunnelStatus(
+			{ BackendState: 'Running', Self: self }, target), /invalid node capability/);
+	}
+});
+
+test('preflight uses read-only LocalAPI, rejects HTTP errors and bounds response size', async (t) => {
+	const path = await directory(t);
+	const socket = join(path, 'preflight.sock');
+	let code = 200;
+	let body = JSON.stringify(funnelStatus(true));
+	let requests = 0;
+	const server = createServer((request, response) => {
+		requests++;
+		assert.equal(request.method, 'GET');
+		assert.equal(request.url, '/localapi/v0/status?peers=false');
+		response.writeHead(code).end(body);
+	});
+	await new Promise((resolve) => server.listen(socket, resolve));
+	t.after(() => new Promise((resolve) => server.close(resolve)));
+	const target = { hostname: HOST, port: 10000 };
+	await brain.startup.preflightBrainFunnel(socket, target);
+	code = 403;
+	body = 'private daemon diagnostic must not be reflected';
+	await assert.rejects(brain.startup.preflightBrainFunnel(socket, target),
+		(error) => /HTTP 403.*permissions/.test(error.message) && !error.message.includes(body));
+	code = 200;
+	body = '{';
+	await assert.rejects(brain.startup.preflightBrainFunnel(socket, target), /invalid status JSON/);
+	body = 'x'.repeat(1_100_000);
+	await assert.rejects(brain.startup.preflightBrainFunnel(socket, target), /exceeds 1 MiB/);
+	assert.equal(requests, 4);
+});
+
+test('production preflight runs before service route changes or public readiness', async () => {
+	const source = await readFile(join(root, 'src/server.ts'), 'utf8');
+	const preflight = source.indexOf('await preflightBrainFunnel(');
+	assert.ok(preflight > 0);
+	for (const marker of ['await startTailscaleServices(', 'const ai = startAi()', 'createBrainServer(brain)',
+		'await startBrainFunnel(', 'server.listen(PORT'])
+		assert.ok(preflight < source.indexOf(marker), marker);
+	assert.match(source, /if \(tailscale && funnelSettings\) await preflightBrainFunnel/);
+});
+
 /** Per-test private state, never real deployment storage. */
 async function directory(t) {
 	const path = await mkdtemp(join(tmpdir(), 'brain-startup-'));
