@@ -115,6 +115,11 @@ Use `--brain-token-file /absolute/host/path` for a stable, operator-readable tok
 file mounted read-only. Each new `--build` instance otherwise gets its own data
 volume and token. A restart of the same container reuses its token.
 
+Every running Brain command opens a tab in the terminal drawer. Watch it live,
+select **Take over** to type into it, and **Hand back to Brain** when you are done.
+Brain cannot type into or cancel a command while you have control, but it can read
+everything shown in the terminal. Closing the tab does not stop the command.
+
 The header shows **Brain disabled** with setup instructions when MCP is off.
 See the [Brain access specification](specification/feature_brain_access/feature_specification_brain_access.md)
 for ownership cleanup, crash recovery, limits and trust boundaries.
