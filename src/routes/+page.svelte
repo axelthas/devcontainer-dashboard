@@ -36,7 +36,7 @@
 	import BrainPanel from '$lib/components/BrainPanel.svelte';
 	import { errorMessage, latestRequest, requestJson } from '$lib/requests';
 	import { networkMemory } from '$lib/networkMemory.svelte';
-	import { provideBrainAccess } from '$lib/brainAccess.svelte';
+	import { brainExecutionIdOf, brainTabId, provideBrainAccess } from '$lib/brainAccess.svelte';
 	import type { ConnectRequest } from '$lib/networkRules';
 
 	interface Props {
@@ -321,6 +321,14 @@
 		terminalOpen = true;
 		activeTerminalId = id;
 	}
+	// "Open in terminal" in the Brain panel shows that command's tab.
+	brainAccess.revealHandler = (executionId) => openTerminalWith(brainTabId(executionId));
+
+	/** The first Brain tab, as a fallback when the last shell tab closes. */
+	function firstBrainTabId(): string | null {
+		const execution = brainAccess.tabs[0];
+		return execution ? brainTabId(execution.id) : null;
+	}
 
 	function addTerminalSession(session: TerminalSession) {
 		terminalRevision++;
@@ -333,9 +341,9 @@
 		terminalSessions = terminalSessions.filter((s) => s.id !== id);
 		confirmedTerminalSessionIds.delete(id);
 		if (activeTerminalId === id) {
-			activeTerminalId = terminalSessions[terminalSessions.length - 1]?.id ?? null;
+			activeTerminalId = terminalSessions[terminalSessions.length - 1]?.id ?? firstBrainTabId();
 		}
-		if (terminalSessions.length === 0) terminalOpen = false;
+		if (terminalSessions.length === 0 && brainAccess.tabs.length === 0) terminalOpen = false;
 	}
 
 	async function closeTerminalSession(id: string) {
@@ -388,10 +396,15 @@
 
 		if (kept.length !== terminalSessions.length || added.length > 0) {
 			terminalSessions = [...kept, ...added];
-			if (activeTerminalId && !terminalSessions.some((s) => s.id === activeTerminalId)) {
-				activeTerminalId = terminalSessions[terminalSessions.length - 1]?.id ?? null;
+			// Brain tabs are not shell sessions; keep one selected while its tab is open.
+			if (
+				activeTerminalId &&
+				!brainExecutionIdOf(activeTerminalId) &&
+				!terminalSessions.some((s) => s.id === activeTerminalId)
+			) {
+				activeTerminalId = terminalSessions[terminalSessions.length - 1]?.id ?? firstBrainTabId();
 			}
-			if (terminalSessions.length === 0) terminalOpen = false;
+			if (terminalSessions.length === 0 && brainAccess.tabs.length === 0) terminalOpen = false;
 		}
 	}
 
