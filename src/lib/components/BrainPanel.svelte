@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Ban, BrainCircuit, ChevronRight, Globe, Square, X } from 'lucide-svelte';
+	import { Ban, BrainCircuit, ChevronRight, Globe, Square, Terminal, X } from 'lucide-svelte';
 	import { formatRemaining, type BrainAccess } from '$lib/brainAccess.svelte';
 	import type { BrainAuditEntry, BrainExecutionStatus } from '$lib/brainTypes';
 	import { errorMessage } from '$lib/requests';
@@ -60,7 +60,15 @@
 	function outcome(execution: (typeof executions)[number]): string {
 		if (execution.status === 'exited') return `exit ${execution.exitCode}`;
 		if (execution.status === 'stop_unconfirmed') return 'stop not confirmed';
+		if (execution.status === 'running' && execution.controller === 'operator')
+			return 'you have control';
 		return execution.status;
+	}
+
+	/** Show the command's terminal tab in the drawer, and close this panel. */
+	function openInTerminal(executionId: string) {
+		access.reveal(executionId);
+		dialog?.close();
 	}
 </script>
 
@@ -231,6 +239,15 @@
 										<span class="shrink-0 text-xs {STATUS_CLASS[execution.status]}"
 											>{outcome(execution)}</span
 										>
+										<button
+											type="button"
+											title="Open in terminal"
+											aria-label={`Open in terminal: ${execution.command}`}
+											onclick={() => openInTerminal(execution.id)}
+											class="shrink-0 rounded p-0.5 text-[#4c566a] transition-colors hover:bg-[#e5e9f0] hover:text-[#b48ead] dark:text-[#d8dee9]/60 dark:hover:bg-[#434c5e]"
+										>
+											<Terminal size={14} />
+										</button>
 										{#if execution.status === 'running'}
 											<button
 												type="button"

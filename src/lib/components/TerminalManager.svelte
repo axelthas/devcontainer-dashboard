@@ -1,9 +1,20 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
-	import { X, Plus, Terminal, ChevronDown, ChevronUp, Maximize2, Minimize2 } from 'lucide-svelte';
+	import {
+		X,
+		Plus,
+		Terminal,
+		ChevronDown,
+		ChevronUp,
+		Maximize2,
+		Minimize2,
+		BrainCircuit
+	} from 'lucide-svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 	import TerminalTab from './TerminalTab.svelte';
+	import BrainTerminalTab from './BrainTerminalTab.svelte';
 	import { generateId } from '$lib/index';
+	import { brainTabId, isRunningStatus, useBrainAccess } from '$lib/brainAccess.svelte';
 	import type { TerminalSession } from '$lib/types';
 
 	interface TerminalSessionState extends TerminalSession {
@@ -30,6 +41,9 @@
 		onCloseSession,
 		onSetActive
 	}: Props = $props();
+	// Brain command tabs come from the page's Brain access state, not from `sessions`.
+	const brain = useBrainAccess();
+	const brainTabs = $derived(brain?.tabs ?? []);
 	let height = $state(320);
 	let maximized = $state(false);
 	let dragging = $state(false);
@@ -54,6 +68,16 @@
 		} finally {
 			closingIds.delete(id);
 		}
+	}
+	/** Close a Brain tab only. The command continues; the Brain panel can reopen it. */
+	function closeBrainTab(executionId: string) {
+		const tabId = brainTabId(executionId);
+		brain?.closeTab(executionId);
+		if (activeId !== tabId) return;
+		const next =
+			sessions[sessions.length - 1]?.id ??
+			brainTabs.map((execution) => brainTabId(execution.id)).find((id) => id !== tabId);
+		if (next) onSetActive(next);
 	}
 	function onResizeStart(event: MouseEvent) {
 		if (maximized) return;
@@ -127,6 +151,48 @@
 				>
 			</div>
 		{/each}
+		{#each brainTabs as execution (execution.id)}
+			{@const tabId = brainTabId(execution.id)}
+			{@const running = isRunningStatus(execution.status)}
+			<div
+				class="flex shrink-0 items-center rounded-t {activeId === tabId
+					? 'bg-[#3b4252] text-[#eceff4]'
+					: 'text-[#d8dee9]/60'}"
+			>
+				<button
+					data-terminal-tab={tabId}
+					id={`terminal-tab-${tabId}`}
+					role="tab"
+					aria-selected={activeId === tabId}
+					aria-controls={`terminal-pane-${tabId}`}
+					title={`Brain: ${execution.command} · ${execution.containerName}`}
+					class="flex items-center gap-1.5 px-3 py-1 text-xs font-medium"
+					onclick={() => {
+						onSetActive(tabId);
+						if (!open) onToggle();
+					}}
+					type="button"
+				>
+					<BrainCircuit size={12} class="shrink-0 text-[#b48ead]" />
+					<span class="max-w-32 truncate font-mono">{execution.command}</span>
+					<span class="max-w-24 truncate text-[#d8dee9]/50">{execution.containerName}</span>
+					{#if running && execution.controller === 'operator'}
+						<span class="h-1.5 w-1.5 shrink-0 rounded-full bg-[#ebcb8b]"></span>
+						<span class="sr-only">You have control</span>
+					{:else if running}
+						<span class="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[#b48ead]"></span>
+						<span class="sr-only">Running</span>
+					{/if}
+				</button>
+				<button
+					class="pr-2 text-[#d8dee9]/40"
+					onclick={() => closeBrainTab(execution.id)}
+					type="button"
+					title="Close the tab. The command continues."
+					aria-label={`Close tab for ${execution.command}`}><X size={11} /></button
+				>
+			</div>
+		{/each}
 		<button
 			onclick={addGenericShell}
 			class="shrink-0 p-1 text-[#d8dee9]/60"
@@ -176,5 +242,21 @@
 				/>
 			</div>
 		{/each}
+		{#if brain}
+			{#each brainTabs as execution (execution.id)}
+				{@const tabId = brainTabId(execution.id)}
+				<div
+					id={`terminal-pane-${tabId}`}
+					data-terminal-pane={tabId}
+					role="tabpanel"
+					aria-labelledby={`terminal-tab-${tabId}`}
+					class="absolute inset-2"
+					hidden={!open || activeId !== tabId}
+					inert={!open || activeId !== tabId}
+				>
+					<BrainTerminalTab {execution} access={brain} visible={open && activeId === tabId} />
+				</div>
+			{/each}
+		{/if}
 	</div>
 </div>
