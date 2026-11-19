@@ -11,7 +11,17 @@ import { Duplex } from 'node:stream';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const repository = fileURLToPath(new URL('../../', import.meta.url));
-const BRAIN_MODULES = ['state', 'exposure', 'executions', 'access', 'tools', 'mcp', 'gateway', 'startup'];
+const BRAIN_MODULES = [
+	'state',
+	'exposure',
+	'executions',
+	'viewers',
+	'access',
+	'tools',
+	'mcp',
+	'gateway',
+	'startup'
+];
 
 /** Copy one stripped module into the temporary tree. */
 async function copyStripped(source, target) {
@@ -36,16 +46,7 @@ export async function loadBrain() {
 	return modules;
 }
 
-/** Encode one Docker multiplexed frame: 1 is stdout, 2 is stderr. */
-export function frame(stream, data) {
-	const payload = Buffer.isBuffer(data) ? data : Buffer.from(data);
-	const header = Buffer.alloc(8);
-	header[0] = stream;
-	header.writeUInt32BE(payload.length, 4);
-	return Buffer.concat([header, payload]);
-}
-
-/** A hijacked exec connection: tests push output, and stdin writes are recorded. */
+/** A hijacked TTY exec connection: tests push raw PTY output, and input writes are recorded. */
 export function execStream() {
 	const stream = new Duplex({
 		read() {},
@@ -65,12 +66,14 @@ export function execStream() {
 
 /**
  * Fake Dockerode client. `containers` maps full IDs to inspect results. `onExec` receives
- * the exec options and returns `{ stream, inspect }` for that exec.
+ * the exec options and returns `{ stream, inspect }` for that exec. `resizes` records PTY sizes.
  */
 export function fakeDocker(containers, onExec) {
 	const execs = [];
+	const resizes = [];
 	return {
 		execs,
+		resizes,
 		getContainer(id) {
 			return {
 				async inspect() {
@@ -88,6 +91,9 @@ export function fakeDocker(containers, onExec) {
 						},
 						async inspect() {
 							return behaviour.inspect();
+						},
+						async resize(size) {
+							resizes.push(size);
 						}
 					};
 				}
