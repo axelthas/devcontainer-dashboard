@@ -70,11 +70,37 @@ export type BrainExecutionStatus =
 /** Who may type into a Brain terminal: Brain (through write_stdin) or the operator. */
 export type BrainController = 'brain' | 'operator';
 
+/**
+ * `command`: one process per `execute` call, as before. `shell`: one persistent interactive
+ * bash that Brain types commands into, so the working directory and variables carry over.
+ */
+export type BrainExecutionKind = 'command' | 'shell';
+
+/** Live state of one persistent Brain shell. */
+export interface BrainShellView {
+	/** Name that Brain gave the shell, unique among the open shells of one grant */
+	name: string;
+	/** True after the shell showed its first prompt */
+	ready: boolean;
+	/** True while a command that Brain typed runs */
+	busy: boolean;
+	/** Working directory reported at the last prompt */
+	cwd?: string;
+	/** The running command, or the last command that Brain typed */
+	command?: string;
+	/** Exit code reported at the last prompt */
+	exitCode?: number;
+}
+
 export interface BrainExecutionView {
 	id: string;
 	grantId: string;
 	containerName: string;
+	kind: BrainExecutionKind;
+	/** The command, or `shell <name>` for a shell */
 	command: string;
+	/** Set for a shell */
+	shell?: BrainShellView;
 	user: string;
 	workdir?: string;
 	interactive: boolean;
