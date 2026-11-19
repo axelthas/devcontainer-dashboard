@@ -18,7 +18,11 @@ ClickUp Brain
   -> host loopback, BRAIN_MCP_PORT
   -> dashboard process, dedicated MCP listener (POST /mcp, bearer token)
   -> grant check against live Docker state
-  -> Docker exec API in the granted container
+  -> Docker exec API in the granted container, one PTY per command
+
+Operator browser
+  -> dashboard listener, GET /api/brain/terminal (WebSocket, session cookie, same origin)
+  -> live output of one command; keystrokes only after "Take over"
 ```
 
 | Module                                        | Purpose                                                                |
@@ -28,12 +32,15 @@ ClickUp Brain
 | `src/lib/server/brain/tools.ts`               | The five tools, argument validation and the audit log entries          |
 | `src/lib/server/brain/access.ts`              | Grant lifecycle, expiry, revocation and container-run checks           |
 | `src/lib/server/brain/executions.ts`          | Docker exec runtime, output retention, stdin and verified cancellation |
+| `src/lib/server/brain/viewers.ts`             | Terminal viewer protocol: replay, live output, operator input          |
+| `src/lib/server/brainTerminal.ts`             | WebSocket transport for terminal tabs, on the dashboard listener       |
 | `src/lib/server/brain/exposure.ts`            | Reach analysis for the grant dialog                                    |
 | `src/lib/server/brain/targets.ts`             | Live target inspection for SvelteKit routes (user, directory, reach)   |
 | `src/lib/server/brain/state.ts`               | Process-wide state on `globalThis`, shared by both server bundles      |
 | `src/lib/brainAccess.svelte.ts`               | Browser state, provided as context by the dashboard page               |
 | `src/lib/components/BrainAccessButton.svelte` | Grant control on devcontainer rows, cards and service rows             |
 | `src/lib/components/BrainPanel.svelte`        | Header control and panel: grants, commands, output and activity        |
+| `src/lib/components/BrainTerminalTab.svelte`  | Terminal drawer tab for one command, with Take over and Stop           |
 
 The modules that the custom server imports use relative imports only, because `tsconfig.server.json` compiles them without SvelteKit aliases. `targets.ts` and `http.ts` are SvelteKit-only.
 
@@ -56,13 +63,13 @@ bash scripts/run-dashboard.sh --build \
 listener, never the dashboard or the authenticated service gateway. It does not grant
 access to any container. The operator must still use **Grant Brain**.
 
-| Launcher flag | Purpose |
-| --- | --- |
-| `--brain` | Enable MCP. Create or reuse a private 64-character token in `/data/brain-mcp-token`. |
+| Launcher flag             | Purpose                                                                                    |
+| ------------------------- | ------------------------------------------------------------------------------------------ |
+| `--brain`                 | Enable MCP. Create or reuse a private 64-character token in `/data/brain-mcp-token`.       |
 | `--brain-token-file PATH` | Enable MCP with an existing Docker-host file, mounted read-only at `/run/brain-mcp-token`. |
-| `--brain-port N` | Local MCP port, default `3100`. Implies `--brain`. |
-| `--brain-funnel` | Explicit public opt-in through LocalAPI. Requires the Tailscale socket and HTTPS origin. |
-| `--brain-funnel-port N` | Public HTTPS port, default `10000`. Requires `--brain-funnel`. |
+| `--brain-port N`          | Local MCP port, default `3100`. Implies `--brain`.                                         |
+| `--brain-funnel`          | Explicit public opt-in through LocalAPI. Requires the Tailscale socket and HTTPS origin.   |
+| `--brain-funnel-port N`   | Public HTTPS port, default `10000`. Requires `--brain-funnel`.                             |
 
 The public port must be `443`, `8443` or `10000`. It must not overlap the dashboard,
 MCP, AI, gateway, or service allocation ports. The default `10000` is outside the
@@ -95,15 +102,15 @@ gets a new token unless a stable `--brain-token-file` is supplied.
 Without startup configuration the header shows **Brain disabled** with launch instructions.
 The following environment variables remain available for direct deployments:
 
-| Variable               | Default | Purpose                                                              |
-| ---------------------- | ------- | -------------------------------------------------------------------- |
-| `BRAIN_MCP_TOKEN`      | (empty) | Bearer token, 32 to 512 characters without whitespace                |
-| `BRAIN_MCP_TOKEN_FILE` | (empty) | Absolute path of a file that contains the token. Use one of the two. |
-| `BRAIN_MCP_PORT`       | `3100`  | Listener port                                                        |
-| `BRAIN_MCP_PUBLIC_URL` | (empty) | HTTPS URL that the panel shows, for example the Funnel URL           |
-| `BRAIN_MCP_ENABLED` | `0` | `1` creates/reuses the automatic token when no explicit credential is set. |
-| `BRAIN_MCP_FUNNEL` | `0` | `1` opts into public Funnel setup through the mounted socket. |
-| `BRAIN_MCP_FUNNEL_PORT` | `10000` | Public port for automatic Funnel setup. |
+| Variable                | Default | Purpose                                                                    |
+| ----------------------- | ------- | -------------------------------------------------------------------------- |
+| `BRAIN_MCP_TOKEN`       | (empty) | Bearer token, 32 to 512 characters without whitespace                      |
+| `BRAIN_MCP_TOKEN_FILE`  | (empty) | Absolute path of a file that contains the token. Use one of the two.       |
+| `BRAIN_MCP_PORT`        | `3100`  | Listener port                                                              |
+| `BRAIN_MCP_PUBLIC_URL`  | (empty) | HTTPS URL that the panel shows, for example the Funnel URL                 |
+| `BRAIN_MCP_ENABLED`     | `0`     | `1` creates/reuses the automatic token when no explicit credential is set. |
+| `BRAIN_MCP_FUNNEL`      | `0`     | `1` opts into public Funnel setup through the mounted socket.              |
+| `BRAIN_MCP_FUNNEL_PORT` | `10000` | Public port for automatic Funnel setup.                                    |
 
 The server reads the token at startup and removes `BRAIN_MCP_TOKEN` from its environment, so terminals and other child processes do not inherit it. A token in `--env-file` is still visible in `docker inspect` of the dashboard container. A token file keeps it out of the container configuration.
 
@@ -157,13 +164,29 @@ When a grant ends, its running commands receive TERM, then KILL. Brain also lose
 | `write_stdin`      | Write to an interactive command, optionally followed by end-of-file                  |
 | `cancel_execution` | Stop a command and report whether the stop was confirmed                             |
 
-Every `execute` call starts a new process with `bash -lc`, or `sh -lc` when bash is missing. The working directory and variables do not carry over between calls. stdin is closed unless `interactive` is true. Commands run with `TERM=dumb`, `NO_COLOR=1`, `PAGER=cat`, `GIT_PAGER=cat` and `GIT_TERMINAL_PROMPT=0`.
+Every `execute` call starts a new process with `bash -lc`, or `sh -lc` when bash is missing, in its own pseudo-terminal (PTY, 120 x 32). The working directory and variables do not carry over between calls. stdin is `/dev/null` unless `interactive` is true. Commands run with `TERM=dumb`, `NO_COLOR=1`, `PAGER=cat`, `GIT_PAGER=cat` and `GIT_TERMINAL_PROMPT=0`.
+
+The PTY merges stdout and stderr, and its CRLF line endings are converted back to LF, so Brain reads output as without a terminal. For an interactive command, the PTY echoes input into the output. `close_stdin` sends Ctrl+D (end-of-file in canonical terminal mode); after that, Brain cannot write to the command again.
+
+## Terminal tabs and takeover
+
+Every running Brain command opens a tab in the terminal drawer, next to the shell tabs. The tab shows the command, the container, the user and the directory, live output, and **Stop**. Closing a tab never stops the command. **Open in terminal** in the Brain panel reopens the tab of any retained command.
+
+The tab is read-only while Brain has control. Input control is explicit:
+
+1. **Take over** gives terminal input to the operator. The terminal resizes the PTY to its own size.
+2. While the operator has control, `write_stdin` and `cancel_execution` are refused for that command. The tool results report `controller: "operator"`.
+3. **Hand back to Brain** returns control. Brain can write to an interactive command again.
+
+Brain can always read the output, including everything that the PTY echoes while the operator types. Programs that hide input (password prompts) do not echo it. For a command without Brain input, stdin is `/dev/null`: the operator's keys reach only programs that open `/dev/tty`, and Ctrl+C reaches the command's process group.
+
+The audit log records `take_control` and `hand_back`, never typed input. The WebSocket uses the dashboard session and the same origin checks as the shell terminals. It is not available on the MCP listener. A viewer receives the newest 262,144 characters, then live output, and is closed when it cannot keep up (1 MB queued). At most 8 viewers can watch one command.
 
 ## Cancellation
 
 Docker has no API to kill an exec process. The command wrapper prints its process ID before it replaces itself with the login shell. runc starts every exec process as a session leader, so that ID is also the process group ID. A stop then:
 
-1. marks the command `stopping` and refuses further stdin,
+1. marks the command `stopping` and refuses further input from Brain and the operator,
 2. sends TERM to the process group from a second exec as the same user,
 3. waits up to 3 seconds, then sends KILL and waits up to 2 seconds,
 4. reports `stopped` only when no process of the group remains, else `stop_unconfirmed`.
@@ -182,6 +205,5 @@ The panel shows the newest 50 of 200 retained entries: tool, target, command or 
 
 ## Follow-ups
 
-- Show Brain commands as read-only tabs in the terminal drawer, with an explicit take-over.
 - Bind grants to a workspace or ticket, so `list_targets` can explain why a target matches a task.
 - Replace the hand-written JSON-RPC layer with the MCP TypeScript SDK if more protocol features are needed.
