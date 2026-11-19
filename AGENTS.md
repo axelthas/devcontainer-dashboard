@@ -98,6 +98,8 @@ npm run test             # deployment + unit + e2e combined
 | `/api/brain/grants` (POST, DELETE)         | Grants one reviewed container run, or revokes every grant                                    |
 | `/api/brain/grants/[id]` (DELETE)          | Revokes one grant and stops its running commands                                             |
 | `/api/brain/executions/[id]` (GET, DELETE) | Reads retained output from a cursor, or stops the command                                    |
+| `/api/brain/executions/[id]` (PATCH)       | Gives terminal input to the operator (`controller: "operator"`) or back to Brain             |
+| `/api/brain/terminal` (WebSocket)          | Live output of one Brain command for its drawer tab; operator keys after Take over           |
 | `POST /mcp` on `BRAIN_MCP_PORT`            | MCP endpoint for Brain; bearer token, separate listener                                      |
 
 ### Key files
@@ -120,7 +122,9 @@ npm run test             # deployment + unit + e2e combined
 | `src/lib/brainTypes.ts`                   | Client-safe Brain access shapes: previews, grants, executions, audit entries                   |
 | `src/lib/server/brain/gateway.ts`         | Brain MCP listener: configuration, bearer authentication, request limits                       |
 | `src/lib/server/brain/access.ts`          | Brain grant lifecycle: expiry, revocation, container-run checks                                |
-| `src/lib/server/brain/executions.ts`      | Brain commands through the Docker exec API, output, stdin, verified cancellation               |
+| `src/lib/server/brain/executions.ts`      | Brain commands in a Docker exec PTY: output, stdin, input control, verified cancellation       |
+| `src/lib/server/brain/viewers.ts`         | Brain terminal viewer protocol: replay, live output, operator input and PTY size               |
+| `src/lib/server/brainTerminal.ts`         | WebSocket transport for Brain terminal tabs on the dashboard listener                          |
 | `src/lib/components/`                     | UI components (see conventions below)                                                          |
 | `src/routes/+page.server.ts`              | SSR data loader: filters containers, builds port maps                                          |
 | `src/routes/api/containers/+server.ts`    | REST endpoint duplicating page.server logic for client polling                                 |
