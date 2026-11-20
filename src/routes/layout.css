@@ -5,6 +5,32 @@
 
 @variant dark (&:is(.dark *));
 
+/*
+ * Touch screens: every control gets a hit area of at least 44 x 44 CSS px.
+ * The rule is in the base layer, so an explicit min-size utility still wins.
+ */
+@layer base {
+	@media (pointer: coarse), (max-width: 767px) {
+		button,
+		[role='button'],
+		[role='tab'],
+		select,
+		summary {
+			min-height: 44px;
+			min-width: 44px;
+		}
+	}
+}
+
+/* iOS zooms the page when a focused field is smaller than 16px. Terminal helpers are excluded. */
+@media (pointer: coarse), (max-width: 767px) {
+	input:not([type='checkbox'], [type='radio'], [type='range']),
+	select,
+	textarea:not(.xterm-helper-textarea) {
+		font-size: max(16px, 1em);
+	}
+}
+
 @keyframes spin {
 	from {
 		transform: rotate(0deg);
@@ -32,4 +58,233 @@
 
 .highlight-flash {
 	animation: highlight-flash-anim 1.5s ease-out;
+}
+
+/* Safari's status/home-indicator areas paint the root, not the dashboard wrapper. */
+html {
+	background: #eceff4;
+}
+html.dark {
+	background: #2e3440;
+}
+body {
+	min-height: 100dvh;
+}
+
+@media (max-width: 767px) {
+	/* Explicit identity grid: no desktop spacer or action can steal the project name's line. */
+	.container-row-header {
+		display: block;
+		padding: 12px;
+	}
+	.container-row-identity {
+		display: grid;
+		grid-template-columns: 12px minmax(0, 1fr) 44px;
+		gap: 4px 10px;
+	}
+	.container-row-identity > button {
+		grid-column: 3;
+		grid-row: 1 / span 2;
+		display: grid;
+		place-items: center;
+		width: 44px;
+		height: 44px;
+	}
+	.container-row-identity > span[aria-hidden] {
+		grid-column: 1;
+		grid-row: 1;
+	}
+	.container-row-identity > .container-project-name {
+		grid-column: 2;
+		grid-row: 1;
+		white-space: normal;
+		overflow-wrap: anywhere;
+		font-size: 16px;
+	}
+	.container-row-identity > .container-runtime-name {
+		grid-column: 2;
+		grid-row: 2;
+		white-space: normal;
+		overflow-wrap: anywhere;
+		font-size: 12px;
+	}
+	.mobile-container-actions > div:first-child > button {
+		width: 100%;
+		min-width: 0;
+		justify-content: center;
+		padding-inline: 4px;
+		font-size: 14px;
+	}
+	.mobile-container-actions > button[aria-haspopup] {
+		width: 44px;
+		min-width: 44px;
+		height: 44px;
+		border: 1px solid #4c566a;
+	}
+
+	/* Labels above values; the desktop table is retained at md and above. */
+	.mobile-details {
+		min-width: 0;
+	}
+	.mobile-details > dt:not(:first-child) {
+		margin-top: 12px;
+	}
+	.mobile-details > dt {
+		font-size: 12px;
+		font-weight: 600;
+	}
+	.mobile-details > dd {
+		min-width: 0;
+	}
+	.port-ledger-row > :nth-child(4) {
+		grid-column: 1 / -1;
+		font-size: 12px;
+	}
+
+	/* Popovers escape clipping and become bounded, thumb-reachable bottom sheets. */
+	[popover][role='menu'] {
+		left: 8px !important;
+		right: 8px !important;
+		top: auto !important;
+		bottom: max(8px, env(safe-area-inset-bottom)) !important;
+		width: auto !important;
+		max-height: calc(var(--visual-viewport-height, 100dvh) - 24px);
+		overflow-y: auto;
+		border-radius: 20px;
+		padding: 12px;
+		padding-bottom: max(12px, env(safe-area-inset-bottom));
+	}
+	[popover][role='menu']::backdrop {
+		background: #0006;
+	}
+	[popover][role='menu'] button,
+	[popover][role='menu'] a {
+		min-height: 44px;
+		font-size: 14px;
+	}
+	[popover][role='menu'] .menu-caption {
+		overflow-wrap: anywhere;
+		font-size: 12px;
+		padding: 8px;
+	}
+	[popover][role='menu'] .menu-hint {
+		white-space: normal;
+		overflow-wrap: anywhere;
+	}
+
+	/* Each workspace bounds its own sticky header; expanded repos cannot lose their context. */
+	.workspace-list > [data-workspace] {
+		position: relative;
+	}
+	.workspace-header {
+		position: sticky;
+		top: 64px;
+		z-index: 15;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) 44px;
+		gap: 8px;
+		padding: 12px;
+		background: #eceff4;
+	}
+	.dark .workspace-header {
+		background: #3b4252;
+	}
+	.workspace-identity {
+		display: grid;
+		grid-template-columns: 16px minmax(0, 1fr);
+		align-items: center;
+		gap: 6px 8px;
+	}
+	.workspace-identity > svg {
+		grid-column: 1;
+		grid-row: 1;
+		flex-shrink: 0;
+	}
+	.workspace-identity > .workspace-name {
+		grid-column: 2;
+		font-size: 15px;
+		overflow-wrap: anywhere;
+		line-height: 1.4;
+	}
+	.workspace-identity > span:not(.workspace-name) {
+		grid-column: 2;
+		width: fit-content;
+		max-width: 100%;
+		white-space: normal;
+		overflow-wrap: anywhere;
+	}
+	.workspace-tools {
+		align-self: start;
+		border: 0;
+		background: none;
+		padding: 0;
+		box-shadow: none;
+	}
+	.repo-row {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) 44px;
+		padding: 12px;
+		gap: 6px 8px;
+	}
+	.repo-name {
+		grid-column: 1 / -1;
+		width: auto;
+	}
+	.repo-name > span {
+		overflow: visible;
+		white-space: normal;
+		overflow-wrap: anywhere;
+		font-size: 15px;
+	}
+	.repo-ref {
+		width: auto;
+		min-width: 0;
+	}
+	.repo-ref > div {
+		min-width: 0;
+		max-width: 100%;
+	}
+	.repo-ref button {
+		max-width: 100%;
+	}
+	.repo-more {
+		grid-column: 2;
+	}
+	.repo-sheet-actions > div {
+		flex-wrap: wrap;
+		min-width: 0;
+	}
+	/* Inline branch/config pickers must not inherit a desktop absolute width. */
+	.repo-ref [class*='absolute'],
+	.repo-sheet-actions [class*='absolute'] {
+		position: fixed;
+		inset: auto 8px max(80px, env(safe-area-inset-bottom));
+		width: auto;
+		max-height: 50dvh;
+		overflow-y: auto;
+		z-index: 60;
+	}
+	.compose-group-identity {
+		display: flex;
+		flex-wrap: wrap;
+		flex: 1 1 100%;
+		gap: 8px;
+	}
+	.compose-group-identity h4 {
+		white-space: normal;
+		overflow-wrap: anywhere;
+	}
+}
+@media (max-width: 767px) {
+	.workspace-identity > .workspace-meta {
+		grid-column: 2;
+	}
+	.compose-group-header {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) 44px;
+		gap: 8px;
+	}
+	.compose-group-identity {
+		min-width: 0;
+	}
 }

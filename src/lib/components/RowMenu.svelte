@@ -37,7 +37,7 @@
 	const uid = $props.id();
 	const menuId = `row-menu-${uid}`;
 	/** Enabled items in visual order. */
-	const ITEMS = '[role="menuitem"]:not(:disabled)';
+	const ITEMS = 'button:not(:disabled), a[href]';
 	let menu: HTMLDivElement;
 	let triggerButton: HTMLButtonElement;
 	let expanded = $state(false);
@@ -47,7 +47,7 @@
 
 	/** Return the enabled items in visual order. */
 	function items() {
-		return [...menu.querySelectorAll<HTMLElement>(ITEMS)];
+		return [...menu.querySelectorAll<HTMLElement>(ITEMS)].filter((item) => item.checkVisibility());
 	}
 
 	/** Position the popover before it opens; flip it above the trigger near the bottom edge. */
@@ -82,6 +82,13 @@
 	/** Dismiss without moving focus away from a newly opened window. */
 	function close() {
 		menu.hidePopover();
+		// A leaf action (Open with / Services) must also dismiss its containing phone sheet.
+		// Native nested popovers do not close their ancestor automatically.
+		let parent = menu.parentElement?.closest<HTMLElement>('[popover]');
+		while (parent) {
+			if (parent.matches(':popover-open')) parent.hidePopover();
+			parent = parent.parentElement?.closest<HTMLElement>('[popover]');
+		}
 	}
 
 	/** Standard menu keys; stop propagation so the row does not react. */
@@ -103,6 +110,7 @@
 			return;
 		}
 		const list = items();
+		if (!list.length) return;
 		const index = list.indexOf(document.activeElement as HTMLElement);
 		let next: number;
 		if (event.key === 'ArrowDown') next = (index + 1) % list.length;
@@ -148,6 +156,13 @@
 	class="row-menu rounded-lg border border-[#d8dee9] bg-white p-1 text-[#2e3440] shadow-lg dark:border-[#4c566a] dark:bg-[#3b4252] dark:text-[#eceff4]"
 >
 	{@render children(close)}
+	<button
+		type="button"
+		role="menuitem"
+		onclick={close}
+		class="mt-2 min-h-11 justify-center rounded-lg border border-[#4c566a]/40 font-semibold md:hidden"
+		>Close menu</button
+	>
 </div>
 
 <style>

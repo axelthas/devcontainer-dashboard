@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import {
 		Ellipsis,
 		Hammer,
@@ -16,6 +17,8 @@
 	import RowMenu from './RowMenu.svelte';
 
 	interface Props {
+		/** Optional phone-only actions, before lifecycle controls. */
+		extras?: Snippet<[close: () => void]>;
 		container: ContainerData;
 		/** Shared with the row, so the row can show progress and errors. */
 		actions: ContainerActions;
@@ -30,7 +33,8 @@
 		actions,
 		onConnectNetwork,
 		onDisconnectNetwork,
-		rebuild = true
+		rebuild = true,
+		extras
 	}: Props = $props();
 
 	const running = $derived(container.state === 'running');
@@ -68,7 +72,8 @@
 		{/if}
 	{/snippet}
 	{#snippet children(close: () => void)}
-		<span class="menu-caption font-mono">{containerName}</span>
+		<span class="menu-caption font-mono break-all">{containerName}</span>
+		{@render extras?.(close)}
 		{#if onConnectNetwork}
 			<button
 				role="menuitem"

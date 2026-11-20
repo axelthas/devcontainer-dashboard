@@ -1,7 +1,9 @@
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import { Ellipsis, Loader2, RotateCcw, Trash2 } from 'lucide-svelte';
 
 	interface Props {
+		extras?: Snippet;
 		name: string;
 		canRerun: boolean;
 		rerunning?: boolean;
@@ -9,7 +11,15 @@
 		onRerun: () => void;
 		onDelete: () => void;
 	}
-	let { name, canRerun, rerunning = false, deleting = false, onRerun, onDelete }: Props = $props();
+	let {
+		extras,
+		name,
+		canRerun,
+		rerunning = false,
+		deleting = false,
+		onRerun,
+		onDelete
+	}: Props = $props();
 	const uid = $props.id();
 	const menuId = `workspace-more-${uid}`;
 	let menu: HTMLDivElement;
@@ -21,7 +31,9 @@
 
 	/** Return the enabled items in visual order. */
 	function items() {
-		return [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)')];
+		return [...menu.querySelectorAll<HTMLElement>('button:not(:disabled),a[href]')].filter((item) =>
+			item.checkVisibility()
+		);
 	}
 
 	/** Right-align the popover to the trigger before it opens; flip above near the bottom. */
@@ -124,6 +136,7 @@
 	style:top={`${top}px`}
 	class="more-menu rounded-lg border border-[#d8dee9] bg-white p-1 text-[#2e3440] shadow-lg dark:border-[#4c566a] dark:bg-[#3b4252] dark:text-[#eceff4]"
 >
+	{@render extras?.()}
 	{#if canRerun}
 		<button
 			role="menuitem"

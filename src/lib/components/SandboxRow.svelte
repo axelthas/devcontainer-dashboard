@@ -11,6 +11,7 @@
 	import ContainerMoreMenu from './ContainerMoreMenu.svelte';
 	import BrainAccessButton from './BrainAccessButton.svelte';
 	import PortLedger from './PortLedger.svelte';
+	import MobileContainerActions from './MobileContainerActions.svelte';
 
 	interface Props {
 		container: ContainerData;
@@ -100,13 +101,16 @@
 <!-- Same skeleton as a devcontainer row: chevron, identity, marks, then the action pill. -->
 <div
 	data-container-id={container.id}
+	data-mobile-row
 	class="transition-colors duration-300
 		{isRunning
 		? 'hover:bg-[#eceff4]/50 dark:hover:bg-[#434c5e]/50'
 		: 'bg-[#e5e9f0]/50 hover:bg-[#e5e9f0] dark:bg-[#2e3440]/30 dark:hover:bg-[#2e3440]/50'}"
 >
-	<div class="flex flex-wrap items-center justify-between gap-3 px-5 py-2">
-		<div class="flex min-w-0 items-center gap-3">
+	<div
+		class="container-row-header flex flex-wrap items-center justify-between gap-3 px-3 py-2 sm:px-5"
+	>
+		<div class="container-row-identity flex min-w-0 items-center gap-3">
 			<button
 				type="button"
 				onclick={() => (expanded = !expanded)}
@@ -127,7 +131,7 @@
 						: 'bg-[#4c566a]'}"
 			></span>
 			<span
-				class="truncate font-semibold
+				class="container-project-name truncate font-semibold
 					{isRunning ? 'text-[#2e3440] dark:text-[#eceff4]' : 'text-[#4c566a] dark:text-[#d8dee9]/70'}"
 				>{container.projectName}</span
 			>
@@ -151,7 +155,7 @@
 			{/if}
 		</div>
 
-		<div class="ml-auto flex shrink-0 items-center gap-2">
+		<div class="ml-auto hidden shrink-0 flex-wrap items-center justify-end gap-2 md:flex">
 			{#if status}
 				<span role="status" class="px-2 text-xs text-[#4c566a] dark:text-[#d8dee9]/70"
 					>{status}</span
@@ -203,6 +207,21 @@
 		</div>
 	</div>
 
+	<div class="px-3 pb-3 md:hidden">
+		<MobileContainerActions
+			{container}
+			{actions}
+			{vscodeSshHost}
+			{serviceProxyEnabled}
+			{servicePorts}
+			{serviceAccess}
+			{onOpenTerminal}
+			sandbox
+		/>
+	</div>
+	{#if actions.loadingAction}<p class="px-3 pb-2 text-sm text-[#ebcb8b] md:hidden" role="status">
+			{transition}…
+		</p>{/if}
 	{#if actions.actionError}
 		<p role="alert" class="px-5 pb-2 text-right text-xs text-[#bf616a]">{actions.actionError}</p>
 	{/if}
@@ -210,17 +229,19 @@
 	{#if expanded}
 		<div
 			id={detailsId}
-			class="mr-5 mb-3 ml-14 grid gap-3 rounded-lg border border-[#d8dee9] bg-[#f0f4f8] p-3 text-xs dark:border-[#4c566a] dark:bg-[#2e3440]"
+			class="mx-3 mb-3 grid gap-3 rounded-lg border border-[#d8dee9] bg-[#f0f4f8] p-3 text-xs sm:mr-5 sm:ml-14 dark:border-[#4c566a] dark:bg-[#2e3440]"
 		>
-			<dl class="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1">
+			<dl
+				class="mobile-details grid grid-cols-1 gap-x-4 gap-y-1 text-sm md:grid-cols-[max-content_1fr] md:text-xs"
+			>
 				<dt class="text-[#4c566a] dark:text-[#d8dee9]/60">Container</dt>
-				<dd class="min-w-0 truncate font-mono text-[#2e3440] dark:text-[#d8dee9]">
+				<dd class="min-w-0 font-mono break-all text-[#2e3440] md:truncate dark:text-[#d8dee9]">
 					{containerName}
 				</dd>
 
 				<dt class="text-[#4c566a] dark:text-[#d8dee9]/60">Image</dt>
 				<dd
-					class="min-w-0 truncate font-mono text-[#2e3440] dark:text-[#d8dee9]"
+					class="min-w-0 font-mono break-all text-[#2e3440] md:truncate dark:text-[#d8dee9]"
 					title={container.image}
 				>
 					{container.image}
@@ -266,7 +287,7 @@
 				<dt class="text-[#4c566a] dark:text-[#d8dee9]/60">Terminal command</dt>
 				<dd class="flex min-w-0 items-start gap-2">
 					<code
-						class="min-w-0 flex-1 font-mono break-all whitespace-pre-wrap text-[#2e3440] dark:text-[#d8dee9]"
+						class="min-w-0 flex-1 overflow-x-auto rounded bg-[#e5e9f0] p-2 font-mono whitespace-pre text-[#2e3440] dark:bg-[#242933] dark:text-[#d8dee9]"
 						>{terminalCommand}</code
 					>
 					<button

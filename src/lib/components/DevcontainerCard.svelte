@@ -56,7 +56,7 @@
 >
 	<!-- Card Header -->
 	<div
-		class="flex items-start justify-between gap-3 rounded-t-2xl border-b p-5
+		class="flex flex-col items-stretch justify-between gap-3 rounded-t-2xl border-b p-4 sm:flex-row sm:items-start sm:p-5
 			{isRunning
 			? 'border-[#d8dee9] bg-[#eceff4]/50 dark:border-[#4c566a] dark:bg-[#2e3440]'
 			: 'border-[#d8dee9] bg-[#e5e9f0] dark:border-[#434c5e] dark:bg-[#2e3440]/50'}"
@@ -72,11 +72,12 @@
 							: 'bg-[#4c566a]'}"
 				></span>
 				<h3
-					class="truncate text-lg font-bold
+					class="min-w-0 text-lg font-bold break-words sm:truncate
 						{isRunning ? 'text-[#2e3440] dark:text-[#eceff4]' : 'text-[#4c566a] dark:text-[#d8dee9]/70'}"
 				>
 					{container.projectName}
-					<span class="text-sm font-normal text-[#4c566a] dark:text-[#d8dee9]/50"
+					<span
+						class="block font-mono text-sm font-normal break-all text-[#4c566a] sm:inline sm:font-sans dark:text-[#d8dee9]/50"
 						>({container.name.replace(/^\//, '')})</span
 					>
 				</h3>
@@ -90,8 +91,8 @@
 				{/if}
 			</div>
 		</div>
-		<div class="flex shrink-0 flex-col items-end gap-1">
-			<div class="flex items-center gap-2">
+		<div class="flex shrink-0 flex-col items-start gap-1 sm:items-end">
+			<div class="flex flex-wrap items-center gap-2">
 				{#if transition}
 					<span role="status" class="flex items-center gap-1.5 text-xs font-medium text-[#ebcb8b]">
 						<Loader2 size={12} class="animate-spin" />
@@ -140,7 +141,7 @@
 	</div>
 
 	<!-- Card Services Grid: cards have room, so services stay one click away. -->
-	<div class="flex-grow p-5">
+	<div class="flex-grow p-4 sm:p-5">
 		<div class="grid grid-cols-2 gap-3">
 			{#each Object.entries(container.ports) as [containerPort, hostPort] (containerPort)}
 				<ServiceButton

@@ -93,13 +93,13 @@
 
 <!-- Backdrop -->
 <div
-	class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+	class="fixed inset-0 bottom-[var(--keyboard-inset,0px)] z-50 flex items-center justify-center bg-black/60 py-4 backdrop-blur-sm"
 	role="dialog"
 	aria-modal="true"
 	aria-label={title}
 >
 	<div
-		class="mx-4 w-full max-w-5xl rounded-2xl border border-[#4c566a] bg-[#3b4252] p-6 shadow-2xl"
+		class="mx-4 max-h-full w-full max-w-5xl overflow-y-auto rounded-2xl border border-[#4c566a] bg-[#3b4252] p-4 shadow-2xl sm:p-6"
 	>
 		<div class="mb-5 flex items-center justify-between">
 			<h2 class="text-lg font-bold text-[#eceff4]">{title}</h2>
