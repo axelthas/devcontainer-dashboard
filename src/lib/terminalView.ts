@@ -81,6 +81,8 @@ export interface TerminalView {
 	/** Fit the grid to its host. Resolve with the applied size, or undefined if unmeasurable. */
 	fit(): Promise<TerminalViewDimensions | undefined>;
 	focus(): void;
+	/** Change the text size in place. The caller fits afterwards; the PTY and its output stay. */
+	setFontSize(size: number): Promise<void>;
 	/** Idempotently release view resources. This never stops or recreates a process. */
 	dispose(): void;
 }
