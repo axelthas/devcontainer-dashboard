@@ -242,14 +242,14 @@
 
 <!-- Backdrop -->
 <div
-	class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+	class="fixed inset-0 bottom-[var(--keyboard-inset,0px)] z-50 flex items-center justify-center bg-black/60 py-4 backdrop-blur-sm"
 	role="dialog"
 	aria-modal="true"
 	aria-label="Run Bootstrap Script"
 >
 	<!-- Modal panel -->
 	<div
-		class="mx-4 w-full rounded-2xl border border-[#4c566a] bg-[#3b4252] p-6 shadow-2xl {interactiveSessionId
+		class="mx-4 max-h-full w-full overflow-y-auto rounded-2xl border border-[#4c566a] bg-[#3b4252] p-4 shadow-2xl sm:p-6 {interactiveSessionId
 			? 'max-w-5xl'
 			: 'max-w-md'}"
 	>
@@ -272,7 +272,7 @@
 
 		{#if interactiveSessionId}
 			<!-- Interactive terminal view: closes with the modal when the process exits -->
-			<div class="mb-5 h-[32rem] overflow-hidden rounded-lg border border-[#4c566a]">
+			<div class="mb-5 h-[min(32rem,55dvh)] overflow-hidden rounded-lg border border-[#4c566a]">
 				<TerminalTab
 					sessionId={interactiveSessionId}
 					active={true}

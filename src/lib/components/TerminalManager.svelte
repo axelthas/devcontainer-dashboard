@@ -12,6 +12,7 @@
 	} from 'lucide-svelte';
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import TerminalTab from './TerminalTab.svelte';
+	import { visualViewportState as viewport } from '$lib/visualViewport.svelte';
 	import BrainTerminalTab from './BrainTerminalTab.svelte';
 	import TerminalEngineSwitcher from './TerminalEngineSwitcher.svelte';
 	import { generateId } from '$lib/index';
@@ -194,12 +195,17 @@
 		tabRefs[id]?.sendInput(data);
 	}
 
+	/** The open phone sheet follows the visual viewport while the on-screen keyboard is open. */
+	const aboveKeyboard = $derived(open && isPhone && viewport.keyboardOpen);
 	/** Drawer height: a sheet below the safe area on phones, the resizable drawer elsewhere. */
 	const drawerHeight = $derived.by(() => {
 		if (!open) return isPhone ? 'calc(2.75rem + env(safe-area-inset-bottom))' : '2.5rem';
+		if (aboveKeyboard) return `${viewport.height}px`;
 		if (isPhone) return 'calc(100dvh - env(safe-area-inset-top))';
 		return maximized ? '100dvh' : `${height}px`;
 	});
+	/** Pin the sheet to the top of the visual viewport, so iOS page scrolling cannot hide it. */
+	const drawerTop = $derived(aboveKeyboard ? `${viewport.offsetTop}px` : undefined);
 
 	let height = $state(320);
 	let maximized = $state(false);
@@ -281,10 +287,14 @@
 </script>
 
 <div
-	class="fixed right-0 bottom-0 left-0 z-40 flex flex-col border-t border-[#4c566a] bg-[#2e3440] {isPhone
+	class="fixed right-0 bottom-0 left-0 z-40 flex flex-col border-t border-[#4c566a] bg-[#2e3440] {isPhone &&
+	!aboveKeyboard
 		? 'pb-[env(safe-area-inset-bottom)]'
 		: ''} {dragging ? '' : 'transition-all duration-300'}"
 	style:height={drawerHeight}
+	style:top={drawerTop}
+	data-terminal-drawer
+	data-keyboard-open={aboveKeyboard ? 'true' : undefined}
 >
 	{#if open && !maximized && !isPhone}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->

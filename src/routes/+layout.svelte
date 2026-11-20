@@ -1,8 +1,12 @@
 <script lang="ts">
 	import './layout.css';
 	import favicon from '$lib/assets/favicon.svg';
+	import { trackVisualViewport } from '$lib/visualViewport.svelte';
 
 	let { children } = $props();
+
+	// One app-wide tracker: phone panels stay above the on-screen keyboard.
+	$effect(() => trackVisualViewport());
 </script>
 
 <svelte:head>
