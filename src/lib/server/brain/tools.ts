@@ -68,7 +68,7 @@ export const BRAIN_TOOLS: ToolDefinition[] = [
 		name: 'open_shell',
 		title: 'Open a persistent shell',
 		description:
-			"Start a persistent interactive bash in one granted container, in a terminal that the operator watches. Prefer a shell for multi-step work: pass its shell_id to execute, and the working directory, variables and history carry over between commands. The shell loads the user's ~/.bashrc, so output can contain the user's prompt. Open a second shell, with a name such as build, only for work that must run in parallel. Open shells count toward the running-command limit of the target; close a shell with cancel_execution. Waits for the first prompt and returns shell_id and ready.",
+			"Start a persistent interactive shell in one granted container, in a terminal that the operator watches. It prefers zsh, then bash, then sh, and loads the user's shell startup files. Prefer a shell for multi-step work: pass its shell_id to execute, and the working directory, variables and history carry over between commands. Output can contain the user's prompt. Open a second shell, with a name such as build, only for work that must run in parallel. Open shells count toward the running-command limit of the target; close a shell with cancel_execution. Waits for the first prompt and returns shell_id and ready.",
 		inputSchema: {
 			type: 'object',
 			properties: {

@@ -1,11 +1,11 @@
 /**
- * Persistent Brain shells. A shell is one interactive bash in a Docker exec PTY: an
+ * Persistent Brain shells. A shell is one interactive shell in a Docker exec PTY: an
  * execution of kind `shell`. Brain types each command into it, so the working directory,
  * variables and history carry over, and the operator watches one ordinary terminal.
  *
- * Command boundaries come from shell integration that the start script installs after the
- * user's ~/.bashrc. PROMPT_COMMAND prints a prompt marker with the exit code and working
- * directory; PS0 (bash 4.4 and later) prints a start marker after the echoed command line.
+ * Command boundaries come from shell integration installed after the user's startup file.
+ * Each shell prints a prompt marker with the exit code and working directory. Bash PS0
+ * (4.4 and later) and zsh preexec print a start marker after the echoed command line.
  * Both are OSC sequences, which terminals do not display, and both carry a per-shell nonce.
  * Without PS0, the echoed command ends at the first line feed.
  */
@@ -73,18 +73,98 @@ function shellRc(nonce: string): string {
 	].join('\n');
 }
 
-/**
- * Start script, run by the execution wrapper with `bash -lc`: a login environment, then
- * one interactive bash with the start-up file.
- */
+/** Load the user's zsh environment before returning to the temporary startup directory. */
+function zshEnv(): string {
+	return [
+		'if [ "$DDB_BRAIN_ZDOTDIR_SET" = x ]; then',
+		'\texport ZDOTDIR="$DDB_BRAIN_USER_ZDOTDIR"',
+		'else',
+		'\tunset ZDOTDIR',
+		'fi',
+		'if [ -r "$DDB_BRAIN_USER_ZDOTDIR/.zshenv" ]; then . "$DDB_BRAIN_USER_ZDOTDIR/.zshenv"; fi',
+		'DDB_BRAIN_ZDOTDIR_SET=${ZDOTDIR+x}; DDB_BRAIN_USER_ZDOTDIR=${ZDOTDIR:-$HOME}',
+		'export DDB_BRAIN_ZDOTDIR_SET DDB_BRAIN_USER_ZDOTDIR',
+		'export ZDOTDIR="$DDB_BRAIN_DIR"'
+	].join('\n');
+}
+
+/** Zsh startup: keep the user's ZDOTDIR and hooks without recording Brain's history. */
+function zshRc(nonce: string): string {
+	return [
+		'rm -f -- "$DDB_BRAIN_RC" "$DDB_BRAIN_DIR/.zshenv"; rmdir -- "$DDB_BRAIN_DIR"',
+		'if [ "$DDB_BRAIN_ZDOTDIR_SET" = x ]; then',
+		'\texport ZDOTDIR="$DDB_BRAIN_USER_ZDOTDIR"',
+		'else',
+		'\tunset ZDOTDIR',
+		'fi',
+		'if [ -r "$DDB_BRAIN_USER_ZDOTDIR/.zshrc" ]; then . "$DDB_BRAIN_USER_ZDOTDIR/.zshrc"; fi',
+		'unset DDB_BRAIN_RC DDB_BRAIN_DIR DDB_BRAIN_ZDOTDIR_SET DDB_BRAIN_USER_ZDOTDIR',
+		'unset HISTFILE',
+		'unsetopt BANG_HIST',
+		// Zsh's PROMPT_SP draws a '%' and padding before precmd; that would enter Brain's output.
+		'unsetopt PROMPT_SP',
+		'__ddb_brain_prompt() {',
+		'\tlocal result=$?',
+		`\tprintf '\\033]6973;${nonce};P;%s;%s\\007' "$result" "$PWD"`,
+		'\treturn 0',
+		'}',
+		'__ddb_brain_start() {',
+		`\tprintf '\\033]6973;${nonce};C\\007'`,
+		'}',
+		'precmd_functions=(__ddb_brain_prompt "${precmd_functions[@]}")',
+		'preexec_functions=(__ddb_brain_start "${preexec_functions[@]}")'
+	].join('\n');
+}
+
+/** POSIX shell startup: use prompt expansion when shell-specific hooks are unavailable. */
+function shRc(nonce: string): string {
+	return [
+		'rm -f -- "$DDB_BRAIN_RC"; unset DDB_BRAIN_RC',
+		'if [ "$DDB_BRAIN_ENV_SET" = x ]; then',
+		'\tENV="$DDB_BRAIN_USER_ENV"; export ENV',
+		'\tif [ -r "$ENV" ]; then . "$ENV"; fi',
+		'else',
+		'\tunset ENV',
+		'fi',
+		'unset DDB_BRAIN_ENV_SET DDB_BRAIN_USER_ENV',
+		'unset HISTFILE',
+		'__ddb_brain_prompt() {',
+		`\tprintf '\\033]6973;${nonce};P;%s;%s\\007' "$1" "$PWD"`,
+		'}',
+		'PS1=\'$(__ddb_brain_prompt "$?")\'"${PS1-\\$ }"'
+	].join('\n');
+}
+
+/** Prefer zsh, then bash, then sh, without changing the user's startup files. */
 export function shellStartScript(nonce: string): string {
 	return [
-		"command -v bash >/dev/null 2>&1 || { echo 'Brain shells need bash in the container.' >&2; exit 127; }",
+		'if command -v zsh >/dev/null 2>&1; then',
+		'\tdir=$(mktemp -d "${TMPDIR:-/tmp}/.ddb-brain-zsh.XXXXXX") || exit 1',
+		'\trc="$dir/.zshrc"',
+		'\tcat > "$dir/.zshenv" <<\'DDB_BRAIN_ZSH_ENV\'',
+		zshEnv(),
+		'DDB_BRAIN_ZSH_ENV',
+		'\tcat > "$rc" <<\'DDB_BRAIN_ZSH_RC\'',
+		zshRc(nonce),
+		'DDB_BRAIN_ZSH_RC',
+		'\tDDB_BRAIN_ZDOTDIR_SET=${ZDOTDIR+x}; DDB_BRAIN_USER_ZDOTDIR=${ZDOTDIR:-$HOME}',
+		'\tDDB_BRAIN_RC="$rc"; DDB_BRAIN_DIR="$dir"',
+		'\texport DDB_BRAIN_ZDOTDIR_SET DDB_BRAIN_USER_ZDOTDIR DDB_BRAIN_RC DDB_BRAIN_DIR',
+		'\tZDOTDIR="$dir" exec zsh -i',
+		'fi',
 		'rc=$(mktemp "${TMPDIR:-/tmp}/.ddb-brain-rc.XXXXXX") || exit 1',
+		'if command -v bash >/dev/null 2>&1; then',
 		'cat > "$rc" <<\'DDB_BRAIN_RC\'',
 		shellRc(nonce),
 		'DDB_BRAIN_RC',
-		'DDB_BRAIN_RC="$rc" exec bash --rcfile "$rc" -i'
+		'\tDDB_BRAIN_RC="$rc" exec bash --rcfile "$rc" -i',
+		'fi',
+		'cat > "$rc" <<\'DDB_BRAIN_SH_RC\'',
+		shRc(nonce),
+		'DDB_BRAIN_SH_RC',
+		'DDB_BRAIN_ENV_SET=${ENV+x}; DDB_BRAIN_USER_ENV=${ENV-}; DDB_BRAIN_RC="$rc"',
+		'export DDB_BRAIN_ENV_SET DDB_BRAIN_USER_ENV DDB_BRAIN_RC',
+		'ENV="$rc" exec sh -i'
 	].join('\n');
 }
 
@@ -260,14 +340,14 @@ async function foregroundBusy(execution: BrainExecution): Promise<boolean> {
 	}
 }
 
-/** True when bash's line editor can take the command as typed keys. */
+/** True when the shell's line editor can take the command as typed keys. */
 export function typeable(command: string): boolean {
 	return (
 		command.length <= SHELL_LIMITS.typed &&
 		// Printable characters only: TAB would complete, control keys would edit the line.
 		// eslint-disable-next-line no-control-regex -- rejecting control characters is the purpose
 		/^[^\u0000-\u001f\u007f]*$/.test(command) &&
-		// A final backslash continues the line, and bash would wait at its PS2 prompt.
+		// A final backslash continues the line, so the shell would wait at its PS2 prompt.
 		!command.endsWith('\\')
 	);
 }
