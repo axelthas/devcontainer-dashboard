@@ -2,7 +2,6 @@
 	import {
 		Sun,
 		Moon,
-		Layers,
 		Box,
 		Cpu,
 		Power,
@@ -14,6 +13,7 @@
 		LogOut
 	} from 'lucide-svelte';
 	import { untrack } from 'svelte';
+	import brandIcon from '$lib/assets/favicon.svg';
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import type {
 		ContainerData,
@@ -440,15 +440,13 @@
 			>
 				<!-- Logo & Title -->
 				<div class="flex items-center gap-3">
-					<div class="rounded-lg bg-[#88c0d0] p-2 shadow-md">
-						<Layers size={24} class="text-[#2e3440]" />
-					</div>
+					<img src={brandIcon} alt="" aria-hidden="true" width="48" height="48" class="shrink-0" />
 					<div>
 						<h1 class="text-xl leading-tight font-bold text-[#2e3440] dark:text-[#eceff4]">
-							Docker Workspace
+							<span>Dev</span><span class="text-[#5e81ac] dark:text-[#88c0d0]">Harbour</span>
 						</h1>
 						<p class="text-xs font-medium text-[#4c566a] dark:text-[#d8dee9]/70">
-							Local Environment Manager
+							Your development environments, together.
 						</p>
 					</div>
 				</div>

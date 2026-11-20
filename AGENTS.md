@@ -1,4 +1,9 @@
-# Devcontainer Dashboard
+# DevHarbour
+
+Formerly Devcontainer Dashboard. Use DevHarbour in visible product text. The Nord
+puffin icon is `src/lib/assets/favicon.svg`; the full logo is `static/devharbour-logo.svg`.
+Keep existing deployment names, configuration keys, storage keys, volume names and
+the MCP server identifier compatible. Do not rename these as part of visual branding.
 
 A SvelteKit web dashboard for managing and monitoring local Docker containers. Displays devcontainers and sandbox services with their exposed ports, and provides start/stop/restart controls with an integrated terminal.
 

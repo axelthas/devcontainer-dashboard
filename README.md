@@ -1,7 +1,20 @@
-# Devcontainer Dashboard
+# DevHarbour
 
-A web dashboard for local devcontainers and Docker services, with workspace discovery,
-container controls, embedded service UIs, and a terminal.
+![DevHarbour puffin logo in the Nord colour palette](static/devharbour-logo.svg)
+
+A self-hosted control center for development environments. Discover local repositories,
+build and manage devcontainers, run Docker Compose sandboxes, and access terminals,
+editors, AI coding tools, and project services from one browser interface.
+
+Formerly **Devcontainer Dashboard**. This is a branding change, not a deployment
+migration. The repository URL, published image, launcher commands, environment
+variables, retained volumes, browser storage keys, and MCP server identifier keep
+their existing names. Existing installations do not need to move or reset data.
+
+The puffin uses the dashboard's Nord palette for now: Polar Night `#2e3440`,
+Snow Storm `#eceff4`, Frost `#88c0d0`, and Aurora orange `#d08770` and yellow `#ebcb8b`.
+The [app icon](src/lib/assets/favicon.svg) and [wordmark](static/devharbour-logo.svg)
+are self-contained SVGs with no external fonts or raster images.
 
 ## Run the dashboard
 

@@ -1,8 +1,11 @@
-# Devcontainer Dashboard Architecture
+# DevHarbour Architecture
 
 _Last updated: 2026-08-11_
 
-This document is a living architecture reference for Devcontainer Dashboard. It follows the structure of the architecture.md template, but it is tailored to this repository’s actual runtime, data flow, and deployment model.
+This document is a living architecture reference for DevHarbour (formerly Devcontainer Dashboard). It follows the structure of the architecture.md template, but it is tailored to this repository’s actual runtime, data flow, and deployment model.
+
+The name change is visual only. Existing deployment identifiers, configuration keys,
+saved browser settings, volumes, and the MCP server identifier remain compatible.
 
 ## 1. Project Structure
 
@@ -273,7 +276,7 @@ Relevant conventions:
 
 ## 10. Project Identification
 
-Project Name: Devcontainer Dashboard
+Project Name: DevHarbour
 
 Repository URL: Local repository workspace
 
