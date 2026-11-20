@@ -1,11 +1,14 @@
 <script lang="ts">
 	/**
-	 * Compose sandbox controls for one Git repository: select files and services, resolve the
-	 * configuration, and run one allowlisted lifecycle action at a time.
+	 * Compose sandbox controls for one Git repository: select files, services, and one sandbox
+	 * version, resolve the configuration, and run one allowlisted lifecycle action at a time.
+	 * Start never pulls; Pull and Pull and start are the only actions that use the registry.
 	 * The server validates every selection again; this component only proposes it.
 	 */
 	import {
 		Boxes,
+		Check,
+		CloudDownload,
 		FileText,
 		Hammer,
 		Loader,
@@ -14,6 +17,7 @@
 		RefreshCw,
 		ScrollText,
 		Square,
+		Trash2,
 		TriangleAlert,
 		X
 	} from 'lucide-svelte';
@@ -35,8 +39,15 @@
 		type ComposeAction,
 		type ComposeSelection
 	} from '$lib/composeCommands';
-	import type { ComposeInspection, ComposeRunData, RepositoryData } from '$lib/types';
+	import { IMAGE_TAG_PATTERN, sandboxVersion } from '$lib/imageReference';
+	import type {
+		ComposeInspection,
+		ComposeRunData,
+		ComposeTagListing,
+		RepositoryData
+	} from '$lib/types';
 	import RequestError from './RequestError.svelte';
+	import SandboxRemoveDialog from './SandboxRemoveDialog.svelte';
 	import TerminalTab from './TerminalTab.svelte';
 
 	interface Props {
@@ -54,6 +65,8 @@
 		files: string[];
 		envFile: string;
 		profiles: string;
+		/** Sandbox tag text; absent in selections saved before versions existed */
+		tag?: string;
 	}
 
 	/** Read all saved selections; storage errors mean no saved selection. */
@@ -97,23 +110,33 @@
 		return {
 			files: files.length > 0 ? files : defaultComposeSelection(available),
 			envFile: stored?.envFile ?? '',
-			profiles: stored?.profiles ?? ''
+			profiles: stored?.profiles ?? '',
+			// The tag belongs to this clone only: another task workspace starts with no tag.
+			tag: all[repo.path]?.tag ?? ''
 		};
 	});
 
 	let selectedFiles = $state<string[]>(initial.files);
 	let envFile = $state(initial.envFile);
 	let profilesText = $state(initial.profiles);
+	let tagText = $state(initial.tag);
 	let excludedByKind = $state<Record<string, string[]>>(readExcludedServices());
 
 	const files = $derived(repo.composeFiles ?? []);
 	const directories = $derived([...new Set(files.map(composeDirectory))]);
 	const directory = $derived(composeDirectory(selectedFiles[0] ?? files[0] ?? ''));
 	const directoryFiles = $derived(files.filter((file) => composeDirectory(file) === directory));
-	const selection = $derived<ComposeSelection>({
+	const tag = $derived(tagText.trim());
+	const tagValid = $derived(tag === '' || IMAGE_TAG_PATTERN.test(tag));
+	/** The selection without the tag: the tag list reads the Compose files as they are. */
+	const baseSelection = $derived<ComposeSelection>({
 		files: selectedFiles,
 		profiles: parseProfiles(profilesText),
 		...(envFile.trim() ? { envFile: envFile.trim() } : {})
+	});
+	const selection = $derived<ComposeSelection>({
+		...baseSelection,
+		...(tag && tagValid ? { tag } : {})
 	});
 	const selectionKey = $derived(JSON.stringify(selection));
 
@@ -128,13 +151,18 @@
 	onDestroy(() => {
 		disposed = true;
 		reads.cancel();
+		tagReads.cancel();
 	});
 
 	const run = $derived(repo.composeRun);
 	/** Actions need a check of exactly the current selection. */
 	const fresh = $derived(inspection !== null && inspectedKey === selectionKey);
 	const blocked = $derived(
-		!fresh || inspection?.ownership === 'other' || run?.status === 'running' || starting !== null
+		!fresh ||
+			!tagValid ||
+			inspection?.ownership === 'other' ||
+			run?.status === 'running' ||
+			starting !== null
 	);
 	const runningCount = $derived(
 		inspection?.containers.filter((container) => container.state === 'running').length ?? 0
@@ -166,17 +194,107 @@
 		)
 	);
 
+	/** The override file of the current inspection; Compose reads it as the last file. */
+	const overrideFile = $derived(fresh ? inspection?.overrideFile : undefined);
+	// Pull and start runs the Pull command first, so the preview lists each command once.
 	const commandPreview = $derived(
 		selectedFiles.length === 0
 			? ''
-			: COMPOSE_ACTIONS.map((action) =>
-					shellCommand(composeActionCommand(repo.path, selection, action, actionServices(action)))
-				).join('\n')
+			: COMPOSE_ACTIONS.filter((action) => action !== 'up-pull')
+					.map((action) =>
+						shellCommand(
+							composeActionCommand(
+								repo.path,
+								selection,
+								action,
+								actionServices(action),
+								overrideFile
+							)
+						)
+					)
+					.join('\n')
 	);
+
+	// Version state of the live stack and of the selected images.
+	const runningVersion = $derived(
+		inspection && inspection.containers.length > 0
+			? sandboxVersion(
+					inspection.projectName,
+					inspection.containers.map((container) => ({
+						image: container.image ?? '',
+						service: container.service,
+						sandboxTag: container.sandboxTag
+					}))
+				)
+			: null
+	);
+	/** Selected registry services whose effective image is not on this host. */
+	const missingImages = $derived(
+		(inspection?.services ?? []).filter(
+			(service) =>
+				service.source === 'registry' &&
+				service.imagePresent === false &&
+				effective.includes(service.name)
+		)
+	);
+	const switching = $derived(
+		Boolean(
+			tag && runningVersion && runningVersion.kind !== 'build' && runningVersion.label !== tag
+		)
+	);
+
+	// Registry tags, loaded on demand for the files and services of the current selection.
+	const tagListKey = $derived(JSON.stringify([baseSelection, serviceArgs]));
+	let tagListing = $state<ComposeTagListing | null>(null);
+	let tagListingKey = $state('');
+	let tagsLoading = $state(false);
+	let tagsError = $state('');
+	const tagReads = latestRequest();
+	const listing = $derived(tagListingKey === tagListKey ? tagListing : null);
+	const uid = $props.id();
+	const listId = `compose-tags-${uid}`;
+	const listingFailures = $derived(listing?.images.filter((image) => image.error) ?? []);
+
+	/** Load the tag list; only the newest response may apply. */
+	async function loadTags(refresh = false) {
+		if (selectedFiles.length === 0) return;
+		const key = tagListKey;
+		const services = serviceArgs.map((name) => `&service=${encodeURIComponent(name)}`).join('');
+		const query = `${composeQuery(repo.path, baseSelection)}${services}${refresh ? '&refresh=1' : ''}`;
+		tagsLoading = true;
+		tagsError = '';
+		try {
+			const applied = await tagReads.run(
+				(signal) => requestJson<ComposeTagListing>(`/api/compose/tags?${query}`, { signal }),
+				(value) => {
+					tagListing = value;
+					tagListingKey = key;
+				}
+			);
+			if (applied && !disposed) tagsLoading = false;
+		} catch (cause) {
+			if (!disposed) {
+				tagsError = errorMessage(cause);
+				tagsLoading = false;
+			}
+		}
+	}
+
+	/** Load the list the first time the field gets focus for this selection. */
+	function tagFieldFocused() {
+		if (!listing && !tagsLoading) void loadTags();
+	}
+
+	let removing = $state(false);
 
 	// Save the selection per repository path, and per repository name for other clones.
 	$effect(() => {
-		const entry: StoredSelection = { files: selectedFiles, envFile, profiles: profilesText };
+		const entry: StoredSelection = {
+			files: selectedFiles,
+			envFile,
+			profiles: profilesText,
+			tag: tagText
+		};
 		try {
 			const all = readStoredSelections();
 			all[repo.path] = entry;
@@ -203,6 +321,13 @@
 			inspection = null;
 			inspecting = false;
 			inspectError = 'Select at least one Compose file.';
+			return;
+		}
+		if (!tagValid) {
+			reads.cancel();
+			inspection = null;
+			inspecting = false;
+			inspectError = 'Version must be a Docker tag: letters, digits, ".", "_" and "-".';
 			return;
 		}
 		const key = selectionKey;
@@ -333,7 +458,7 @@
 		if (!inspection || !fresh) return;
 		onOpenTerminal(
 			generateId(),
-			shellCommand(composeLogsCommand(repo.path, selection, serviceArgs)),
+			shellCommand(composeLogsCommand(repo.path, selection, serviceArgs, overrideFile)),
 			`Logs ${inspection.projectName}`,
 			inspection.projectDirectory
 		);
@@ -341,9 +466,10 @@
 
 	/** Name the action of a run, with its services when it ran on a subset. */
 	function runLabel(activeRun: ComposeRunData): string {
-		const label = COMPOSE_ACTION_LABELS[activeRun.action];
+		const label = `${COMPOSE_ACTION_LABELS[activeRun.action]}${activeRun.tag ? ` ${activeRun.tag}` : ''}`;
+		const after = activeRun.after ? ' after Pull' : '';
 		const services = activeRun.services ?? [];
-		return services.length > 0 ? `${label} ${services.join(', ')}` : label;
+		return services.length > 0 ? `${label}${after}: ${services.join(', ')}` : `${label}${after}`;
 	}
 
 	/** Describe a container set for one service. */
@@ -361,14 +487,24 @@
 	<button
 		type="button"
 		onclick={() => void start(action, actionServices(action))}
-		disabled={blocked || (action !== 'stop' && effective.length === 0)}
-		title={action === 'stop' ? 'Stop every service of this project' : undefined}
+		disabled={blocked ||
+			(action !== 'stop' && effective.length === 0) ||
+			(action === 'up' && missingImages.length > 0)}
+		title={action === 'stop'
+			? 'Stop every service of this project'
+			: action === 'up' && missingImages.length > 0
+				? `Not on this host: ${missingImages.map((service) => service.name).join(', ')}. Use Pull or Pull and start.`
+				: action === 'up'
+					? 'Start the selected services. Start never pulls.'
+					: undefined}
 		class="flex items-center gap-1 rounded-lg border border-[#d8dee9] bg-white px-2.5 py-1 text-xs font-medium {tone} transition-colors hover:bg-[#e5e9f0] disabled:cursor-not-allowed disabled:opacity-50 dark:border-[#4c566a] dark:bg-[#2e3440] dark:hover:bg-[#434c5e]"
 	>
 		{#if starting === action}
 			<Loader size={12} class="animate-spin" />
 		{:else if action === 'build'}
 			<Hammer size={12} />
+		{:else if action === 'pull'}
+			<CloudDownload size={12} />
 		{:else if action === 'stop'}
 			<Square size={12} />
 		{:else}
@@ -408,7 +544,9 @@
 		</button>
 	</div>
 
-	<div class="mt-3 grid gap-3 text-xs md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]">
+	<div
+		class="mt-3 grid gap-3 text-xs md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)]"
+	>
 		<fieldset class="min-w-0">
 			<legend class="mb-1 font-semibold text-[#4c566a] dark:text-[#d8dee9]/70">
 				Compose files, in merge order
@@ -459,7 +597,96 @@
 				class="rounded border border-[#d8dee9] bg-white px-2 py-1 text-xs text-[#2e3440] dark:border-[#4c566a] dark:bg-[#2e3440] dark:text-[#d8dee9]"
 			/>
 		</label>
+		<div class="flex min-w-0 flex-col gap-1">
+			<label for={`${listId}-input`} class="font-semibold text-[#4c566a] dark:text-[#d8dee9]/70"
+				>Version</label
+			>
+			<div class="flex items-center gap-1">
+				<input
+					id={`${listId}-input`}
+					type="text"
+					bind:value={tagText}
+					list={listId}
+					onfocus={tagFieldFocused}
+					spellcheck="false"
+					autocomplete="off"
+					placeholder="Compose file default"
+					aria-invalid={!tagValid}
+					aria-describedby={`${listId}-help`}
+					class="min-w-0 flex-1 rounded border bg-white px-2 py-1 font-mono text-xs text-[#2e3440] dark:bg-[#2e3440] dark:text-[#d8dee9] {tagValid
+						? 'border-[#d8dee9] dark:border-[#4c566a]'
+						: 'border-[#bf616a]'}"
+				/>
+				<button
+					type="button"
+					onclick={() => void loadTags(true)}
+					disabled={tagsLoading || selectedFiles.length === 0}
+					aria-label="Refresh registry tags"
+					title="Refresh registry tags"
+					class="rounded p-1 text-[#4c566a] transition-colors hover:bg-[#d8dee9]/60 disabled:opacity-50 dark:text-[#d8dee9]/70 dark:hover:bg-[#4c566a]"
+				>
+					<RefreshCw size={12} class={tagsLoading ? 'animate-spin' : ''} />
+				</button>
+			</div>
+			<datalist id={listId}>
+				{#each listing?.tags ?? [] as item (item.name)}
+					<option
+						value={item.name}
+						label={item.missingIn.length > 0
+							? `missing in ${item.missingIn.join(', ')}`
+							: undefined}
+					></option>
+				{/each}
+			</datalist>
+			<span id={`${listId}-help`} class="text-[#4c566a]/80 dark:text-[#d8dee9]/50">
+				{#if !tagValid}
+					<span class="text-[#bf616a]">Use letters, digits, ".", "_" and "-".</span>
+				{:else if tagsLoading}
+					Reading registry tags…
+				{:else if tagsError}
+					<span class="text-[#bf616a]">{tagsError}</span>
+				{:else if listing}
+					{listing.tags.length}
+					{listing.tags.length === 1 ? 'tag' : 'tags'} from {listing.images.length -
+						listingFailures.length}
+					{listing.images.length - listingFailures.length === 1 ? 'image' : 'images'}. Type any tag.
+				{:else}
+					One tag for every registry service.
+				{/if}
+			</span>
+		</div>
 	</div>
+
+	{#each listingFailures as image (image.repository)}
+		<p class="mt-1 flex items-start gap-1.5 text-xs text-[#d08770]">
+			<TriangleAlert size={12} class="mt-0.5 shrink-0" />
+			<span class="break-all"
+				>{image.error?.message}. Type the tag; Pull uses the same credentials.</span
+			>
+		</p>
+	{/each}
+
+	{#if inspection && fresh && (runningVersion || missingImages.length > 0)}
+		<div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs" aria-live="polite">
+			{#if switching && runningVersion}
+				<span class="flex items-center gap-1.5 text-[#d08770]">
+					<TriangleAlert size={12} />
+					Runs <code class="font-semibold">{runningVersion.label}</code>. Start switches to
+					<code class="font-semibold">{tag}</code> and recreates the changed containers.
+				</span>
+			{:else if runningVersion}
+				<span class="flex items-center gap-1.5 text-[#4c566a] dark:text-[#d8dee9]/70">
+					<Check size={12} class="text-[#a3be8c]" />
+					Runs <code class="font-semibold">{runningVersion.label}</code>
+				</span>
+			{/if}
+			{#if missingImages.length > 0}
+				<span class="text-[#4c566a] dark:text-[#d8dee9]/70">
+					Not on this host: {missingImages.map((service) => service.name).join(', ')}. Pull first.
+				</span>
+			{/if}
+		</div>
+	{/if}
 
 	<RequestError message={inspectError} onRetry={() => void inspect()} />
 	<RequestError message={actionError} />
@@ -549,10 +776,17 @@
 						{/if}
 						<span
 							class="min-w-0 flex-1 truncate text-[#4c566a] dark:text-[#d8dee9]/60"
-							title={service.image}
+							title={[service.effectiveImage ?? service.image, service.imageDigest]
+								.filter(Boolean)
+								.join('\n')}
 						>
 							{#if service.hasBuild}<span class="text-[#ebcb8b]">build</span
-								>{#if service.image}&nbsp;→&nbsp;{/if}{/if}{service.image ?? ''}
+								>{#if service.image}&nbsp;→&nbsp;{/if}{/if}{service.effectiveImage ??
+								service.image ??
+								''}
+							{#if service.imagePresent === false}
+								<span class="ml-1 text-[#d08770]">not on host</span>
+							{/if}
 						</span>
 						{#each service.ports as port, index (index)}
 							<span
@@ -591,8 +825,10 @@
 	{/if}
 
 	<div class="mt-3 flex flex-wrap items-center gap-1.5">
-		{@render actionButton('build', 'text-[#81a1c1]')}
+		{@render actionButton('pull', 'text-[#81a1c1]')}
+		{@render actionButton('up-pull', 'text-[#a3be8c]')}
 		{@render actionButton('up', 'text-[#a3be8c]')}
+		{@render actionButton('build', 'text-[#81a1c1]')}
 		{@render actionButton('up-build', 'text-[#a3be8c]')}
 		{@render actionButton('stop', 'text-[#bf616a]')}
 		{#if fresh && runningOutside.length > 0}
@@ -621,6 +857,16 @@
 			<ScrollText size={12} />
 			Service logs
 		</button>
+		<button
+			type="button"
+			onclick={() => (removing = true)}
+			disabled={!fresh || inspection?.ownership !== 'this' || run?.status === 'running'}
+			class="flex items-center gap-1 rounded-lg border border-[#d8dee9] bg-white px-2.5 py-1 text-xs font-medium text-[#bf616a] transition-colors hover:bg-[#e5e9f0] disabled:cursor-not-allowed disabled:opacity-50 dark:border-[#4c566a] dark:bg-[#2e3440] dark:hover:bg-[#434c5e]"
+			title="Remove the containers and project networks. Volumes, images, and source files stay."
+		>
+			<Trash2 size={12} />
+			Remove sandbox…
+		</button>
 		{#if commandPreview}
 			<details class="ml-auto min-w-0 text-xs">
 				<summary class="cursor-pointer text-[#4c566a] dark:text-[#d8dee9]/60">Docker calls</summary>
@@ -629,6 +875,14 @@
 			</details>
 		{/if}
 	</div>
+
+	{#if removing && inspection}
+		<SandboxRemoveDialog
+			project={inspection.projectName}
+			onClose={() => (removing = false)}
+			onRemoved={runExited}
+		/>
+	{/if}
 
 	{#if run}
 		{@const activeRun = run}
@@ -688,7 +942,10 @@
 			{#if activeRun.status === 'running'}
 				<!-- Output while the process runs; the process continues if this view closes -->
 				<div class="h-64 overflow-hidden border-t border-[#d8dee9] dark:border-[#4c566a]">
-					<TerminalTab sessionId={activeRun.id} active={true} onExit={runExited} />
+					<!-- Pull and start replaces the Pull run with a Start run: attach to the new session -->
+					{#key activeRun.id}
+						<TerminalTab sessionId={activeRun.id} active={true} onExit={runExited} />
+					{/key}
 				</div>
 			{/if}
 		</div>

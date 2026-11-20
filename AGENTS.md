@@ -96,6 +96,8 @@ npm run test             # deployment + unit + e2e combined
 | `/api/bootstrap/checkout` (POST)           | Checks out a branch in the active bootstrap provider repository                              |
 | `/api/repos/branches` (GET)                | Returns branches, tags, and current ref information for a repository path                    |
 | `/api/repos/checkout` (POST)               | Checks out a branch or tag in a repository path                                              |
+| `/api/compose/tags` (GET)                  | Registry tags for the selected registry images of a Compose selection                        |
+| `/api/compose/remove` (GET, POST)          | Sandbox removal preview with token; removal keeps volumes, images and shared networks        |
 | `/api/devcontainer/build` (POST)           | Starts a devcontainer build session for a repository                                         |
 | `/api/terminal` (WebSocket)                | PTY terminal sessions via upgrade on the HTTP server                                         |
 | `/api/brain` (GET)                         | Brain endpoint status, grants checked against Docker, recent commands, and activity          |

@@ -4,8 +4,12 @@
  * builders to show the exact Docker calls and to open an operator log terminal.
  */
 
-/** Allowlisted lifecycle actions. Down and volume removal are deliberately absent. */
-export const COMPOSE_ACTIONS = ['build', 'up', 'up-build', 'stop'] as const;
+/**
+ * Allowlisted lifecycle actions. Down and volume removal are deliberately absent:
+ * sandbox removal uses the Docker API and keeps volumes (see composeRemoval.ts).
+ * `up-pull` runs Pull; when Pull succeeds, the server starts `up` as a second run.
+ */
+export const COMPOSE_ACTIONS = ['build', 'up', 'up-build', 'stop', 'pull', 'up-pull'] as const;
 export type ComposeAction = (typeof COMPOSE_ACTIONS)[number];
 
 /** Button labels. Each label names one Compose operation. */
@@ -13,8 +17,15 @@ export const COMPOSE_ACTION_LABELS: Record<ComposeAction, string> = {
 	build: 'Build',
 	up: 'Start',
 	'up-build': 'Build and start',
-	stop: 'Stop'
+	stop: 'Stop',
+	pull: 'Pull',
+	'up-pull': 'Pull and start'
 };
+
+/** The run that the server starts when an action succeeds; only Pull and start has one. */
+export function composeFollowUp(action: ComposeAction): ComposeAction | undefined {
+	return action === 'up-pull' ? 'up' : undefined;
+}
 
 /** compose.yaml, docker-compose.yml, docker-compose.override.yml, compose.sandbox.yaml, ... */
 export const COMPOSE_FILE_PATTERN = /^(?:docker-)?compose(?:\.[A-Za-z0-9_-]+)*\.ya?ml$/;
@@ -39,6 +50,8 @@ export interface ComposeSelection {
 	files: string[];
 	envFile?: string;
 	profiles: string[];
+	/** Sandbox tag for every registry service. Absent: the image references in the files. */
+	tag?: string;
 }
 
 /** One literal process invocation. */
@@ -74,21 +87,35 @@ export function composeProjectDirectory(repoPath: string, selection: ComposeSele
 	return absolutePath(repoPath, composeDirectory(selection.files[0] ?? ''));
 }
 
-/** Global options shared by inspection, actions, and log commands. Order is significant. */
-export function composeGlobalArgs(repoPath: string, selection: ComposeSelection): string[] {
+/**
+ * Global options shared by inspection, actions, and log commands. Order is significant.
+ * The version override file, when present, is the last file, so its images win.
+ */
+export function composeGlobalArgs(
+	repoPath: string,
+	selection: ComposeSelection,
+	overrideFile?: string
+): string[] {
 	const args = ['compose', '--project-directory', composeProjectDirectory(repoPath, selection)];
 	for (const file of selection.files) args.push('--file', absolutePath(repoPath, file));
+	if (overrideFile) args.push('--file', overrideFile);
 	if (selection.envFile) args.push('--env-file', absolutePath(repoPath, selection.envFile));
 	for (const profile of selection.profiles) args.push('--profile', profile);
 	return args;
 }
 
-/** Action arguments. Start is detached: the stack outlives the dashboard process. */
+/**
+ * Action arguments. Start is detached: the stack outlives the dashboard process.
+ * Start never pulls: Pull is the only action that uses the registry. Pull skips services
+ * that Compose builds. The first run of Pull and start is a Pull.
+ */
 const ACTION_ARGS: Record<ComposeAction, string[]> = {
 	build: ['build'],
-	up: ['up', '--detach'],
+	up: ['up', '--detach', '--pull', 'never'],
 	'up-build': ['up', '--detach', '--build'],
-	stop: ['stop']
+	stop: ['stop'],
+	pull: ['pull', '--ignore-buildable'],
+	'up-pull': ['pull', '--ignore-buildable']
 };
 
 /** Build the argv for one lifecycle action. No services means every service. */
@@ -96,11 +123,16 @@ export function composeActionCommand(
 	repoPath: string,
 	selection: ComposeSelection,
 	action: ComposeAction,
-	services: string[] = []
+	services: string[] = [],
+	overrideFile?: string
 ): ComposeCommand {
 	return {
 		file: 'docker',
-		args: [...composeGlobalArgs(repoPath, selection), ...ACTION_ARGS[action], ...services]
+		args: [
+			...composeGlobalArgs(repoPath, selection, overrideFile),
+			...ACTION_ARGS[action],
+			...services
+		]
 	};
 }
 
@@ -119,10 +151,14 @@ export function composeConfigCommand(
 export function composeLogsCommand(
 	repoPath: string,
 	selection: ComposeSelection,
-	services: string[] = []
+	services: string[] = [],
+	overrideFile?: string
 ): ComposeCommand {
 	const tail = ['logs', '--follow', '--tail', '200', ...services];
-	return { file: 'docker', args: [...composeGlobalArgs(repoPath, selection), ...tail] };
+	return {
+		file: 'docker',
+		args: [...composeGlobalArgs(repoPath, selection, overrideFile), ...tail]
+	};
 }
 
 /** POSIX single-quote one argument when it contains characters outside a safe set. */
@@ -141,6 +177,7 @@ export function composeQuery(repoPath: string, selection: ComposeSelection): str
 	for (const file of selection.files) parts.push(`file=${encodeURIComponent(file)}`);
 	if (selection.envFile) parts.push(`envFile=${encodeURIComponent(selection.envFile)}`);
 	for (const profile of selection.profiles) parts.push(`profile=${encodeURIComponent(profile)}`);
+	if (selection.tag) parts.push(`tag=${encodeURIComponent(selection.tag)}`);
 	return parts.join('&');
 }
 

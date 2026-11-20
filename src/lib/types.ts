@@ -23,6 +23,10 @@ export interface ContainerData {
 	/** Set when the metadata names a user that cannot be used; container commands are then disabled */
 	remoteUserError?: string;
 	composeProject?: string;
+	/** `com.docker.compose.service` label */
+	composeService?: string;
+	/** Sandbox tag from the `devcontainer-dashboard.sandbox.tag` label that DevHarbour writes */
+	sandboxTag?: string;
 	/** Docker networks of the container, sorted by name. Empty or missing when unknown. */
 	networks?: ContainerNetwork[];
 	/** Networks and seats declared in devcontainer.json under customizations.devcontainer-dashboard */
@@ -133,7 +137,11 @@ export interface RepositoryData {
 /** One tracked Compose lifecycle operation. */
 export interface ComposeRunData {
 	id: string;
-	action: 'build' | 'up' | 'up-build' | 'stop';
+	action: 'build' | 'up' | 'up-build' | 'stop' | 'pull' | 'up-pull';
+	/** Sandbox tag of the run; absent: the image references in the Compose files */
+	tag?: string;
+	/** Set on the Start run that the server began after Pull and start pulled */
+	after?: 'up-pull';
 	status: 'running' | 'success' | 'failed';
 	startedAt: string;
 	/** Selected files, in merge order, relative to the repository */
@@ -149,6 +157,14 @@ export interface ComposeServiceSummary {
 	name: string;
 	image?: string;
 	hasBuild: boolean;
+	/** `registry`: pulled, takes the sandbox tag. `build`: built locally. `none`: no image. */
+	source: 'registry' | 'build' | 'none';
+	/** Image with the sandbox tag, when a tag is selected */
+	effectiveImage?: string;
+	/** Registry services: whether the effective image is on this host */
+	imagePresent?: boolean;
+	/** Registry services: the local repository digest of the effective image */
+	imageDigest?: string;
 	profiles: string[];
 	ports: { target: string; published?: string; protocol: string; hostIp?: string }[];
 	networks: string[];
@@ -172,6 +188,10 @@ export interface ComposeStackContainer {
 	name: string;
 	service: string;
 	state: string;
+	/** Image reference that Docker reports for the container */
+	image?: string;
+	/** Sandbox tag label, when DevHarbour created the container with a tag */
+	sandboxTag?: string;
 	/** `com.docker.compose.project.working_dir` label, when present */
 	workingDir?: string;
 }
@@ -181,7 +201,10 @@ export interface ComposeInspection {
 	projectName: string;
 	/** Absolute project directory used for relative paths and the default `.env` */
 	projectDirectory: string;
-	selection: { files: string[]; envFile?: string; profiles: string[] };
+	selection: { files: string[]; envFile?: string; profiles: string[]; tag?: string };
+	/** The applied sandbox tag and its managed override file, the last `--file` */
+	tag?: string;
+	overrideFile?: string;
 	services: ComposeServiceSummary[];
 	networks: ComposeNetworkSummary[];
 	/** Compose warnings, for example unset variables */
@@ -257,4 +280,60 @@ export interface TerminalSession {
 	cwd?: string;
 	startedAt?: string;
 	status?: 'running' | 'exited';
+}
+
+/** One registry tag, and the selected services whose image lacks it. */
+export interface RegistryTagData {
+	name: string;
+	missingIn: string[];
+}
+
+/** One registry image of a tag listing, with its services and any listing failure. */
+export interface RegistryImageData {
+	repository: string;
+	services: string[];
+	count: number;
+	error?: { kind: 'unauthorized' | 'not-found' | 'timeout' | 'unavailable'; message: string };
+}
+
+/** Response of GET /api/compose/tags. */
+export interface ComposeTagListing {
+	images: RegistryImageData[];
+	tags: RegistryTagData[];
+}
+
+/** One resource of a sandbox removal preview. */
+export interface RemovalContainer {
+	id: string;
+	name: string;
+	service: string;
+	state: string;
+}
+
+export interface RemovalNetwork {
+	id: string;
+	name: string;
+	/** Containers outside the project on this network; a network with any stays */
+	attached: string[];
+}
+
+/** Response of GET /api/compose/remove: what removal changes and keeps. */
+export interface SandboxRemovalPreview {
+	project: string;
+	/** `com.docker.compose.project.working_dir` of the containers, when known */
+	source?: string;
+	version: string;
+	containers: RemovalContainer[];
+	networks: RemovalNetwork[];
+	volumes: string[];
+	/** Digest of the resource set; removal requires the same token */
+	token: string;
+}
+
+/** Result for one resource after removal. */
+export interface RemovalResult {
+	kind: 'container' | 'network' | 'volume';
+	name: string;
+	result: 'removed' | 'kept' | 'failed';
+	reason?: string;
 }

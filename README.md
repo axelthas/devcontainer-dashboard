@@ -272,6 +272,27 @@ Seats come from two sources:
 The dashboard skips invalid networks and seats in this declaration. A change takes effect
 after **Rebuild and restart…**, because the label is written when the container is created.
 
+## Sandbox versions and removal
+
+The Compose sandbox panel has a **Version** field. Enter one tag, or focus the field to list
+registry tags. The tag replaces the tag of every registry service (`image:` without `build:`).
+Build services do not change. Empty means the image references in the Compose files.
+
+- DevHarbour writes a managed override file outside the repository (`COMPOSE_OVERRIDE_DIR`,
+  default `/data/compose-overrides`) and passes it as the last `--file`. Tracked files never change.
+- **Pull** runs `compose pull --ignore-buildable`. **Pull and start** pulls, then starts when Pull succeeds.
+- **Start** runs `compose up --detach --pull never`. Start never pulls. It is disabled when a
+  selected registry image is not on this host.
+- Tag listing uses the Docker credentials of the dashboard runtime (`auths`, `credHelpers`,
+  `credsStore` in `$DOCKER_CONFIG/config.json`). Manual entry works when listing is refused.
+- The Docker Services line shows the live version: the `devcontainer-dashboard.sandbox.tag`
+  label, else the image tag. Different tags show `mixed`; untagged images show `latest`.
+
+**Remove sandbox…** (Compose panel or Docker Services line) previews the containers and
+networks to remove. Removal keeps volumes, images, source files, and every project network
+that a container outside the project is attached to. A changed resource set after the preview
+is refused; review it again.
+
 ## Rebuild an existing devcontainer
 
 Use **Restart** in the container's **⋯** menu to restart the same container without
