@@ -1,9 +1,26 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
-	import { X, Plus, Terminal, ChevronDown, ChevronUp, Maximize2, Minimize2 } from 'lucide-svelte';
-	import { SvelteSet } from 'svelte/reactivity';
+	import {
+		X,
+		Plus,
+		Terminal,
+		ChevronDown,
+		ChevronUp,
+		Maximize2,
+		Minimize2,
+		BrainCircuit
+	} from 'lucide-svelte';
+	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import TerminalTab from './TerminalTab.svelte';
+	import BrainTerminalTab from './BrainTerminalTab.svelte';
 	import { generateId } from '$lib/index';
+	import {
+		brainExecutionIdOf,
+		brainTabId,
+		isRunningStatus,
+		useBrainAccess
+	} from '$lib/brainAccess.svelte';
+	import type { BrainExecutionView } from '$lib/brainTypes';
 	import type { TerminalSession } from '$lib/types';
 
 	interface TerminalSessionState extends TerminalSession {
@@ -30,6 +47,84 @@
 		onCloseSession,
 		onSetActive
 	}: Props = $props();
+	// Brain command tabs come from the page's Brain access state, not from `sessions`.
+	const brain = useBrainAccess();
+	const brainTabs = $derived(brain?.tabs ?? []);
+
+	interface BrainGroup {
+		grantId: string;
+		containerName: string;
+		/** Shells first, in start order, then one-off commands */
+		executions: BrainExecutionView[];
+	}
+	/**
+	 * One drawer tab per granted container. Its shells and commands share the tab, and a
+	 * vertical list selects between them. `activeId` still names one execution's tab, so the
+	 * page's tab handling is unchanged.
+	 */
+	const brainGroups = $derived.by(() => {
+		const groups: BrainGroup[] = [];
+		for (const execution of brainTabs) {
+			let group = groups.find((candidate) => candidate.grantId === execution.grantId);
+			if (!group) {
+				group = {
+					grantId: execution.grantId,
+					containerName: execution.containerName,
+					executions: []
+				};
+				groups.push(group);
+			}
+			group.executions.push(execution);
+		}
+		for (const group of groups)
+			group.executions.sort((a, b) => Number(b.kind === 'shell') - Number(a.kind === 'shell'));
+		return groups;
+	});
+	const activeExecutionId = $derived(brainExecutionIdOf(activeId));
+	/**
+	 * Last selection in each Brain tab, so returning to a tab shows the same shell. Only click
+	 * handlers read it; the effect below only writes it.
+	 */
+	const lastSelected = new SvelteMap<string, string>();
+	$effect(() => {
+		const id = activeExecutionId;
+		const execution = id ? brainTabs.find((candidate) => candidate.id === id) : undefined;
+		if (execution) lastSelected.set(execution.grantId, execution.id);
+	});
+
+	function groupActive(group: BrainGroup): boolean {
+		return group.executions.some((execution) => execution.id === activeExecutionId);
+	}
+	/** The remembered selection, else a running shell, else the newest command. */
+	function groupSelection(group: BrainGroup): BrainExecutionView {
+		const remembered = group.executions.find(
+			(execution) => execution.id === lastSelected.get(group.grantId)
+		);
+		return (
+			remembered ??
+			group.executions.find(
+				(execution) => execution.kind === 'shell' && isRunningStatus(execution.status)
+			) ??
+			group.executions[group.executions.length - 1]
+		);
+	}
+	/** Status line of one entry in the shell list. */
+	function entryStatus(execution: BrainExecutionView): string {
+		if (isRunningStatus(execution.status)) {
+			if (execution.controller === 'operator') return 'you have control';
+			if (execution.kind !== 'shell') return 'running';
+			if (!execution.shell?.ready) return 'starting';
+			return execution.shell.busy ? 'busy' : 'idle';
+		}
+		if (execution.status === 'exited') return `ended · exit ${execution.exitCode ?? '?'}`;
+		return execution.status.replace('_', ' ');
+	}
+	function dotClass(execution: BrainExecutionView): string {
+		if (!isRunningStatus(execution.status)) return 'bg-[#4c566a]';
+		if (execution.controller === 'operator') return 'bg-[#ebcb8b]';
+		if (execution.kind === 'shell' && !execution.shell?.busy) return 'bg-[#a3be8c]';
+		return 'animate-pulse bg-[#b48ead]';
+	}
 	let height = $state(320);
 	let maximized = $state(false);
 	let dragging = $state(false);
@@ -54,6 +149,34 @@
 		} finally {
 			closingIds.delete(id);
 		}
+	}
+	/** Close a Brain tab only. The command continues; the Brain panel can reopen it. */
+	function closeBrainTab(executionId: string) {
+		const tabId = brainTabId(executionId);
+		const grantId = brainTabs.find((execution) => execution.id === executionId)?.grantId;
+		brain?.closeTab(executionId);
+		if (activeId !== tabId) return;
+		// Stay in the same container's tab when it has another entry.
+		const sibling = brainTabs.find(
+			(execution) => execution.grantId === grantId && execution.id !== executionId
+		);
+		const next =
+			(sibling && brainTabId(sibling.id)) ??
+			sessions[sessions.length - 1]?.id ??
+			brainTabs.map((execution) => brainTabId(execution.id)).find((id) => id !== tabId);
+		if (next) onSetActive(next);
+	}
+	/** Close a container's Brain tab. Its shells and commands continue. */
+	function closeBrainGroup(group: BrainGroup) {
+		const wasActive = groupActive(group);
+		for (const execution of group.executions) brain?.closeTab(execution.id);
+		if (!wasActive) return;
+		const next =
+			sessions[sessions.length - 1]?.id ??
+			brainTabs
+				.filter((execution) => execution.grantId !== group.grantId)
+				.map((execution) => brainTabId(execution.id))[0];
+		if (next) onSetActive(next);
 	}
 	function onResizeStart(event: MouseEvent) {
 		if (maximized) return;
@@ -127,6 +250,57 @@
 				>
 			</div>
 		{/each}
+		{#each brainGroups as group (group.grantId)}
+			{@const groupTabId = `brain-group-${group.grantId}`}
+			{@const active = groupActive(group)}
+			{@const operator = group.executions.some(
+				(execution) => isRunningStatus(execution.status) && execution.controller === 'operator'
+			)}
+			{@const running = group.executions.some((execution) => isRunningStatus(execution.status))}
+			<div
+				class="flex shrink-0 items-center rounded-t {active
+					? 'bg-[#3b4252] text-[#eceff4]'
+					: 'text-[#d8dee9]/60'}"
+			>
+				<button
+					data-terminal-tab={groupTabId}
+					id={`terminal-tab-${groupTabId}`}
+					role="tab"
+					aria-selected={active}
+					aria-controls={`terminal-pane-${groupTabId}`}
+					title={`Brain in ${group.containerName}`}
+					class="flex items-center gap-1.5 px-3 py-1 text-xs font-medium"
+					onclick={() => {
+						onSetActive(brainTabId(groupSelection(group).id));
+						if (!open) onToggle();
+					}}
+					type="button"
+				>
+					<BrainCircuit size={12} class="shrink-0 text-[#b48ead]" />
+					<span>Brain</span>
+					<span class="max-w-32 truncate text-[#d8dee9]/50">{group.containerName}</span>
+					{#if group.executions.length > 1}
+						<span class="rounded-full bg-[#b48ead]/20 px-1.5 text-[10px] text-[#b48ead]"
+							>{group.executions.length}</span
+						>
+					{/if}
+					{#if operator}
+						<span class="h-1.5 w-1.5 shrink-0 rounded-full bg-[#ebcb8b]"></span>
+						<span class="sr-only">You have control</span>
+					{:else if running}
+						<span class="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[#b48ead]"></span>
+						<span class="sr-only">Running</span>
+					{/if}
+				</button>
+				<button
+					class="pr-2 text-[#d8dee9]/40"
+					onclick={() => closeBrainGroup(group)}
+					type="button"
+					title="Close the tab. Shells and commands continue."
+					aria-label={`Close Brain tab for ${group.containerName}`}><X size={11} /></button
+				>
+			</div>
+		{/each}
 		<button
 			onclick={addGenericShell}
 			class="shrink-0 p-1 text-[#d8dee9]/60"
@@ -176,5 +350,77 @@
 				/>
 			</div>
 		{/each}
+		{#if brain}
+			{#each brainGroups as group (group.grantId)}
+				{@const groupTabId = `brain-group-${group.grantId}`}
+				{@const active = groupActive(group)}
+				<div
+					id={`terminal-pane-${groupTabId}`}
+					data-terminal-pane={groupTabId}
+					role="tabpanel"
+					aria-labelledby={`terminal-tab-${groupTabId}`}
+					class="absolute inset-2 flex gap-2"
+					hidden={!open || !active}
+					inert={!open || !active}
+				>
+					<div class="relative min-w-0 flex-1">
+						{#each group.executions as execution (execution.id)}
+							{@const tabId = brainTabId(execution.id)}
+							<div data-terminal-pane={tabId} class="absolute inset-0" hidden={activeId !== tabId}>
+								<BrainTerminalTab {execution} access={brain} visible={open && activeId === tabId} />
+							</div>
+						{/each}
+					</div>
+					{#if group.executions.length > 1}
+						<div
+							class="flex w-48 shrink-0 flex-col gap-0.5 overflow-y-auto border-l border-[#4c566a] pl-2"
+							role="group"
+							aria-label={`Brain shells and commands in ${group.containerName}`}
+						>
+							{#each group.executions as execution (execution.id)}
+								{@const tabId = brainTabId(execution.id)}
+								<div
+									class="group flex items-center rounded {activeId === tabId
+										? 'bg-[#3b4252] text-[#eceff4]'
+										: 'text-[#d8dee9]/70 hover:bg-[#3b4252]/60'}"
+								>
+									<button
+										type="button"
+										aria-pressed={activeId === tabId}
+										data-brain-entry={execution.id}
+										title={execution.kind === 'shell'
+											? `${execution.shell?.name ?? 'shell'} · ${execution.shell?.cwd ?? ''}`
+											: execution.command}
+										class="flex min-w-0 flex-1 items-center gap-2 px-2 py-1 text-left text-xs"
+										onclick={() => onSetActive(tabId)}
+									>
+										<Terminal size={12} class="shrink-0 text-[#d8dee9]/50" />
+										<span class="min-w-0 flex-1">
+											<span class="block truncate {execution.kind === 'shell' ? '' : 'font-mono'}"
+												>{execution.kind === 'shell'
+													? (execution.shell?.name ?? 'shell')
+													: execution.command}</span
+											>
+											<span class="flex items-center gap-1 text-[10px] text-[#d8dee9]/50">
+												<span class="h-1.5 w-1.5 shrink-0 rounded-full {dotClass(execution)}"
+												></span>
+												{entryStatus(execution)}
+											</span>
+										</span>
+									</button>
+									<button
+										type="button"
+										class="pr-1.5 text-[#d8dee9]/40 opacity-0 group-hover:opacity-100 focus:opacity-100"
+										onclick={() => closeBrainTab(execution.id)}
+										title="Hide from this list. It continues to run."
+										aria-label={`Hide ${execution.command}`}><X size={11} /></button
+									>
+								</div>
+							{/each}
+						</div>
+					{/if}
+				</div>
+			{/each}
+		{/if}
 	</div>
 </div>

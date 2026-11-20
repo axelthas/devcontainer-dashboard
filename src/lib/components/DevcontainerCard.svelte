@@ -6,6 +6,7 @@
 	import ServiceButton from './ServiceButton.svelte';
 	import OpenWithMenu from './OpenWithMenu.svelte';
 	import ContainerMoreMenu from './ContainerMoreMenu.svelte';
+	import BrainAccessButton from './BrainAccessButton.svelte';
 	import { NetworkActions } from '$lib/networkActions.svelte';
 
 	interface Props {
@@ -105,6 +106,9 @@
 						<Play size={12} class="fill-current" />
 						Start
 					</button>
+				{/if}
+				{#if !transition}
+					<BrainAccessButton {container} />
 				{/if}
 				<div
 					class="flex items-center rounded-xl border border-[#d8dee9] bg-[#eceff4] p-1 shadow-sm dark:border-[#434c5e] dark:bg-[#2e3440]"

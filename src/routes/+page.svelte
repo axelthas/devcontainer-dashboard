@@ -33,8 +33,10 @@
 	import TerminalManager from '$lib/components/TerminalManager.svelte';
 	import RequestError from '$lib/components/RequestError.svelte';
 	import NetworkDrawer from '$lib/components/NetworkDrawer.svelte';
+	import BrainPanel from '$lib/components/BrainPanel.svelte';
 	import { errorMessage, latestRequest, requestJson } from '$lib/requests';
 	import { networkMemory } from '$lib/networkMemory.svelte';
+	import { brainExecutionIdOf, brainTabId, provideBrainAccess } from '$lib/brainAccess.svelte';
 	import type { ConnectRequest } from '$lib/networkRules';
 
 	interface Props {
@@ -51,6 +53,9 @@
 	}
 
 	let { data }: Props = $props();
+
+	// Brain grants for rows and cards; descendants read them through context.
+	const brainAccess = provideBrainAccess();
 
 	// untrack prevents svelte from treating data.containers as a reactive dep;
 	// polling handles subsequent updates
@@ -138,7 +143,12 @@
 		let stopped = false;
 		let timer: ReturnType<typeof setTimeout>;
 		async function poll() {
-			await Promise.allSettled([refreshContainers(), refreshTerminalSessions(), refreshNetworks()]);
+			await Promise.allSettled([
+				refreshContainers(),
+				refreshTerminalSessions(),
+				refreshNetworks(),
+				brainAccess.refresh()
+			]);
 			if (!stopped && workspaceError) await refreshWorkspaces().catch(() => {});
 			if (!stopped) timer = setTimeout(poll, 5000);
 		}
@@ -150,6 +160,7 @@
 			workspaceReads.cancel();
 			terminalReads.cancel();
 			networkReads.cancel();
+			brainAccess.dispose();
 		};
 	});
 
@@ -310,6 +321,14 @@
 		terminalOpen = true;
 		activeTerminalId = id;
 	}
+	// "Open in terminal" in the Brain panel shows that command's tab.
+	brainAccess.revealHandler = (executionId) => openTerminalWith(brainTabId(executionId));
+
+	/** The first Brain tab, as a fallback when the last shell tab closes. */
+	function firstBrainTabId(): string | null {
+		const execution = brainAccess.tabs[0];
+		return execution ? brainTabId(execution.id) : null;
+	}
 
 	function addTerminalSession(session: TerminalSession) {
 		terminalRevision++;
@@ -322,9 +341,9 @@
 		terminalSessions = terminalSessions.filter((s) => s.id !== id);
 		confirmedTerminalSessionIds.delete(id);
 		if (activeTerminalId === id) {
-			activeTerminalId = terminalSessions[terminalSessions.length - 1]?.id ?? null;
+			activeTerminalId = terminalSessions[terminalSessions.length - 1]?.id ?? firstBrainTabId();
 		}
-		if (terminalSessions.length === 0) terminalOpen = false;
+		if (terminalSessions.length === 0 && brainAccess.tabs.length === 0) terminalOpen = false;
 	}
 
 	async function closeTerminalSession(id: string) {
@@ -377,10 +396,15 @@
 
 		if (kept.length !== terminalSessions.length || added.length > 0) {
 			terminalSessions = [...kept, ...added];
-			if (activeTerminalId && !terminalSessions.some((s) => s.id === activeTerminalId)) {
-				activeTerminalId = terminalSessions[terminalSessions.length - 1]?.id ?? null;
+			// Brain tabs are not shell sessions; keep one selected while its tab is open.
+			if (
+				activeTerminalId &&
+				!brainExecutionIdOf(activeTerminalId) &&
+				!terminalSessions.some((s) => s.id === activeTerminalId)
+			) {
+				activeTerminalId = terminalSessions[terminalSessions.length - 1]?.id ?? firstBrainTabId();
 			}
-			if (terminalSessions.length === 0) terminalOpen = false;
+			if (terminalSessions.length === 0 && brainAccess.tabs.length === 0) terminalOpen = false;
 		}
 	}
 
@@ -446,6 +470,9 @@
 						</div>
 					</div>
 
+					<!-- Brain MCP access: shown only while the endpoint runs -->
+					<BrainPanel access={brainAccess} />
+
 					<!-- SSH host for VS Code remote connections -->
 					<div
 						class="flex items-center gap-1.5 rounded-lg border border-[#d8dee9] bg-[#eceff4] px-3 py-1.5 dark:border-[#434c5e] dark:bg-[#2e3440]"
@@ -502,6 +529,7 @@
 					<RequestError message={networkError} onRetry={() => void refreshNetworks()} />
 				</div>
 			{/if}
+			<RequestError message={brainAccess.error} onRetry={() => void brainAccess.refresh()} />
 			<!-- Section 1: Active Devcontainers -->
 			<section>
 				<div
