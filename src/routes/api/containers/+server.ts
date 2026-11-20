@@ -5,6 +5,7 @@ import { resolveContainerWorkspaceFolder } from '$lib/server/workspaces';
 import { resolveNetworkPresets, resolveRemoteUser } from '$lib/server/devcontainerMetadata';
 import { containerNetworks } from '$lib/server/networkData';
 import { publishedBindings } from '$lib/server/publishedBindings';
+import { isImageTag, SANDBOX_TAG_LABEL } from '$lib/imageReference';
 import type { ContainerData } from '$lib/types';
 import type { RequestHandler } from './$types';
 
@@ -67,6 +68,7 @@ export const GET: RequestHandler = async () => {
 		const image = c.Image ?? '';
 		const labels = c.Labels ?? {};
 		const composeProject = labels['com.docker.compose.project'] ?? undefined;
+		const sandboxTag = labels[SANDBOX_TAG_LABEL];
 
 		// Exclude containers with no exposed host ports, unless they belong to a compose project
 		if (Object.keys(ports).length === 0 && !composeProject) continue;
@@ -92,6 +94,8 @@ export const GET: RequestHandler = async () => {
 				: undefined,
 			...resolveRemoteUser(labels),
 			composeProject,
+			composeService: labels['com.docker.compose.service'] ?? undefined,
+			sandboxTag: isImageTag(sandboxTag) ? sandboxTag : undefined,
 			networks: containerNetworks(c.NetworkSettings?.Networks),
 			networkPresets: resolveNetworkPresets(labels)
 		});

@@ -12,6 +12,7 @@ import {
 	resolveComposeServices,
 	resolveComposeTarget
 } from '$lib/server/composeSandbox';
+import { localImageInfo } from '$lib/server/composeImages';
 import { ComposeRunConflict, removeComposeRun, startComposeRun } from '$lib/server/composeRuns';
 
 const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT ?? '/workspaces';
@@ -20,7 +21,7 @@ export const POST: RequestHandler = async ({ request }) => {
 	const body = await request.json().catch(() => null);
 	if (!body || typeof body !== 'object') throw error(400, 'Invalid JSON body');
 	const fields = body as Record<string, unknown>;
-	const { repoPath, repoName, files, envFile, profiles, action, services } = fields;
+	const { repoPath, repoName, files, envFile, profiles, tag, action, services } = fields;
 	if (typeof repoName !== 'string' || !repoName.trim() || repoName.length > 200) {
 		throw error(400, 'repoName is required');
 	}
@@ -29,9 +30,21 @@ export const POST: RequestHandler = async ({ request }) => {
 	let target;
 	let inspection;
 	try {
-		target = await resolveComposeTarget(WORKSPACE_ROOT, { repoPath, files, envFile, profiles });
+		target = await resolveComposeTarget(WORKSPACE_ROOT, {
+			repoPath,
+			files,
+			envFile,
+			profiles,
+			tag
+		});
 		// Resolve again at start time: the files or the live stack can change after a check.
-		inspection = await inspectComposeTarget(target, (options) => docker.listContainers(options));
+		// This also writes the version override file that the run uses.
+		inspection = await inspectComposeTarget(
+			target,
+			(options) => docker.listContainers(options),
+			undefined,
+			{ imageInfo: (reference) => localImageInfo(docker, reference) }
+		);
 	} catch (cause) {
 		if (cause instanceof ComposeTargetError) throw error(400, cause.message);
 		if (cause instanceof ComposeConfigError) throw error(422, cause.message);
@@ -53,6 +66,18 @@ export const POST: RequestHandler = async ({ request }) => {
 				'Stop that stack from its own repository, or give this sandbox another project name.'
 		);
 	}
+	// Start never pulls. Refuse before Compose fails on a missing registry image.
+	if (action === 'up') {
+		const missing = inspection.services.filter(
+			(service) =>
+				service.imagePresent === false &&
+				(selectedServices.length === 0 || selectedServices.includes(service.name))
+		);
+		if (missing.length > 0) {
+			const names = missing.map((service) => service.effectiveImage ?? service.image).join(', ');
+			throw error(409, `Not on this host: ${names}. Use Pull or Pull and start.`);
+		}
+	}
 	try {
 		const run = startComposeRun(
 			randomUUID(),
@@ -60,9 +85,15 @@ export const POST: RequestHandler = async ({ request }) => {
 			repoName.trim(),
 			inspection.projectName,
 			action,
-			selectedServices
+			selectedServices,
+			{ overrideFile: inspection.overrideFile }
 		);
-		return json({ id: run.id, repoPath: run.repoPath, projectName: inspection.projectName });
+		return json({
+			id: run.id,
+			repoPath: run.repoPath,
+			projectName: inspection.projectName,
+			...(run.tag ? { tag: run.tag } : {})
+		});
 	} catch (cause) {
 		if (cause instanceof ComposeRunConflict) throw error(409, cause.message);
 		throw error(503, 'Could not start Compose. Check terminal capacity.');

@@ -1,6 +1,6 @@
 /**
  * Source regressions for Compose sandbox discovery, validation, argv, inspection, run
- * tracking, and HTTP contracts.
+ * tracking, sandbox versions, registry tag listing, sandbox removal, and HTTP contracts.
  * Run with Node 22.13+: node --experimental-strip-types --test scripts/tests/compose-sandbox.test.mjs
  * Production TypeScript is stripped into a temporary module graph. Only Docker, the Compose
  * CLI, PTY, logs, and SvelteKit response boundaries are mocked. No Docker is required.
@@ -15,7 +15,12 @@ import { stripTypeScriptTypes } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const repository = fileURLToPath(new URL('../../', import.meta.url));
-const previousEnv = { VITEST: process.env.VITEST, WORKSPACE_ROOT: process.env.WORKSPACE_ROOT };
+const previousEnv = {
+	VITEST: process.env.VITEST,
+	WORKSPACE_ROOT: process.env.WORKSPACE_ROOT,
+	COMPOSE_OVERRIDE_DIR: process.env.COMPOSE_OVERRIDE_DIR,
+	DOCKER_CONFIG: process.env.DOCKER_CONFIG
+};
 const state = (globalThis.__dashboardComposeTests = {});
 let temporary;
 let root;
@@ -25,6 +30,11 @@ let sandbox;
 let runs;
 let inspectRoute;
 let runRoute;
+let image;
+let registry;
+let removal;
+let tagsRoute;
+let removeRoute;
 
 /** Copy the actual source, failing loudly if a dependency replacement no longer matches. */
 async function sourceModule(sourcePath, name, replacements = {}) {
@@ -71,6 +81,8 @@ before(async () => {
 	await symlink(join(temporary, 'outside'), join(root, 'task/linked-repo'));
 	process.env.VITEST = '1';
 	process.env.WORKSPACE_ROOT = root;
+	process.env.COMPOSE_OVERRIDE_DIR = join(temporary, 'overrides');
+	process.env.DOCKER_CONFIG = join(temporary, 'docker-config');
 	await writeFile(
 		join(temporary, 'boundaries.mjs'),
 		`const s = globalThis.__dashboardComposeTests;
@@ -97,24 +109,39 @@ export async function saveRunLog(metadata, output) { s.logs.push({ metadata, out
 export function json(body, init) { return Response.json(body, init); }
 export function error(status, message) { throw Object.assign(new Error(message), { status }); }
 export default {
-  async listContainers(options) { s.lists.push(options); return s.containers; }
+  async listContainers(options) { s.lists.push(options); return s.containers; },
+  getImage(name) {
+    return { async inspect() {
+      if (s.missingImages.includes(name)) throw Object.assign(new Error('No such image'), { statusCode: 404 });
+      return { RepoDigests: [name.split(':')[0] + '@sha256:' + 'a'.repeat(64)] };
+    } };
+  }
 };
 `
 	);
 	commands = await sourceModule('src/lib/composeCommands.ts', 'commands.mjs');
+	image = await sourceModule('src/lib/imageReference.ts', 'image.mjs');
 	sandbox = await sourceModule('src/lib/server/composeSandbox.ts', 'sandbox.mjs', {
 		'node:child_process': './boundaries.mjs',
-		'../composeCommands.js': './commands.mjs'
+		'../composeCommands.js': './commands.mjs',
+		'../imageReference.js': './image.mjs'
 	});
+	await sourceModule('src/lib/server/composeImages.ts', 'images.mjs');
 	runs = await sourceModule('src/lib/server/composeRuns.ts', 'runs.mjs', {
 		'../composeCommands.js': './commands.mjs',
 		'./terminal.js': './boundaries.mjs',
 		'./runLogs.js': './boundaries.mjs'
 	});
+	registry = await sourceModule('src/lib/server/registryTags.ts', 'registry.mjs');
+	removal = await sourceModule('src/lib/server/composeRemoval.ts', 'removal.mjs', {
+		'../imageReference.js': './image.mjs',
+		'./composeRuns.js': './runs.mjs'
+	});
 	const routeReplacements = {
 		'@sveltejs/kit': './boundaries.mjs',
 		'$lib/server/docker': './boundaries.mjs',
-		'$lib/server/composeSandbox': './sandbox.mjs'
+		'$lib/server/composeSandbox': './sandbox.mjs',
+		'$lib/server/composeImages': './images.mjs'
 	};
 	inspectRoute = await sourceModule(
 		'src/routes/api/compose/+server.ts',
@@ -124,6 +151,19 @@ export default {
 	runRoute = await sourceModule('src/routes/api/compose/run/+server.ts', 'run-route.mjs', {
 		...routeReplacements,
 		'$lib/composeCommands': './commands.mjs',
+		'$lib/server/composeRuns': './runs.mjs'
+	});
+	tagsRoute = await sourceModule('src/routes/api/compose/tags/+server.ts', 'tags-route.mjs', {
+		'@sveltejs/kit': './boundaries.mjs',
+		'$lib/server/docker': './boundaries.mjs',
+		'$lib/server/composeSandbox': './sandbox.mjs',
+		'$lib/imageReference': './image.mjs',
+		'$lib/server/registryTags': './registry.mjs'
+	});
+	removeRoute = await sourceModule('src/routes/api/compose/remove/+server.ts', 'remove-route.mjs', {
+		'@sveltejs/kit': './boundaries.mjs',
+		'$lib/server/docker': './boundaries.mjs',
+		'$lib/server/composeRemoval': './removal.mjs',
 		'$lib/server/composeRuns': './runs.mjs'
 	});
 });
@@ -170,8 +210,11 @@ beforeEach(() => {
 		deletedLogs: [],
 		exits: new Map(),
 		spawnError: undefined,
-		stopPromise: undefined
+		stopPromise: undefined,
+		missingImages: []
 	});
+	globalThis.__composeRemovals?.clear();
+	registry?.clearRegistryTagCache();
 });
 
 /** Remove only this test's files and restore environment values changed by the fixture. */
@@ -182,6 +225,7 @@ after(async () => {
 	}
 	delete globalThis.__dashboardComposeTests;
 	delete globalThis.__composeRuns;
+	delete globalThis.__composeRemovals;
 	await rm(temporary, { recursive: true, force: true });
 });
 
@@ -308,9 +352,11 @@ test('builds literal argv for every allowlisted action, without down or volume r
 	];
 	const expected = {
 		build: ['build'],
-		up: ['up', '--detach'],
+		up: ['up', '--detach', '--pull', 'never'],
 		'up-build': ['up', '--detach', '--build'],
-		stop: ['stop']
+		stop: ['stop'],
+		pull: ['pull', '--ignore-buildable'],
+		'up-pull': ['pull', '--ignore-buildable']
 	};
 	assert.deepEqual([...commands.COMPOSE_ACTIONS], Object.keys(expected));
 	for (const [action, tail] of Object.entries(expected)) {
@@ -371,6 +417,7 @@ test('inspection returns structure only, never environment, build arguments or s
 		name: 'fdp',
 		image: 'registry.example/fdp:1',
 		hasBuild: false,
+		source: 'registry',
 		profiles: ['sim'],
 		ports: [{ target: '8080', published: '18080', protocol: 'tcp', hostIp: '127.0.0.1' }],
 		networks: ['oplan'],
@@ -379,6 +426,7 @@ test('inspection returns structure only, never environment, build arguments or s
 	});
 	assert.deepEqual(inspection.services[0].dependsOn, []);
 	assert.equal(inspection.services[0].hasBuild, true);
+	assert.equal(inspection.services[0].source, 'build');
 	assert.deepEqual(inspection.networks, [
 		{ key: 'oplan', name: 'keflavik_oplan', external: false, subnet: '192.168.103.0/24' },
 		{ key: 'shared', name: 'shared', external: true }
@@ -657,7 +705,13 @@ test('validates a service subset against the resolved services', () => {
 test('run POST passes a validated service subset and records it', async () => {
 	const body = { ...input(), repoName: 'solution', action: 'up', services: ['fdp'] };
 	await runRoute.POST(postEvent(body));
-	assert.deepEqual(state.spawns[0].options.executable.args.slice(-3), ['up', '--detach', 'fdp']);
+	assert.deepEqual(state.spawns[0].options.executable.args.slice(-5), [
+		'up',
+		'--detach',
+		'--pull',
+		'never',
+		'fdp'
+	]);
 	const [run] = runs.getActiveComposeRuns();
 	assert.deepEqual(run.services, ['fdp']);
 	state.exits.get(run.id)({ exitCode: 1, output: 'failed' });
@@ -670,4 +724,555 @@ test('run POST rejects unknown and empty service lists without spawning', async 
 		await assert.rejects(runRoute.POST(postEvent(body)), { status: 400 });
 	}
 	assert.equal(state.spawns.length, 0);
+});
+
+// Sandbox versions -------------------------------------------------------------------------
+
+test('parses image references with registry ports, tags and digests', () => {
+	assert.deepEqual(image.parseImageReference('localhost:5000/polaris/fdp'), {
+		repository: 'localhost:5000/polaris/fdp'
+	});
+	assert.deepEqual(image.parseImageReference('registry.example/fdp:26.0.47@sha256:abc'), {
+		repository: 'registry.example/fdp',
+		tag: '26.0.47',
+		digest: 'sha256:abc'
+	});
+	assert.equal(
+		image.withTag('registry.example:443/fdp:1@sha256:abc', '2'),
+		'registry.example:443/fdp:2'
+	);
+	for (const tag of ['26.0.47', 'main_2026-11-20', 'v1', '_x']) assert.ok(image.isImageTag(tag));
+	for (const tag of ['', '-x', '.x', 'a/b', 'a:b', 'a b', 'x'.repeat(129), 7, undefined]) {
+		assert.equal(image.isImageTag(tag), false, String(tag));
+	}
+});
+
+test('derives the version chip from labels first, then image references', () => {
+	const version = (containers) => image.sandboxVersion('polaris', containers);
+	assert.deepEqual(
+		version([
+			{ service: 'fdp', image: 'r/fdp:26.0.33', sandboxTag: '26.0.47' },
+			{ service: 'ice', image: 'r/ice:26.0.47' },
+			{ service: 'tools', image: 'polaris-tools' }
+		]).label,
+		'26.0.47'
+	);
+	assert.equal(
+		version([
+			{ service: 'fdp', image: 'r/fdp:1' },
+			{ service: 'ice', image: 'r/ice:2' }
+		]).kind,
+		'mixed'
+	);
+	assert.deepEqual(version([{ service: 'grafana', image: 'grafana/grafana' }]), {
+		kind: 'implicit',
+		label: 'latest',
+		services: [{ service: 'grafana', tag: 'latest', source: 'image', implicit: true }]
+	});
+	assert.equal(version([{ service: 'tools', image: 'polaris_tools' }]).label, 'local build');
+	assert.equal(version([{ service: 'fdp', image: 'sha256:' + 'f'.repeat(64) }]).label, 'unknown');
+	assert.equal(version([{ service: 'fdp', image: 'r/fdp:1', sandboxTag: 'bad tag' }]).label, '1');
+});
+
+test('refuses an invalid sandbox tag before any process starts', async () => {
+	for (const tag of ['-bad', 'a/b', '../x', 'x'.repeat(129), 'a;b', 7]) {
+		await assert.rejects(
+			sandbox.resolveComposeTarget(root, input({ tag })),
+			sandbox.ComposeTargetError
+		);
+		await assert.rejects(
+			runRoute.POST(postEvent({ ...input({ tag }), repoName: 'solution', action: 'pull' })),
+			{ status: 400 }
+		);
+	}
+	assert.equal(state.spawns.length, 0);
+	assert.equal(state.configCalls.length, 0);
+	const { selection } = await sandbox.resolveComposeTarget(root, input({ tag: '26.0.47' }));
+	assert.equal(selection.tag, '26.0.47');
+	assert.equal(
+		(await sandbox.resolveComposeTarget(root, input({ tag: '' }))).selection.tag,
+		undefined
+	);
+});
+
+test('a tag writes an override for registry services only, outside the repository', async () => {
+	const target = await sandbox.resolveComposeTarget(root, input({ tag: '26.0.47' }));
+	const inspection = await sandbox.inspectComposeTarget(target, async () => []);
+	// Inspection resolves the files as they are; the override is not an input of config.
+	assert.ok(!state.configCalls[0].args.includes(inspection.overrideFile));
+	assert.equal(inspection.tag, '26.0.47');
+	assert.ok(inspection.overrideFile.startsWith(join(temporary, 'overrides') + '/keflavik-'));
+	assert.ok(!inspection.overrideFile.startsWith(repo));
+	const written = await readFile(inspection.overrideFile, 'utf8');
+	assert.match(written, /"fdp":\n {4}image: "registry.example\/fdp:26.0.47"/);
+	assert.match(written, /devcontainer-dashboard.sandbox.tag: "26.0.47"/);
+	assert.ok(!written.includes('builder'), 'a build service keeps its local image');
+	const fdp = inspection.services.find((service) => service.name === 'fdp');
+	assert.equal(fdp.effectiveImage, 'registry.example/fdp:26.0.47');
+	// The same selection always writes the same file.
+	const again = await sandbox.inspectComposeTarget(target, async () => []);
+	assert.equal(again.overrideFile, inspection.overrideFile);
+});
+
+test('reports whether each registry image is on this host, with its digest', async () => {
+	const target = await sandbox.resolveComposeTarget(root, input({ tag: '9' }));
+	const inspection = await sandbox.inspectComposeTarget(target, async () => [], undefined, {
+		imageInfo: async (reference) => (reference === 'registry.example/fdp:9' ? null : {})
+	});
+	const fdp = inspection.services.find((service) => service.name === 'fdp');
+	assert.equal(fdp.imagePresent, false);
+	assert.equal(
+		inspection.services.find((service) => service.name === 'builder').imagePresent,
+		undefined
+	);
+});
+
+test('actions put the override last; Start never pulls; Pull skips buildable services', async () => {
+	const { selection } = await sandbox.resolveComposeTarget(root, input({ tag: '2' }));
+	const override = '/data/compose-overrides/keflavik-0123456789ab.yaml';
+	const start = commands.composeActionCommand(repo, selection, 'up', ['fdp'], override);
+	const files = start.args.flatMap((arg, index) =>
+		start.args[index - 1] === '--file' ? [arg] : []
+	);
+	assert.equal(files.at(-1), override);
+	assert.deepEqual(start.args.slice(-5), ['up', '--detach', '--pull', 'never', 'fdp']);
+	assert.deepEqual(
+		commands.composeActionCommand(repo, selection, 'pull', [], override).args.slice(-2),
+		['pull', '--ignore-buildable']
+	);
+	assert.ok(commands.composeLogsCommand(repo, selection, [], override).args.includes(override));
+	assert.equal(commands.composeFollowUp('up-pull'), 'up');
+	assert.equal(commands.composeFollowUp('pull'), undefined);
+	assert.match(commands.composeQuery(repo, selection), /&tag=2$/);
+});
+
+test('Pull and start starts Start only after a successful Pull, with the same override', async () => {
+	const target = await sandbox.resolveComposeTarget(root, input({ tag: '2' }));
+	const overrideFile = join(temporary, 'overrides', 'keflavik-test.yaml');
+	const pull = runs.startComposeRun('pull-ok', target, 'solution', 'keflavik', 'up-pull', ['fdp'], {
+		overrideFile
+	});
+	assert.equal(pull.tag, '2');
+	assert.deepEqual(state.spawns[0].options.executable.args.slice(-3), [
+		'pull',
+		'--ignore-buildable',
+		'fdp'
+	]);
+	state.exits.get('pull-ok')({ exitCode: 0, output: '' });
+	await Promise.resolve();
+	assert.equal(state.spawns.length, 2);
+	const follow = state.spawns[1].options.executable.args;
+	assert.deepEqual(follow.slice(-5), ['up', '--detach', '--pull', 'never', 'fdp']);
+	assert.ok(follow.includes(overrideFile));
+	const [startRun] = runs.getActiveComposeRuns().filter((run) => run.status === 'running');
+	assert.equal(startRun.action, 'up');
+	assert.equal(startRun.after, 'up-pull');
+	assert.equal(startRun.tag, '2');
+
+	globalThis.__composeRuns.clear();
+	state.spawns = [];
+	runs.startComposeRun('pull-bad', target, 'solution', 'keflavik', 'up-pull');
+	state.exits.get('pull-bad')({ exitCode: 1, output: 'manifest unknown' });
+	await Promise.resolve();
+	assert.equal(state.spawns.length, 1, 'a failed Pull starts nothing');
+});
+
+test('run POST refuses Start for a missing registry image, and Pull records the tag', async () => {
+	state.missingImages = ['registry.example/fdp:7'];
+	const body = { ...input({ tag: '7' }), repoName: 'solution' };
+	await assert.rejects(runRoute.POST(postEvent({ ...body, action: 'up' })), {
+		status: 409,
+		message: /registry.example\/fdp:7/
+	});
+	assert.equal(state.spawns.length, 0);
+	const response = await runRoute.POST(postEvent({ ...body, action: 'pull' }));
+	assert.equal((await response.json()).tag, '7');
+	const args = state.spawns[0].options.executable.args;
+	assert.ok(args.at(-2) === 'pull' && args.at(-1) === '--ignore-buildable');
+	assert.ok(args.some((arg) => arg.startsWith(join(temporary, 'overrides'))));
+	const [run] = runs.getActiveComposeRuns();
+	assert.equal(run.tag, '7');
+});
+
+test('inspect GET accepts a tag and reports the override and image presence', async () => {
+	state.missingImages = ['registry.example/fdp:5'];
+	const url = new URL('http://localhost/api/compose');
+	url.searchParams.set('repoPath', repo);
+	url.searchParams.append('file', 'docker-compose.yml');
+	url.searchParams.set('tag', '5');
+	const body = await (await inspectRoute.GET({ url })).json();
+	assert.equal(body.tag, '5');
+	assert.ok(body.overrideFile);
+	assert.equal(body.services.find((service) => service.name === 'fdp').imagePresent, false);
+	url.searchParams.set('tag', 'bad/tag');
+	await assert.rejects(inspectRoute.GET({ url }), { status: 400 });
+});
+
+// Registry tag listing ---------------------------------------------------------------------
+
+/** A fake registry: a Bearer challenge, a token service, and two pages of tags. */
+function fakeRegistry({
+	tokenStatus = 200,
+	pages = [
+		['26.0.9', '26.0.47'],
+		['26.0.10', 'latest']
+	]
+} = {}) {
+	const calls = [];
+	const fetchImpl = async (url, init = {}) => {
+		const target = new URL(url);
+		calls.push({ url: target.href, authorization: init.headers?.Authorization });
+		if (target.host === 'auth.example') {
+			return Response.json({ token: 'pull-token' }, { status: tokenStatus });
+		}
+		if (init.headers?.Authorization !== 'Bearer pull-token') {
+			return new Response('', {
+				status: 401,
+				headers: {
+					'www-authenticate':
+						'Bearer realm="https://auth.example/jwt",service="registry.example",scope="repository:polaris/fdp:pull"'
+				}
+			});
+		}
+		const page = target.searchParams.get('last') ? 1 : 0;
+		const headers =
+			page === 0 ? { link: '</v2/polaris/fdp/tags/list?n=1000&last=26.0.47>; rel="next"' } : {};
+		return Response.json({ name: 'polaris/fdp', tags: pages[page] }, { headers });
+	};
+	return { calls, fetchImpl };
+}
+
+/** Registry dependencies with fixed credentials and clock. */
+function registryDeps(
+	fetchImpl,
+	config = { auths: { 'registry.example': { auth: btoa('axel:s3cret-token') } } }
+) {
+	return {
+		fetch: fetchImpl,
+		readDockerConfig: async () => config,
+		runHelper: async () => ({ username: 'helper', secret: 'helper-secret' }),
+		now: () => 1_000
+	};
+}
+
+test('resolves registry locations as Docker does', () => {
+	assert.deepEqual(registry.registryLocation('registry.example/polaris/fdp'), {
+		host: 'registry.example',
+		path: 'polaris/fdp'
+	});
+	assert.deepEqual(registry.registryLocation('localhost:5000/fdp'), {
+		host: 'localhost:5000',
+		path: 'fdp'
+	});
+	assert.deepEqual(registry.registryLocation('grafana/grafana'), {
+		host: 'registry-1.docker.io',
+		path: 'grafana/grafana'
+	});
+	assert.deepEqual(registry.registryLocation('redis'), {
+		host: 'registry-1.docker.io',
+		path: 'library/redis'
+	});
+	assert.deepEqual(registry.registryLocation('docker.io/redis'), {
+		host: 'registry-1.docker.io',
+		path: 'library/redis'
+	});
+});
+
+test('lists tags through a Bearer challenge and Link pagination, newest first', async () => {
+	const { calls, fetchImpl } = fakeRegistry();
+	const tags = await registry.listRegistryTags(
+		'registry.example/polaris/fdp',
+		{},
+		registryDeps(fetchImpl)
+	);
+	assert.deepEqual(tags, ['latest', '26.0.47', '26.0.10', '26.0.9']);
+	const token = calls.find((call) => call.url.startsWith('https://auth.example/'));
+	assert.match(token.url, /scope=repository%3Apolaris%2Ffdp%3Apull/);
+	assert.equal(token.authorization, `Basic ${btoa('axel:s3cret-token')}`);
+	assert.ok(calls.some((call) => call.url.includes('last=26.0.47')));
+	// Cached for five minutes, unless refreshed.
+	const cached = calls.length;
+	await registry.listRegistryTags('registry.example/polaris/fdp', {}, registryDeps(fetchImpl));
+	assert.equal(calls.length, cached);
+	await registry.listRegistryTags(
+		'registry.example/polaris/fdp',
+		{ refresh: true },
+		registryDeps(fetchImpl)
+	);
+	assert.ok(calls.length > cached);
+});
+
+test('uses a credential helper and never puts credentials in an error', async () => {
+	const { calls, fetchImpl } = fakeRegistry({ tokenStatus: 401 });
+	const deps = registryDeps(fetchImpl, { credHelpers: { 'registry.example': 'gitlab' } });
+	await assert.rejects(
+		registry.listRegistryTags('registry.example/polaris/fdp', {}, deps),
+		(cause) => cause.kind === 'unauthorized' && !/helper-secret|pull-token/.test(cause.message)
+	);
+	assert.equal(
+		calls.find((call) => call.url.startsWith('https://auth.example/')).authorization,
+		`Basic ${btoa('helper:helper-secret')}`
+	);
+});
+
+test('maps missing repositories, refusals without credentials and timeouts to safe kinds', async () => {
+	const respond =
+		(status, headers = {}) =>
+		async () =>
+			new Response('', { status, headers });
+	await assert.rejects(
+		registry.listRegistryTags('registry.example/none', {}, registryDeps(respond(404))),
+		{ kind: 'not-found' }
+	);
+	await assert.rejects(
+		registry.listRegistryTags(
+			'registry.example/private',
+			{},
+			registryDeps(respond(401, { 'www-authenticate': 'Basic realm="x"' }), undefined)
+		),
+		{ kind: 'unauthorized' }
+	);
+	const timeout = async () => {
+		throw Object.assign(new Error('aborted'), { name: 'TimeoutError' });
+	};
+	await assert.rejects(
+		registry.listRegistryTags('registry.example/slow', {}, registryDeps(timeout)),
+		{
+			kind: 'timeout'
+		}
+	);
+	assert.equal(
+		registry.nextLink(
+			'<https://other.example/v2/x?last=a>; rel="next"',
+			new URL('https://registry.example/v2/x')
+		),
+		undefined
+	);
+});
+
+test('tags GET lists only Compose repositories and marks tags that some images lack', async () => {
+	state.configResult = {
+		stdout: JSON.stringify({
+			name: 'keflavik',
+			services: {
+				fdp: { image: 'registry.example/polaris/fdp:1' },
+				ice: { image: 'registry.example/polaris/ice:1' },
+				builder: { build: { context: '.' } }
+			}
+		})
+	};
+	await mkdir(process.env.DOCKER_CONFIG, { recursive: true });
+	await writeFile(join(process.env.DOCKER_CONFIG, 'config.json'), '{}');
+	const previousFetch = globalThis.fetch;
+	const requested = [];
+	globalThis.fetch = async (url) => {
+		requested.push(new URL(url).pathname);
+		const tags = String(url).includes('/fdp/') ? ['2', '1'] : ['1'];
+		return Response.json({ tags });
+	};
+	try {
+		const url = new URL('http://localhost/api/compose/tags');
+		url.searchParams.set('repoPath', repo);
+		url.searchParams.append('file', 'docker-compose.yml');
+		const body = await (await tagsRoute.GET({ url })).json();
+		assert.deepEqual(requested.sort(), ['/v2/polaris/fdp/tags/list', '/v2/polaris/ice/tags/list']);
+		assert.deepEqual(body.tags, [
+			{ name: '2', missingIn: ['ice'] },
+			{ name: '1', missingIn: [] }
+		]);
+		assert.equal(body.images.length, 2);
+		url.searchParams.append('service', 'fdp');
+		const only = await (await tagsRoute.GET({ url })).json();
+		assert.deepEqual(
+			only.images.map((item) => item.services),
+			[['fdp']]
+		);
+	} finally {
+		globalThis.fetch = previousFetch;
+	}
+});
+
+// Sandbox removal --------------------------------------------------------------------------
+
+/** A fake Docker client for one sandbox: two containers, two networks, one volume. */
+function fakeRemovalDocker() {
+	const calls = [];
+	const project = (labels = {}) => ({
+		'com.docker.compose.project': 'keflavik',
+		'com.docker.compose.project.working_dir': '/workspaces/task/solution',
+		...labels
+	});
+	const world = {
+		containers: [
+			{
+				Id: 'c1'.padEnd(64, '0'),
+				Names: ['/keflavik-fdp-1'],
+				State: 'running',
+				Image: 'registry.example/fdp:26.0.47',
+				Labels: project({
+					'com.docker.compose.service': 'fdp',
+					'devcontainer-dashboard.sandbox.tag': '26.0.47'
+				})
+			},
+			{
+				Id: 'c2'.padEnd(64, '0'),
+				Names: ['/keflavik-ice-1'],
+				State: 'exited',
+				Image: 'registry.example/ice:26.0.47',
+				Labels: project({
+					'com.docker.compose.service': 'ice',
+					'devcontainer-dashboard.sandbox.tag': '26.0.47'
+				})
+			}
+		],
+		networks: [
+			{
+				Id: 'n-default',
+				Name: 'keflavik_default',
+				Containers: { ['c1'.padEnd(64, '0')]: { Name: 'keflavik-fdp-1' } }
+			},
+			{
+				Id: 'n-oplan',
+				Name: 'keflavik_oplan',
+				Containers: {
+					['d'.repeat(64)]: { Name: 'polaris-dev' },
+					['c1'.padEnd(64, '0')]: { Name: 'keflavik-fdp-1' }
+				}
+			}
+		],
+		volumes: [{ Name: 'keflavik_fdp-data' }]
+	};
+	const client = {
+		async listContainers(options) {
+			calls.push(['listContainers', options]);
+			return world.containers;
+		},
+		async listNetworks() {
+			return world.networks.map(({ Id, Name }) => ({ Id, Name }));
+		},
+		async inspectNetwork(id) {
+			return { Containers: world.networks.find((network) => network.Id === id).Containers };
+		},
+		async listVolumes() {
+			return world.volumes;
+		},
+		async stopContainer(id, seconds) {
+			calls.push(['stop', id, seconds]);
+		},
+		async removeContainer(id) {
+			calls.push(['removeContainer', id]);
+		},
+		async removeNetwork(id) {
+			calls.push(['removeNetwork', id]);
+		}
+	};
+	return { calls, world, client };
+}
+
+test('removal preview lists what goes and keeps networks with outside containers', async () => {
+	const { calls, client } = fakeRemovalDocker();
+	const preview = await removal.previewSandboxRemoval(client, 'keflavik');
+	assert.deepEqual(calls[0][1], {
+		all: true,
+		filters: { label: ['com.docker.compose.project=keflavik'] }
+	});
+	assert.equal(preview.version, '26.0.47');
+	assert.equal(preview.source, '/workspaces/task/solution');
+	assert.deepEqual(
+		preview.containers.map((item) => item.name),
+		['keflavik-fdp-1', 'keflavik-ice-1']
+	);
+	assert.deepEqual(
+		preview.networks.map((item) => [item.name, item.attached]),
+		[
+			['keflavik_default', []],
+			['keflavik_oplan', ['polaris-dev']]
+		]
+	);
+	assert.deepEqual(preview.volumes, ['keflavik_fdp-data']);
+	assert.match(preview.token, /^[a-f0-9]{32}$/);
+	for (const project of ['', 'Keflavik', 'x;rm', '../x', '-x']) {
+		await assert.rejects(removal.previewSandboxRemoval(client, project), removal.RemovalInputError);
+	}
+});
+
+test('removal keeps volumes and shared networks, and reports every resource', async () => {
+	const { calls, client } = fakeRemovalDocker();
+	const { token } = await removal.previewSandboxRemoval(client, 'keflavik');
+	const results = await removal.removeSandbox(client, 'keflavik', token);
+	assert.deepEqual(
+		results.map((item) => [item.kind, item.name, item.result]),
+		[
+			['container', 'keflavik-fdp-1', 'removed'],
+			['container', 'keflavik-ice-1', 'removed'],
+			['network', 'keflavik_default', 'removed'],
+			['network', 'keflavik_oplan', 'kept'],
+			['volume', 'keflavik_fdp-data', 'kept']
+		]
+	);
+	assert.deepEqual(
+		calls.filter((call) => call[0] === 'stop').map((call) => call[2]),
+		[10],
+		'only the running container is stopped, with a grace period'
+	);
+	assert.deepEqual(
+		calls.filter((call) => call[0] === 'removeNetwork').map((call) => call[1]),
+		['n-default']
+	);
+	assert.ok(!calls.some((call) => /volume/i.test(call[0])));
+});
+
+test('removal refuses a stale preview without touching anything', async () => {
+	const { calls, world, client } = fakeRemovalDocker();
+	const { token } = await removal.previewSandboxRemoval(client, 'keflavik');
+	world.containers.push({
+		Id: 'c3'.padEnd(64, '0'),
+		Names: ['/keflavik-debug-1'],
+		State: 'running',
+		Labels: {}
+	});
+	await assert.rejects(removal.removeSandbox(client, 'keflavik', token), removal.RemovalStaleError);
+	assert.ok(!calls.some((call) => ['stop', 'removeContainer', 'removeNetwork'].includes(call[0])));
+	await assert.rejects(
+		removal.removeSandbox(client, 'keflavik', 'not-a-token'),
+		removal.RemovalInputError
+	);
+});
+
+test('removal and Compose runs of one project exclude each other', async () => {
+	const target = await sandbox.resolveComposeTarget(root, input());
+	runs.startComposeRun('busy', target, 'solution', 'keflavik', 'up');
+	const { client } = fakeRemovalDocker();
+	const { token } = await removal.previewSandboxRemoval(client, 'keflavik');
+	await assert.rejects(removal.removeSandbox(client, 'keflavik', token), runs.ComposeRunConflict);
+	globalThis.__composeRuns.clear();
+	const release = runs.reserveProjectRemoval('keflavik');
+	assert.throws(
+		() => runs.startComposeRun('blocked', target, 'solution', 'keflavik', 'up'),
+		runs.ComposeRunConflict
+	);
+	release();
+	assert.equal(
+		runs.startComposeRun('free', target, 'solution', 'keflavik', 'up').status,
+		'running'
+	);
+});
+
+test('remove routes map stale previews to 409 and bad input to 400', async () => {
+	await assert.rejects(
+		removeRoute.GET({ url: new URL('http://localhost/api/compose/remove?project=Bad') }),
+		{
+			status: 400
+		}
+	);
+	const post = (body) =>
+		removeRoute.POST({
+			request: new Request('http://localhost/api/compose/remove', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(body)
+			})
+		});
+	await assert.rejects(post({ project: 'keflavik' }), { status: 400 });
+	await assert.rejects(post({ project: 'keflavik; rm', token: 'a'.repeat(32) }), { status: 400 });
 });

@@ -10,6 +10,7 @@ import { resolveNetworkPresets, resolveRemoteUser } from '$lib/server/devcontain
 import { containerNetworks } from '$lib/server/networkData';
 import { publishedBindings } from '$lib/server/publishedBindings';
 import { isServiceProxyEnabled, resolveServicePorts } from '$lib/server/serviceGatewayRuntime';
+import { isImageTag, SANDBOX_TAG_LABEL } from '$lib/imageReference';
 import type { ContainerData, ServiceAccess, ServicePortPolicy } from '$lib/types';
 import type { PageServerLoad } from './$types';
 
@@ -81,6 +82,7 @@ export const load: PageServerLoad = async () => {
 		const image = c.Image ?? '';
 		const labels = c.Labels ?? {};
 		const composeProject = labels['com.docker.compose.project'] ?? undefined;
+		const sandboxTag = labels[SANDBOX_TAG_LABEL];
 
 		// Exclude containers with no exposed ports, unless they belong to a compose project
 		if (Object.keys(ports).length === 0 && !composeProject) continue;
@@ -106,6 +108,8 @@ export const load: PageServerLoad = async () => {
 				: undefined,
 			...resolveRemoteUser(labels),
 			composeProject,
+			composeService: labels['com.docker.compose.service'] ?? undefined,
+			sandboxTag: isImageTag(sandboxTag) ? sandboxTag : undefined,
 			networks: containerNetworks(c.NetworkSettings?.Networks),
 			networkPresets: resolveNetworkPresets(labels)
 		});

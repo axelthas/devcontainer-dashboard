@@ -3,10 +3,14 @@
  * Validation runs before any process starts. Inspection runs `docker compose config`,
  * which resolves the configuration but does not build, pull, or start anything.
  * Only non-secret structure leaves this module: never environment values or secrets.
+ * A selected sandbox tag is applied through a managed override file outside the repository.
  */
 import { execFile } from 'node:child_process';
-import { readdir, realpath, stat } from 'node:fs/promises';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { mkdir, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
 	COMPOSE_FILE_PATTERN,
 	COMPOSE_PROFILE_PATTERN,
@@ -21,6 +25,7 @@ import {
 	composeProjectDirectory,
 	type ComposeSelection
 } from '../composeCommands.js';
+import { isImageTag, SANDBOX_TAG_LABEL, withTag } from '../imageReference.js';
 import type {
 	ComposeInspection,
 	ComposeNetworkSummary,
@@ -74,6 +79,8 @@ export interface ComposeTargetInput {
 	files: unknown;
 	envFile?: unknown;
 	profiles?: unknown;
+	/** Sandbox tag; absent or empty means the image references in the Compose files */
+	tag?: unknown;
 }
 
 /** Require a strict descendant, not a prefix collision or the root itself. */
@@ -133,6 +140,17 @@ function validFiles(value: unknown): string[] {
 		}
 	}
 	return files;
+}
+
+/** Validate the sandbox tag; absent or empty means no tag. */
+function validTag(value: unknown): string | undefined {
+	if (value === undefined || value === null || value === '') return undefined;
+	if (!isImageTag(value)) {
+		throw new ComposeTargetError(
+			'Version must be a Docker tag: letters, digits, ".", "_" and "-", at most 128 characters'
+		);
+	}
+	return value;
 }
 
 /** Validate profile names; an absent list means no explicit profiles. */
@@ -203,6 +221,7 @@ export async function resolveComposeTarget(
 			? undefined
 			: validRelative(input.envFile, 'Environment file');
 	const profiles = validProfiles(input.profiles);
+	const tag = validTag(input.tag);
 	const root = resolve(workspaceRoot);
 	const repo = resolve(repoPath);
 	if (!isWithin(root, repo)) {
@@ -228,7 +247,12 @@ export async function resolveComposeTarget(
 	}
 	for (const file of files) await requireFileWithin(realRepo, join(repo, file), 'Compose file');
 	if (envFile) await requireFileWithin(realRepo, join(repo, envFile), 'Environment file');
-	const selection: ComposeSelection = { files, profiles, ...(envFile ? { envFile } : {}) };
+	const selection: ComposeSelection = {
+		files,
+		profiles,
+		...(envFile ? { envFile } : {}),
+		...(tag ? { tag } : {})
+	};
 	const projectDirectory = composeProjectDirectory(repo, selection);
 	let canonicalProjectDirectory: string;
 	try {
@@ -390,10 +414,14 @@ function summarizeService(name: string, raw: unknown): ComposeServiceSummary {
 	const dependsOn = Array.isArray(service.depends_on)
 		? strings(service.depends_on)
 		: Object.keys(record(service.depends_on) ?? {});
+	const image = typeof service.image === 'string' ? service.image : undefined;
+	const hasBuild = service.build !== undefined && service.build !== null;
 	return {
 		name,
-		...(typeof service.image === 'string' ? { image: service.image } : {}),
-		hasBuild: service.build !== undefined && service.build !== null,
+		...(image ? { image } : {}),
+		hasBuild,
+		// Only a pulled image takes the sandbox tag; a built image stays local.
+		source: hasBuild ? 'build' : image ? 'registry' : 'none',
 		profiles: strings(service.profiles),
 		ports,
 		networks: networks.sort(),
@@ -456,6 +484,7 @@ export interface ContainerListFilter {
 export interface ListedContainer {
 	Id: string;
 	Names?: string[];
+	Image?: string;
 	State?: string;
 	Labels?: Record<string, string>;
 }
@@ -473,6 +502,7 @@ export function classifyStack(
 	const others = new Set<string>();
 	const summaries: ComposeStackContainer[] = containers.map((container) => {
 		const workingDir = container.Labels?.[WORKING_DIR_LABEL];
+		const sandboxTag = container.Labels?.[SANDBOX_TAG_LABEL];
 		if (!workingDir || !mine.has(workingDir.replace(/\/+$/, '')))
 			others.add(workingDir || 'unknown');
 		return {
@@ -480,6 +510,8 @@ export function classifyStack(
 			name: (container.Names?.[0] ?? '').replace(/^\//, ''),
 			service: container.Labels?.['com.docker.compose.service'] ?? '',
 			state: container.State ?? 'unknown',
+			...(container.Image ? { image: container.Image } : {}),
+			...(isImageTag(sandboxTag) ? { sandboxTag } : {}),
 			...(workingDir ? { workingDir } : {})
 		};
 	});
@@ -491,11 +523,84 @@ export function classifyStack(
 	};
 }
 
+/** Directory for version override files: the data volume, never a repository. */
+export function composeOverrideDirectory(env: NodeJS.ProcessEnv = process.env): string {
+	if (env.COMPOSE_OVERRIDE_DIR) return env.COMPOSE_OVERRIDE_DIR;
+	return existsSync('/data')
+		? '/data/compose-overrides'
+		: join(tmpdir(), 'devharbour-compose-overrides');
+}
+
+/**
+ * One override file per sandbox selection: project name plus a hash of the canonical
+ * project directory, the files, the environment file, and the profiles.
+ */
+export function composeOverridePath(
+	target: ComposeTarget,
+	projectName: string,
+	directory: string = composeOverrideDirectory()
+): string {
+	const { files, envFile, profiles } = target.selection;
+	const key = createHash('sha256')
+		.update(JSON.stringify([target.canonicalProjectDirectory, files, envFile ?? '', profiles]))
+		.digest('hex')
+		.slice(0, 12);
+	return join(directory, `${projectName}-${key}.yaml`);
+}
+
+/**
+ * Override that sets one tag on every registry service and labels its containers.
+ * Build services are not listed, so their images stay local. JSON strings are valid YAML.
+ */
+export function composeOverrideYaml(services: ComposeServiceSummary[], tag: string): string {
+	const registry = services.filter((service) => service.source === 'registry' && service.image);
+	const lines = ['# Written by DevHarbour for one sandbox version. Not part of the repository.'];
+	if (registry.length === 0) return [...lines, 'services: {}', ''].join('\n');
+	lines.push('services:');
+	for (const service of registry) {
+		lines.push(
+			`  ${JSON.stringify(service.name)}:`,
+			`    image: ${JSON.stringify(withTag(service.image!, tag))}`,
+			'    labels:',
+			`      ${SANDBOX_TAG_LABEL}: ${JSON.stringify(tag)}`
+		);
+	}
+	return [...lines, ''].join('\n');
+}
+
+/** Write through a temporary file and rename it, so Compose never reads a partial file. */
+export async function writeComposeOverride(path: string, content: string): Promise<void> {
+	const temporary = `${path}.${randomUUID()}.tmp`;
+	try {
+		await mkdir(dirname(path), { recursive: true });
+		await writeFile(temporary, content, { mode: 0o644 });
+		await rename(temporary, path);
+	} catch {
+		await rm(temporary, { force: true }).catch(() => {});
+		throw new ComposeConfigError('Could not write the version override file');
+	}
+}
+
+/** A local image, or null when the image is not on this host. */
+export interface ImageInfo {
+	/** First repository digest, `repository@sha256:...`, when Docker knows one */
+	digest?: string;
+}
+
+/** Optional effects of an inspection, replaceable in tests. */
+export interface InspectOptions {
+	/** Look up a local image by reference; null when it is missing */
+	imageInfo?: (reference: string) => Promise<ImageInfo | null>;
+	writeOverride?: (path: string, content: string) => Promise<void>;
+	overrideDirectory?: string;
+}
+
 /** Resolve configuration, then compare it with live Docker containers of the same project. */
 export async function inspectComposeTarget(
 	target: ComposeTarget,
 	listContainers: (options: ContainerListFilter) => Promise<ListedContainer[]>,
-	run: ConfigRunner = runComposeConfig
+	run: ConfigRunner = runComposeConfig,
+	options: InspectOptions = {}
 ): Promise<ComposeInspection> {
 	const output = await run(target);
 	let raw: unknown;
@@ -505,12 +610,44 @@ export async function inspectComposeTarget(
 		throw new ComposeConfigError('Compose returned unreadable configuration output');
 	}
 	const summary = summarizeComposeConfig(raw);
+	const tag = target.selection.tag;
+	let overrideFile: string | undefined;
+	let services = summary.services;
+	if (tag) {
+		overrideFile = composeOverridePath(target, summary.projectName, options.overrideDirectory);
+		await (options.writeOverride ?? writeComposeOverride)(
+			overrideFile,
+			composeOverrideYaml(services, tag)
+		);
+		services = services.map((service) =>
+			service.source === 'registry' && service.image
+				? { ...service, effectiveImage: withTag(service.image, tag) }
+				: service
+		);
+	}
+	const imageInfo = options.imageInfo;
+	if (imageInfo) {
+		services = await Promise.all(
+			services.map(async (service) => {
+				const reference = service.effectiveImage ?? service.image;
+				if (service.source !== 'registry' || !reference) return service;
+				const info = await imageInfo(reference).catch(() => null);
+				return {
+					...service,
+					imagePresent: Boolean(info),
+					...(info?.digest ? { imageDigest: info.digest } : {})
+				};
+			})
+		);
+	}
 	const containers = await listContainers({
 		all: true,
 		filters: { label: [`com.docker.compose.project=${summary.projectName}`] }
 	});
 	return {
 		...summary,
+		services,
+		...(tag && overrideFile ? { tag, overrideFile } : {}),
 		projectDirectory: target.projectDirectory,
 		selection: target.selection,
 		warnings: composeWarnings(output.stderr),

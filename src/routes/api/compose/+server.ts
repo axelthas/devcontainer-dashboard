@@ -9,6 +9,7 @@ import {
 	inspectComposeTarget,
 	resolveComposeTarget
 } from '$lib/server/composeSandbox';
+import { localImageInfo } from '$lib/server/composeImages';
 
 const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT ?? '/workspaces';
 
@@ -26,10 +27,14 @@ export const GET: RequestHandler = async ({ url }) => {
 			repoPath: url.searchParams.get('repoPath') ?? undefined,
 			files: url.searchParams.getAll('file'),
 			envFile: url.searchParams.get('envFile') ?? undefined,
-			profiles: url.searchParams.getAll('profile')
+			profiles: url.searchParams.getAll('profile'),
+			tag: url.searchParams.get('tag') ?? undefined
 		});
-		const inspection = await inspectComposeTarget(target, (options) =>
-			docker.listContainers(options)
+		const inspection = await inspectComposeTarget(
+			target,
+			(options) => docker.listContainers(options),
+			undefined,
+			{ imageInfo: (reference) => localImageInfo(docker, reference) }
 		);
 		return json(inspection, { headers: { 'cache-control': 'no-store' } });
 	} catch (cause) {

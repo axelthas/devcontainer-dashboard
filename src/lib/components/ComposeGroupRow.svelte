@@ -8,7 +8,8 @@
 		RotateCw,
 		Loader2,
 		Network,
-		Globe
+		Globe,
+		Trash2
 	} from 'lucide-svelte';
 	import { errorMessage, requestJson } from '$lib/requests';
 	import RequestError from './RequestError.svelte';
@@ -16,6 +17,8 @@
 	import { containerExposure } from '$lib/publishedPorts';
 	import SandboxRow from './SandboxRow.svelte';
 	import ComposeNetworks from './ComposeNetworks.svelte';
+	import SandboxVersionChip from './SandboxVersionChip.svelte';
+	import SandboxRemoveDialog from './SandboxRemoveDialog.svelte';
 
 	interface Props {
 		projectName: string;
@@ -50,6 +53,7 @@
 	}: Props = $props();
 
 	let expanded = $state(false);
+	let removing = $state(false);
 	let loadingAction = $state<string | null>(null);
 	let actionError = $state('');
 	let actionSummary = $state('');
@@ -61,6 +65,10 @@
 	const runningCount = $derived(containers.filter((c) => c.state === 'running').length);
 	const totalCount = $derived(containers.length);
 	const anyRunning = $derived(runningCount > 0);
+	/** Live image data for the version chip. */
+	const versionContainers = $derived(
+		containers.map((c) => ({ image: c.image, service: c.composeService, sandboxTag: c.sandboxTag }))
+	);
 	/** One exposure warning for the group, instead of one under every container. */
 	const exposedCount = $derived(
 		containers.filter((c) => containerExposure(c.portBindings) === 'all').length
@@ -134,6 +142,8 @@
 			>
 				{projectName}
 			</h4>
+
+			<SandboxVersionChip project={projectName} containers={versionContainers} />
 
 			<!-- Running count badge -->
 			<span
@@ -211,8 +221,25 @@
 					{/if}
 				</button>
 			{/if}
+			<button
+				class="rounded-lg p-1.5 text-[#4c566a] transition-colors hover:bg-[#e5e9f0] hover:text-[#bf616a] disabled:cursor-not-allowed disabled:opacity-50 dark:text-[#d8dee9] dark:hover:bg-[#3b4252] dark:hover:text-[#bf616a]"
+				disabled={loadingAction !== null}
+				onclick={() => (removing = true)}
+				title="Remove sandbox…"
+				aria-label={`Remove sandbox ${projectName}`}
+			>
+				<Trash2 size={16} />
+			</button>
 		</div>
 	</div>
+
+	{#if removing}
+		<SandboxRemoveDialog
+			project={projectName}
+			onClose={() => (removing = false)}
+			onRemoved={() => void onRefresh().catch(() => {})}
+		/>
+	{/if}
 
 	<!-- Expanded container list -->
 	{#if expanded}
