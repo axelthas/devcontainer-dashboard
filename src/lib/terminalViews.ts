@@ -35,6 +35,8 @@ interface XtermLike {
 	resize(cols: number, rows: number): void;
 	focus(): void;
 	dispose(): void;
+	/** Live options; xterm.js re-measures cells when `fontSize` changes. */
+	options: { fontSize?: number };
 	loadAddon(addon: unknown): void;
 	onData(listener: (data: string) => void): { dispose(): void };
 	onResize(listener: (size: TerminalViewDimensions) => void): { dispose(): void };
@@ -156,6 +158,9 @@ async function createXtermView(
 				return { cols: terminal.cols, rows: terminal.rows };
 			},
 			focus: () => terminal.focus(),
+			async setFontSize(size) {
+				if (!disposed) terminal.options.fontSize = size;
+			},
 			dispose
 		};
 	} catch (error) {
@@ -228,6 +233,9 @@ async function createWraithNativeView(
 			return disposed ? undefined : { cols: terminal.cols, rows: terminal.rows };
 		},
 		focus: () => terminal.focus(),
+		async setFontSize(size) {
+			if (!disposed) await terminal.setFontSize(size).catch(report);
+		},
 		dispose
 	};
 }
@@ -288,6 +296,10 @@ async function createWtermView(
 			return { cols: terminal.cols, rows: terminal.rows };
 		},
 		focus: () => terminal.focus(),
+		async setFontSize(size) {
+			// wterm reads the size from this property when it measures cells.
+			if (!disposed) element.style.setProperty('--term-font-size', `${size}px`);
+		},
 		dispose
 	};
 }

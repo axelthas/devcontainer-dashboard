@@ -29,6 +29,10 @@
 		onIdentity?: (identity: TerminalViewIdentity | undefined) => void;
 		/** Offer an explicit switch to xterm.js after the selected engine fails. */
 		onUseFallback?: () => void;
+		/** Report connection changes, for controls that must not send while disconnected. */
+		onConnection?: (state: ConnectionState) => void;
+		/** Report the grid after each fit, for controls that show columns and rows. */
+		onGrid?: (grid: { cols: number; rows: number }) => void;
 	}
 	type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'failed' | 'exited';
 	let {
@@ -44,7 +48,9 @@
 		fontSize = 13,
 		onExit,
 		onIdentity,
-		onUseFallback
+		onUseFallback,
+		onConnection,
+		onGrid
 	}: Props = $props();
 	let ready = $state(false);
 	let connection = $state<ConnectionState>('connecting');
@@ -58,6 +64,8 @@
 	let activationElement: Element | null = null;
 	/** Viewers mounted by this tab. Every viewer after the first is an engine switch. */
 	let mountedViewers = 0;
+
+	$effect(() => onConnection?.(connection));
 
 	/** Restored viewers attach while hidden, but must not resize a shared PTY until measurable. */
 	function canMeasureTerminal() {
@@ -76,10 +84,26 @@
 			return;
 		socket.send(JSON.stringify({ type: 'resize', ...dimensions }));
 	}
+	/**
+	 * Send input from an on-screen control through the same path as typed keys.
+	 * Nothing is buffered: the call returns false and drops the input when not connected.
+	 */
+	export function sendInput(data: string): boolean {
+		if (connection !== 'connected' || !active || !visible || socket?.readyState !== WebSocket.OPEN)
+			return false;
+		socket.send(JSON.stringify({ type: 'data', data }));
+		return true;
+	}
+	/** Move keyboard focus into the viewer, which opens the on-screen keyboard on phones. */
+	export function focus() {
+		view?.focus();
+	}
 	/** Fit after layout, then send even unchanged geometry when a new viewer attaches. */
 	async function fitVisibleTerminal() {
 		if (!ready || !view || !canMeasureTerminal()) return;
-		sendResize(await view.fit());
+		const dimensions = await view.fit();
+		if (validTerminalDimensions(dimensions)) onGrid?.(dimensions);
+		sendResize(dimensions);
 	}
 	/** Describe an unknown failure for the status line. */
 	function errorText(error: unknown) {
@@ -313,6 +337,17 @@
 			cancelled = true;
 			cancelAnimationFrame(frame);
 		};
+	});
+	// Text size changes keep the viewer and the process; the fit sends the new grid to the PTY.
+	let appliedFontSize = untrack(() => fontSize);
+	$effect(() => {
+		const size = fontSize;
+		if (!ready || !view || size === appliedFontSize) return;
+		appliedFontSize = size;
+		const target = view;
+		void target.setFontSize(size).then(() => {
+			if (view === target) void fitVisibleTerminal();
+		});
 	});
 	function observeSize(node: HTMLDivElement) {
 		const observer = new ResizeObserver(() => {
