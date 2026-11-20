@@ -1,10 +1,16 @@
 <script lang="ts">
-	import { tick } from 'svelte';
-	import type { Terminal } from '@xterm/xterm';
-	import type { FitAddon } from '@xterm/addon-fit';
-	import { TERMINAL_FONT_FAMILY, TERMINAL_THEME } from '$lib/terminalTheme';
+	import { tick, untrack } from 'svelte';
+	import { TERMINAL_COLORS, TERMINAL_FONT_FAMILY } from '$lib/terminalTheme';
 	import { ensureTerminal } from '$lib/terminalCreation';
 	import { validTerminalDimensions } from '$lib/terminalSizing';
+	import {
+		DEFAULT_TERMINAL_ENGINE,
+		TERMINAL_ENGINES,
+		type TerminalEngineId,
+		type TerminalView,
+		type TerminalViewIdentity
+	} from '$lib/terminalView';
+	import { createTerminalView } from '$lib/terminalViews';
 
 	interface Props {
 		sessionId: string;
@@ -12,11 +18,17 @@
 		command?: string;
 		cwd?: string;
 		kind?: 'shell' | 'bootstrap' | 'devcontainer-build';
+		/** Browser terminal engine. A change replaces only this viewer, never the process. */
+		engine?: TerminalEngineId;
 		active: boolean;
 		visible?: boolean;
 		focusOnActivate?: boolean;
 		fontSize?: number;
 		onExit?: (exitCode: number) => void;
+		/** Report the engine, core, and renderer that actually initialized. */
+		onIdentity?: (identity: TerminalViewIdentity | undefined) => void;
+		/** Offer an explicit switch to xterm.js after the selected engine fails. */
+		onUseFallback?: () => void;
 	}
 	type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'failed' | 'exited';
 	let {
@@ -25,21 +37,27 @@
 		command,
 		cwd,
 		kind,
+		engine = DEFAULT_TERMINAL_ENGINE,
 		active,
 		visible = active,
 		focusOnActivate = false,
 		fontSize = 13,
-		onExit
+		onExit,
+		onIdentity,
+		onUseFallback
 	}: Props = $props();
 	let ready = $state(false);
 	let state = $state<ConnectionState>('connecting');
 	let reason = $state('');
-	let terminal: Terminal | undefined;
-	let fitAddon: FitAddon | undefined;
+	/** The selected engine failed, as opposed to the connection or the process. */
+	let viewFailed = $state(false);
+	let view: TerminalView | undefined;
 	let socket: WebSocket | undefined;
 	let terminalNode: HTMLDivElement | undefined;
 	let retry = $state<() => void>(() => {});
 	let activationElement: Element | null = null;
+	/** Viewers mounted by this tab. Every viewer after the first is an engine switch. */
+	let mountedViewers = 0;
 
 	/** Restored viewers attach while hidden, but must not resize a shared PTY until measurable. */
 	function canMeasureTerminal() {
@@ -59,17 +77,21 @@
 		socket.send(JSON.stringify({ type: 'resize', ...dimensions }));
 	}
 	/** Fit after layout, then send even unchanged geometry when a new viewer attaches. */
-	function fitVisibleTerminal() {
-		if (!ready || !terminal || !canMeasureTerminal()) return;
-		const dimensions = fitAddon?.proposeDimensions();
-		if (!validTerminalDimensions(dimensions)) return;
-		if (terminal.cols !== dimensions.cols || terminal.rows !== dimensions.rows)
-			terminal.resize(dimensions.cols, dimensions.rows);
-		else sendResize(dimensions);
+	async function fitVisibleTerminal() {
+		if (!ready || !view || !canMeasureTerminal()) return;
+		sendResize(await view.fit());
+	}
+	/** Describe an unknown failure for the status line. */
+	function errorText(error: unknown) {
+		return error instanceof Error && error.message ? error.message : 'unknown error';
 	}
 
 	/** Own every resource for one viewer. Disposing a viewer never stops its PTY. */
 	function terminalAttachment(node: HTMLDivElement) {
+		// The key block remounts this viewer when the engine changes, so read it once.
+		const selectedEngine = untrack(() => engine);
+		const engineLabel = TERMINAL_ENGINES[selectedEngine].label;
+		const replacement = mountedViewers++ > 0;
 		terminalNode = node;
 		let disposed = false;
 		let generation = 0;
@@ -80,8 +102,23 @@
 		let connectTimer: ReturnType<typeof setTimeout> | undefined;
 		let reportedExit = false;
 		const controller = new AbortController();
-		const subscriptions: { dispose(): void }[] = [];
 		const current = (version: number) => !disposed && version === generation;
+
+		/** Stop using a failed viewer. The server process keeps running. */
+		function failView(message: string) {
+			if (disposed) return;
+			generation++;
+			clearTimeout(retryTimer);
+			clearTimeout(connectTimer);
+			socket?.close();
+			view?.dispose();
+			view = undefined;
+			ready = false;
+			viewFailed = true;
+			state = 'failed';
+			reason = message;
+			onIdentity?.(undefined);
+		}
 
 		/** Attach to an existing process only. This path cannot start a command. */
 		async function connect() {
@@ -121,11 +158,12 @@
 							state = 'connected';
 							reason = '';
 							retries = 0;
-							terminal?.reset();
-							terminal?.write(message.output ?? '');
-							fitVisibleTerminal();
+							// Engines apply writes in call order, so the replay follows the reset.
+							view?.reset();
+							view?.write(message.output ?? '');
+							void fitVisibleTerminal();
 						} else if (message.type === 'data' && typeof message.data === 'string')
-							terminal?.write(message.data);
+							view?.write(message.data);
 						else if (message.type === 'exit') {
 							state = 'exited';
 							reason = `Process exited (${message.exitCode ?? 0}).`;
@@ -178,6 +216,7 @@
 			state = 'connecting';
 			reason = '';
 			try {
+				// An existing session is only probed here; its command is never sent again.
 				await ensureTerminal({ id: sessionId, name, command, cwd, kind }, controller.signal);
 				if (disposed) return;
 				processReady = true;
@@ -191,47 +230,42 @@
 				preparing = false;
 			}
 		}
-		/** Initialize one xterm viewer; startup recovery reuses this instance. */
+		/** Mount the selected engine's viewer; recovery reuses the same session identity. */
 		async function init() {
+			viewFailed = false;
+			state = 'connecting';
+			reason = '';
 			try {
-				const [{ Terminal: XTerm }, { FitAddon }] = await Promise.all([
-					import('@xterm/xterm'),
-					import('@xterm/addon-fit')
-				]);
-				if (disposed) return;
-				terminal = new XTerm({
-					theme: TERMINAL_THEME,
+				const created = await createTerminalView(selectedEngine, node, {
 					fontFamily: TERMINAL_FONT_FAMILY,
-					fontSize,
-					cursorBlink: true,
-					scrollback: 5000
-				});
-				fitAddon = new FitAddon();
-				terminal.loadAddon(fitAddon);
-				terminal.open(node);
-				ready = true;
-				subscriptions.push(
-					terminal.onResize(({ cols, rows }) => {
-						sendResize({ cols, rows });
-					})
-				);
-				subscriptions.push(
-					terminal.onData((data) => {
+					fontSize: untrack(() => fontSize),
+					colors: TERMINAL_COLORS,
+					scrollback: 5000,
+					signal: controller.signal,
+					onData: (data) => {
 						if (state === 'connected' && active && visible && socket?.readyState === WebSocket.OPEN)
 							socket.send(JSON.stringify({ type: 'data', data }));
-					})
-				);
+					},
+					onResize: (dimensions) => sendResize(dimensions),
+					onError: (error) => failView(`${engineLabel} stopped: ${errorText(error)}`)
+				});
+				if (disposed) {
+					created.dispose();
+					return;
+				}
+				view = created;
+				ready = true;
+				onIdentity?.(created.identity);
+				// After an engine switch, the operator continues to type in the new viewer.
+				if (replacement && untrack(() => active && visible)) created.focus();
 				await prepareConnection();
 			} catch (error) {
-				if (!disposed) {
-					state = 'failed';
-					reason = error instanceof Error ? error.message : 'Could not initialize terminal.';
-				}
+				if (!disposed) failView(`${engineLabel} could not start: ${errorText(error)}`);
 			}
 		}
 		retry = () => {
 			retries = 0;
-			if (!terminal) void init();
+			if (!view) void init();
 			else if (!processReady) void prepareConnection();
 			else void connect();
 		};
@@ -243,13 +277,12 @@
 			clearTimeout(retryTimer);
 			clearTimeout(connectTimer);
 			socket?.close();
-			for (const subscription of subscriptions) subscription.dispose();
-			terminal?.dispose();
-			terminal = undefined;
-			fitAddon = undefined;
+			view?.dispose();
+			view = undefined;
 			terminalNode = undefined;
 			ready = false;
 			retry = () => {};
+			onIdentity?.(undefined);
 		};
 	}
 	$effect(() => {
@@ -263,12 +296,12 @@
 			if (cancelled) return;
 			frame = requestAnimationFrame(() => {
 				if (cancelled || !active || !visible) return;
-				fitVisibleTerminal();
+				void fitVisibleTerminal();
 				if (
 					focusOnActivate &&
 					(document.activeElement === activationElement || document.activeElement === document.body)
 				)
-					terminal?.focus();
+					view?.focus();
 			});
 		});
 		return () => {
@@ -278,7 +311,7 @@
 	});
 	function observeSize(node: HTMLDivElement) {
 		const observer = new ResizeObserver(() => {
-			fitVisibleTerminal();
+			void fitVisibleTerminal();
 		});
 		observer.observe(node);
 		return () => observer.disconnect();
@@ -289,12 +322,25 @@
 	{#if state !== 'connected'}
 		<div role="status" class="flex shrink-0 items-center gap-2 px-2 py-1 text-xs text-[#d8dee9]">
 			<span>{reason || 'Connecting...'}</span>
+			{#if viewFailed && engine !== DEFAULT_TERMINAL_ENGINE && onUseFallback}<button
+					type="button"
+					onclick={onUseFallback}
+					class="font-semibold text-[#88c0d0] underline"
+					>Use {TERMINAL_ENGINES[DEFAULT_TERMINAL_ENGINE].label}</button
+				>{/if}
 			{#if state === 'failed' || state === 'disconnected'}<button
 					type="button"
 					onclick={retry}
-					class="underline">Retry connection</button
+					class="underline">{viewFailed ? 'Retry' : 'Retry connection'}</button
 				>{/if}
 		</div>
 	{/if}
-	<div {@attach terminalAttachment} {@attach observeSize} class="min-h-0 w-full flex-1"></div>
+	{#key engine}
+		<div
+			{@attach terminalAttachment}
+			{@attach observeSize}
+			data-terminal-engine={engine}
+			class="min-h-0 w-full flex-1"
+		></div>
+	{/key}
 </div>

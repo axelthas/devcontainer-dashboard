@@ -3,6 +3,7 @@ import { defineConfig } from 'vitest/config';
 import { playwright } from '@vitest/browser-playwright';
 import { sveltekit } from '@sveltejs/kit/vite';
 import type { Plugin } from 'vite';
+import { wraith } from 'wraithterm/vite';
 import { assertAuthConfigured } from './src/lib/server/auth.js';
 import { attachTerminalServer } from './src/lib/server/terminal.js';
 import { createRuntimeServiceGateway } from './src/lib/server/serviceGatewayRuntime.js';
@@ -36,7 +37,8 @@ function terminalDevPlugin(): Plugin {
 }
 
 export default defineConfig({
-	plugins: [tailwindcss(), sveltekit(), terminalDevPlugin()],
+	// wraith() keeps Wraith's worker, Wasm, and font URLs intact during dependency prebundling.
+	plugins: [tailwindcss(), sveltekit(), wraith(), terminalDevPlugin()],
 	server: {
 		host: '0.0.0.0',
 		allowedHosts: true,

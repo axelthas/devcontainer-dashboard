@@ -18,11 +18,12 @@
 		"test:ai": "node --experimental-strip-types --test scripts/tests/ai.test.mjs scripts/tests/ai-frame-ancestors.test.mjs",
 		"test:brain": "node --experimental-strip-types --test scripts/tests/brain-access.test.mjs scripts/tests/brain-executions.test.mjs scripts/tests/brain-gateway.test.mjs scripts/tests/brain-mcp.test.mjs scripts/tests/brain-shells.test.mjs scripts/tests/brain-startup.test.mjs scripts/tests/brain-viewers.test.mjs",
 		"test:compose": "node --experimental-strip-types --test scripts/tests/compose-sandbox.test.mjs scripts/tests/compose-query.test.mjs",
+		"test:terminal-engines": "node --experimental-strip-types --test scripts/tests/terminal-engines.test.mjs",
 		"test:deployment": "node --test scripts/tests/deployment.test.mjs scripts/tests/run-dashboard.test.mjs scripts/tests/bootstrap-hook.test.mjs scripts/tests/socket-symlink.test.mjs",
 		"test:production": "node scripts/tests/production-smoke.mjs",
 		"test:gateway": "node --test scripts/tests/service-gateway.test.mjs && npm run test:tailscale && npm run test:ai && npm run test:brain",
 		"test:tailscale": "node --experimental-strip-types --test scripts/tests/tailscale-*.test.mjs",
-		"test": "npm run test:deployment && npm run test:ai && npm run test:brain && npm run test:compose && npm run test:unit -- --run && npm run test:e2e",
+		"test": "npm run test:deployment && npm run test:ai && npm run test:brain && npm run test:compose && npm run test:terminal-engines && npm run test:unit -- --run && npm run test:e2e",
 		"test:e2e": "playwright install && playwright test"
 	},
 	"devDependencies": {
@@ -58,11 +59,13 @@
 		"vitest-browser-svelte": "^2.1.0"
 	},
 	"dependencies": {
+		"@wterm/dom": "0.6.0",
 		"@xterm/addon-fit": "^0.11.0",
 		"@xterm/xterm": "^6.0.0",
 		"dockerode": "^5.0.0",
 		"lucide-svelte": "^1.0.1",
 		"node-pty": "^1.1.0",
+		"wraithterm": "0.6.1",
 		"ws": "^8.20.1"
 	},
 	"allowScripts": {
