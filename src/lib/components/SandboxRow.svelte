@@ -105,7 +105,7 @@
 		? 'hover:bg-[#eceff4]/50 dark:hover:bg-[#434c5e]/50'
 		: 'bg-[#e5e9f0]/50 hover:bg-[#e5e9f0] dark:bg-[#2e3440]/30 dark:hover:bg-[#2e3440]/50'}"
 >
-	<div class="flex flex-wrap items-center justify-between gap-3 px-5 py-2">
+	<div class="flex flex-wrap items-center justify-between gap-3 px-3 py-2 sm:px-5">
 		<div class="flex min-w-0 items-center gap-3">
 			<button
 				type="button"
@@ -151,7 +151,7 @@
 			{/if}
 		</div>
 
-		<div class="ml-auto flex shrink-0 items-center gap-2">
+		<div class="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2">
 			{#if status}
 				<span role="status" class="px-2 text-xs text-[#4c566a] dark:text-[#d8dee9]/70"
 					>{status}</span
@@ -210,7 +210,7 @@
 	{#if expanded}
 		<div
 			id={detailsId}
-			class="mr-5 mb-3 ml-14 grid gap-3 rounded-lg border border-[#d8dee9] bg-[#f0f4f8] p-3 text-xs dark:border-[#4c566a] dark:bg-[#2e3440]"
+			class="mx-3 mb-3 grid gap-3 rounded-lg border border-[#d8dee9] bg-[#f0f4f8] p-3 text-xs sm:mr-5 sm:ml-14 dark:border-[#4c566a] dark:bg-[#2e3440]"
 		>
 			<dl class="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1">
 				<dt class="text-[#4c566a] dark:text-[#d8dee9]/60">Container</dt>

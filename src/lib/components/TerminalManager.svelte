@@ -166,6 +166,41 @@
 		if (execution.kind === 'shell' && !execution.shell?.busy) return 'bg-[#a3be8c]';
 		return 'animate-pulse bg-[#b48ead]';
 	}
+	/** Phone layout below the md breakpoint: full-height sheet and key bar. */
+	let isPhone = $state(false);
+	$effect(() => {
+		const query = window.matchMedia('(max-width: 767px)');
+		const update = () => (isPhone = query.matches);
+		update();
+		query.addEventListener('change', update);
+		return () => query.removeEventListener('change', update);
+	});
+
+	/** Keys that a phone keyboard lacks. Data is what a terminal sends for the key. */
+	const TOUCH_KEYS = [
+		{ label: 'Esc', name: 'Escape', data: '\x1b', control: false },
+		{ label: 'Tab', name: 'Tab', data: '\t', control: false },
+		{ label: 'Ctrl+C', name: 'Control C, interrupt', data: '\x03', control: true },
+		{ label: 'Ctrl+D', name: 'Control D, end of input', data: '\x04', control: true },
+		{ label: '←', name: 'Arrow left', data: '\x1b[D', control: false },
+		{ label: '↑', name: 'Arrow up', data: '\x1b[A', control: false },
+		{ label: '↓', name: 'Arrow down', data: '\x1b[B', control: false },
+		{ label: '→', name: 'Arrow right', data: '\x1b[C', control: false }
+	];
+	/** Mounted shell tabs and their connection states, for the key bar. */
+	const tabRefs: Record<string, TerminalTab | undefined> = $state({});
+	const connections = new SvelteMap<string, string>();
+	function sendKey(id: string, data: string) {
+		tabRefs[id]?.sendInput(data);
+	}
+
+	/** Drawer height: a sheet below the safe area on phones, the resizable drawer elsewhere. */
+	const drawerHeight = $derived.by(() => {
+		if (!open) return isPhone ? 'calc(2.75rem + env(safe-area-inset-bottom))' : '2.5rem';
+		if (isPhone) return 'calc(100dvh - env(safe-area-inset-top))';
+		return maximized ? '100dvh' : `${height}px`;
+	});
+
 	let height = $state(320);
 	let maximized = $state(false);
 	let dragging = $state(false);
@@ -219,14 +254,14 @@
 				.map((execution) => brainTabId(execution.id))[0];
 		if (next) onSetActive(next);
 	}
-	function onResizeStart(event: MouseEvent) {
+	function onResizeStart(event: PointerEvent) {
 		if (maximized) return;
 		event.preventDefault();
 		stopDrag();
 		dragging = true;
 		const startY = event.clientY;
 		const startHeight = height;
-		const move = (next: MouseEvent) => {
+		const move = (next: PointerEvent) => {
 			height = Math.min(
 				Math.max(150, startHeight + startY - next.clientY),
 				window.innerHeight - 50
@@ -234,30 +269,32 @@
 		};
 		stopDrag = () => {
 			dragging = false;
-			window.removeEventListener('mousemove', move);
-			window.removeEventListener('mouseup', stopDrag);
+			window.removeEventListener('pointermove', move);
+			window.removeEventListener('pointerup', stopDrag);
+			window.removeEventListener('pointercancel', stopDrag);
 		};
-		window.addEventListener('mousemove', move);
-		window.addEventListener('mouseup', stopDrag);
+		window.addEventListener('pointermove', move);
+		window.addEventListener('pointerup', stopDrag);
+		window.addEventListener('pointercancel', stopDrag);
 	}
 	onDestroy(() => stopDrag());
 </script>
 
 <div
-	class="fixed right-0 bottom-0 left-0 z-40 flex flex-col border-t border-[#4c566a] bg-[#2e3440] {dragging
-		? ''
-		: 'transition-all duration-300'}"
-	style:height={open ? (maximized ? '100vh' : `${height}px`) : '2.5rem'}
+	class="fixed right-0 bottom-0 left-0 z-40 flex flex-col border-t border-[#4c566a] bg-[#2e3440] {isPhone
+		? 'pb-[env(safe-area-inset-bottom)]'
+		: ''} {dragging ? '' : 'transition-all duration-300'}"
+	style:height={drawerHeight}
 >
-	{#if open && !maximized}
+	{#if open && !maximized && !isPhone}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
-			class="absolute top-0 right-0 left-0 z-50 h-1.5 cursor-ns-resize"
-			onmousedown={onResizeStart}
+			class="absolute top-0 right-0 left-0 z-50 h-1.5 cursor-ns-resize touch-none"
+			onpointerdown={onResizeStart}
 		></div>
 	{/if}
 	<div
-		class="flex h-10 shrink-0 items-center gap-1 overflow-x-auto border-b border-[#4c566a] px-2"
+		class="flex h-11 shrink-0 items-center gap-1 overflow-x-auto border-b border-[#4c566a] px-2 md:h-10"
 		role="tablist"
 		aria-label="Terminals"
 	>
@@ -357,7 +394,7 @@
 				onSelect={(engine) => switchEngine(shellId, engine)}
 			/>
 		{/if}
-		{#if open}
+		{#if open && !isPhone}
 			<button
 				onclick={() => (maximized = !maximized)}
 				class="p-1 text-[#d8dee9]/60"
@@ -399,6 +436,8 @@
 					onExit={() => closeSession(session.id)}
 					onIdentity={(identity) => setIdentity(session.id, identity)}
 					onUseFallback={() => switchEngine(session.id, 'xterm')}
+					onConnection={(state) => connections.set(session.id, state)}
+					bind:this={tabRefs[session.id]}
 				/>
 			</div>
 		{/each}
@@ -425,7 +464,7 @@
 					</div>
 					{#if group.executions.length > 1}
 						<div
-							class="flex w-48 shrink-0 flex-col gap-0.5 overflow-y-auto border-l border-[#4c566a] pl-2"
+							class="flex w-32 shrink-0 flex-col gap-0.5 overflow-y-auto border-l border-[#4c566a] pl-2 sm:w-48"
 							role="group"
 							aria-label={`Brain shells and commands in ${group.containerName}`}
 						>
@@ -475,4 +514,26 @@
 			{/each}
 		{/if}
 	</div>
+	{#if open && isPhone && activeShell}
+		{@const keysEnabled = connections.get(activeShell.id) === 'connected'}
+		<!-- Phone key bar: same input path as typed keys; disabled while not connected -->
+		<div
+			class="flex shrink-0 gap-1.5 overflow-x-auto border-t border-[#4c566a] bg-[#2b303b] px-2 py-2"
+			role="toolbar"
+			aria-label="Terminal keys"
+		>
+			{#each TOUCH_KEYS as key (key.label)}
+				<button
+					type="button"
+					disabled={!keysEnabled}
+					onpointerdown={(event) => event.preventDefault()}
+					onclick={() => sendKey(activeShell.id, key.data)}
+					aria-label={key.name}
+					class="h-11 min-w-11 shrink-0 rounded-lg px-3 font-mono text-sm font-semibold disabled:opacity-40 {key.control
+						? 'bg-[#88c0d0]/15 text-[#88c0d0]'
+						: 'bg-[#434c5e] text-[#eceff4]'}">{key.label}</button
+				>
+			{/each}
+		</div>
+	{/if}
 </div>

@@ -5,6 +5,32 @@
 
 @variant dark (&:is(.dark *));
 
+/*
+ * Touch screens: every control gets a hit area of at least 44 x 44 CSS px.
+ * The rule is in the base layer, so an explicit min-size utility still wins.
+ */
+@layer base {
+	@media (pointer: coarse) {
+		button,
+		[role='button'],
+		[role='tab'],
+		select,
+		summary {
+			min-height: 44px;
+			min-width: 44px;
+		}
+	}
+}
+
+/* iOS zooms the page when a focused field is smaller than 16px. Terminal helpers are excluded. */
+@media (pointer: coarse) {
+	input:not([type='checkbox'], [type='radio'], [type='range']),
+	select,
+	textarea:not(.xterm-helper-textarea) {
+		font-size: max(16px, 1em);
+	}
+}
+
 @keyframes spin {
 	from {
 		transform: rotate(0deg);

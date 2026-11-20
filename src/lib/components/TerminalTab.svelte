@@ -29,6 +29,8 @@
 		onIdentity?: (identity: TerminalViewIdentity | undefined) => void;
 		/** Offer an explicit switch to xterm.js after the selected engine fails. */
 		onUseFallback?: () => void;
+		/** Report connection changes, for controls that must not send while disconnected. */
+		onConnection?: (state: ConnectionState) => void;
 	}
 	type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'failed' | 'exited';
 	let {
@@ -44,7 +46,8 @@
 		fontSize = 13,
 		onExit,
 		onIdentity,
-		onUseFallback
+		onUseFallback,
+		onConnection
 	}: Props = $props();
 	let ready = $state(false);
 	let connection = $state<ConnectionState>('connecting');
@@ -58,6 +61,8 @@
 	let activationElement: Element | null = null;
 	/** Viewers mounted by this tab. Every viewer after the first is an engine switch. */
 	let mountedViewers = 0;
+
+	$effect(() => onConnection?.(connection));
 
 	/** Restored viewers attach while hidden, but must not resize a shared PTY until measurable. */
 	function canMeasureTerminal() {
@@ -75,6 +80,16 @@
 		)
 			return;
 		socket.send(JSON.stringify({ type: 'resize', ...dimensions }));
+	}
+	/**
+	 * Send input from an on-screen control through the same path as typed keys.
+	 * Nothing is buffered: the call returns false and drops the input when not connected.
+	 */
+	export function sendInput(data: string): boolean {
+		if (connection !== 'connected' || !active || !visible || socket?.readyState !== WebSocket.OPEN)
+			return false;
+		socket.send(JSON.stringify({ type: 'data', data }));
+		return true;
 	}
 	/** Fit after layout, then send even unchanged geometry when a new viewer attaches. */
 	async function fitVisibleTerminal() {

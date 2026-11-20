@@ -112,7 +112,7 @@
 	<div class="px-5"><RequestError message={actionError} /></div>
 	<!-- Summary row -->
 	<div
-		class="flex items-center justify-between gap-4 px-5 py-3 transition-colors
+		class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-3 py-3 transition-colors sm:px-5
 			{anyRunning
 			? 'hover:bg-[#eceff4]/50 dark:hover:bg-[#434c5e]/50'
 			: 'bg-[#e5e9f0]/50 opacity-80 hover:bg-[#e5e9f0] dark:bg-[#2e3440]/30 dark:hover:bg-[#2e3440]/50'}"

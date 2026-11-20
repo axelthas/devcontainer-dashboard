@@ -10,7 +10,8 @@
 		List,
 		Eye,
 		EyeOff,
-		LogOut
+		LogOut,
+		MoreHorizontal
 	} from 'lucide-svelte';
 	import { untrack } from 'svelte';
 	import brandIcon from '$lib/assets/favicon.svg';
@@ -62,6 +63,37 @@
 	let containers = $state<ContainerData[]>(untrack(() => data.containers));
 	let workspaces = $state<LocalWorkspaceData[]>(untrack(() => data.workspaces));
 	let dark = $state(true);
+	/** Phone-only disclosure for the host controls; desktop always shows them. */
+	let hostMenuOpen = $state(false);
+	/** Section that the phone section bar marks as current. */
+	let currentSection = $state<SectionId>('devcontainers');
+
+	type SectionId = 'devcontainers' | 'workspaces' | 'services';
+	const SECTIONS: { id: SectionId; label: string }[] = [
+		{ id: 'devcontainers', label: 'Containers' },
+		{ id: 'workspaces', label: 'Workspaces' },
+		{ id: 'services', label: 'Services' }
+	];
+
+	// Mark the section nearest the top of the viewport for the phone section bar.
+	$effect(() => {
+		if (typeof IntersectionObserver === 'undefined') return;
+		const observer = new IntersectionObserver(
+			(entries) => {
+				const visible = entries
+					.filter((entry) => entry.isIntersecting)
+					.sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+				const id = visible[0]?.target.id as SectionId | undefined;
+				if (id) currentSection = id;
+			},
+			{ rootMargin: '-80px 0px -55% 0px' }
+		);
+		for (const { id } of SECTIONS) {
+			const element = document.getElementById(id);
+			if (element) observer.observe(element);
+		}
+		return () => observer.disconnect();
+	});
 
 	const THEME_KEY = 'devcontainer-dashboard-theme';
 
@@ -433,27 +465,46 @@
 	>
 		<!-- Header -->
 		<header
-			class="sticky top-0 z-10 border-b border-[#d8dee9] bg-[#e5e9f0] transition-colors duration-300 dark:border-[#434c5e] dark:bg-[#3b4252]"
+			class="z-10 border-b border-[#d8dee9] bg-[#e5e9f0] pt-[env(safe-area-inset-top)] transition-colors duration-300 md:sticky md:top-0 dark:border-[#434c5e] dark:bg-[#3b4252]"
 		>
 			<div
-				class="mx-auto flex max-w-7xl flex-col justify-between gap-4 px-6 py-4 md:flex-row md:items-center"
+				class="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6 md:gap-4 md:py-4"
 			>
 				<!-- Logo & Title -->
-				<div class="flex items-center gap-3">
-					<img src={brandIcon} alt="" aria-hidden="true" width="48" height="48" class="shrink-0" />
-					<div>
+				<div class="flex min-w-0 flex-1 items-center gap-3 md:flex-none">
+					<img
+						src={brandIcon}
+						alt=""
+						aria-hidden="true"
+						width="48"
+						height="48"
+						class="size-10 shrink-0 md:size-12"
+					/>
+					<div class="min-w-0">
 						<h1 class="text-xl leading-tight font-bold text-[#2e3440] dark:text-[#eceff4]">
 							<span>Dev</span><span class="text-[#5e81ac] dark:text-[#88c0d0]">Harbour</span>
 						</h1>
-						<p class="text-xs font-medium text-[#4c566a] dark:text-[#d8dee9]/70">
+						<p class="hidden text-xs font-medium text-[#4c566a] sm:block dark:text-[#d8dee9]/70">
 							Your development environments, together.
 						</p>
 					</div>
 				</div>
 
-				<div class="flex items-center gap-4">
+				<!-- Phone: host controls open as a row below the counts -->
+				<button
+					type="button"
+					onclick={() => (hostMenuOpen = !hostMenuOpen)}
+					class="grid size-11 shrink-0 place-items-center rounded-full border border-[#d8dee9] bg-[#eceff4] text-[#4c566a] md:hidden dark:border-[#434c5e] dark:bg-[#2e3440] dark:text-[#d8dee9]"
+					aria-label="Host controls"
+					aria-expanded={hostMenuOpen}
+					aria-controls="host-controls"
+				>
+					<MoreHorizontal size={20} />
+				</button>
+
+				<div class="flex w-full flex-wrap items-center gap-2 md:w-auto md:gap-4">
 					<!-- Quick stats -->
-					<div class="flex gap-3 text-sm font-medium">
+					<div class="flex flex-wrap gap-2 text-sm font-medium md:gap-3">
 						<div
 							class="flex items-center gap-1.5 rounded-full border border-[#a3be8c]/20 bg-[#a3be8c]/10 px-3 py-1.5 text-[#a3be8c]"
 						>
@@ -468,51 +519,81 @@
 						</div>
 					</div>
 
-					<!-- Brain MCP access: shown only while the endpoint runs -->
-					<BrainPanel access={brainAccess} />
-
-					<!-- SSH host for VS Code remote connections -->
 					<div
-						class="flex items-center gap-1.5 rounded-lg border border-[#d8dee9] bg-[#eceff4] px-3 py-1.5 dark:border-[#434c5e] dark:bg-[#2e3440]"
-						title="SSH host for VS Code remote connections"
+						id="host-controls"
+						class="{hostMenuOpen
+							? 'flex'
+							: 'hidden'} w-full flex-wrap items-center gap-2 md:flex md:w-auto md:gap-4"
 					>
-						<Server size={14} class="shrink-0 text-[#4c566a] dark:text-[#d8dee9]/50" />
-						<input
-							type="text"
-							placeholder="SSH host"
-							bind:value={vscodeSshHost}
-							class="w-36 border-none bg-transparent text-xs text-[#4c566a] placeholder-[#4c566a]/50 outline-none dark:text-[#d8dee9]/70 dark:placeholder-[#d8dee9]/30"
-						/>
-					</div>
+						<!-- Brain MCP access: shown only while the endpoint runs -->
+						<BrainPanel access={brainAccess} />
 
-					<!-- Theme toggle -->
-					<button
-						onclick={() => (dark = !dark)}
-						class="rounded-full border border-[#d8dee9] bg-[#eceff4] p-2 text-[#4c566a] transition-opacity hover:opacity-80 dark:border-[#434c5e] dark:bg-[#2e3440] dark:text-[#ebcb8b]"
-						title="Toggle theme"
-					>
-						{#if dark}
-							<Sun size={20} />
-						{:else}
-							<Moon size={20} />
-						{/if}
-					</button>
-
-					<form method="POST" action="/logout">
-						<button
-							type="submit"
-							class="rounded-full border border-[#d8dee9] bg-[#eceff4] p-2 text-[#4c566a] transition-opacity hover:opacity-80 dark:border-[#434c5e] dark:bg-[#2e3440] dark:text-[#d8dee9]"
-							title="Sign out"
-							aria-label="Sign out"
+						<!-- SSH host for VS Code remote connections -->
+						<label
+							class="flex min-h-11 min-w-0 flex-1 items-center gap-1.5 rounded-lg border border-[#d8dee9] bg-[#eceff4] px-3 py-1.5 md:min-h-0 md:flex-none dark:border-[#434c5e] dark:bg-[#2e3440]"
+							title="SSH host for VS Code remote connections"
 						>
-							<LogOut size={20} />
+							<Server size={14} class="shrink-0 text-[#4c566a] dark:text-[#d8dee9]/50" />
+							<input
+								type="text"
+								placeholder="SSH host"
+								bind:value={vscodeSshHost}
+								aria-label="SSH host for VS Code remote connections"
+								class="min-w-0 flex-1 border-none bg-transparent p-0 text-base text-[#4c566a] placeholder-[#4c566a]/50 outline-none md:w-36 md:flex-none md:text-xs dark:text-[#d8dee9]/70 dark:placeholder-[#d8dee9]/30"
+							/>
+						</label>
+
+						<!-- Theme toggle -->
+						<button
+							onclick={() => (dark = !dark)}
+							class="rounded-full border border-[#d8dee9] bg-[#eceff4] p-2 text-[#4c566a] transition-opacity hover:opacity-80 dark:border-[#434c5e] dark:bg-[#2e3440] dark:text-[#ebcb8b]"
+							title="Toggle theme"
+						>
+							{#if dark}
+								<Sun size={20} />
+							{:else}
+								<Moon size={20} />
+							{/if}
 						</button>
-					</form>
+
+						<form method="POST" action="/logout">
+							<button
+								type="submit"
+								class="rounded-full border border-[#d8dee9] bg-[#eceff4] p-2 text-[#4c566a] transition-opacity hover:opacity-80 dark:border-[#434c5e] dark:bg-[#2e3440] dark:text-[#d8dee9]"
+								title="Sign out"
+								aria-label="Sign out"
+							>
+								<LogOut size={20} />
+							</button>
+						</form>
+					</div>
 				</div>
 			</div>
 		</header>
 
-		<main class="mx-auto mt-8 max-w-7xl space-y-12 px-6">
+		<!-- Phone section bar: jumps between the three sections of the single page -->
+		<nav
+			aria-label="Sections"
+			class="sticky top-0 z-10 border-b border-[#d8dee9] bg-[#eceff4]/95 px-4 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2 backdrop-blur md:hidden dark:border-[#434c5e] dark:bg-[#2e3440]/95"
+		>
+			<div
+				class="grid grid-cols-3 gap-1 rounded-xl border border-[#d8dee9] bg-white p-1 dark:border-[#4c566a] dark:bg-[#3b4252]"
+			>
+				{#each SECTIONS as section (section.id)}
+					<a
+						href={`#${section.id}`}
+						onclick={() => (currentSection = section.id)}
+						aria-current={currentSection === section.id ? 'location' : undefined}
+						class="flex min-h-11 items-center justify-center rounded-lg text-sm font-semibold transition-colors {currentSection ===
+						section.id
+							? 'bg-[#88c0d0] text-[#2e3440]'
+							: 'text-[#4c566a] dark:text-[#d8dee9]/80'}">{section.label}</a
+					>
+				{/each}
+			</div>
+		</nav>
+
+		<main class="mx-auto mt-4 max-w-7xl space-y-10 px-4 sm:px-6 md:mt-8 md:space-y-12">
 			{#if containerError || workspaceError || terminalError || networkError}
 				<div>
 					<RequestError
@@ -529,9 +610,9 @@
 			{/if}
 			<RequestError message={brainAccess.error} onRetry={() => void brainAccess.refresh()} />
 			<!-- Section 1: Active Devcontainers -->
-			<section>
+			<section id="devcontainers" class="scroll-mt-20 md:scroll-mt-28">
 				<div
-					class="mb-6 flex items-center gap-2 border-b border-[#d8dee9] pb-2 dark:border-[#4c566a]"
+					class="mb-4 flex flex-wrap items-center gap-2 border-b border-[#d8dee9] pb-2 md:mb-6 dark:border-[#4c566a]"
 				>
 					<Box size={20} class="text-[#5e81ac] dark:text-[#81a1c1]" />
 					<h2 class="text-xl font-extrabold text-[#2e3440] dark:text-[#eceff4]">
@@ -582,7 +663,7 @@
 				{#if devcontainers.length === 0}
 					<p class="text-[#4c566a] italic dark:text-[#d8dee9]/60">No devcontainers found.</p>
 				{:else if devcontainerView === 'grid'}
-					<div class="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+					<div class="grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-6 xl:grid-cols-3">
 						{#each visibleDevcontainers as container (container.id)}
 							<DevcontainerCard
 								{container}
@@ -639,13 +720,14 @@
 			/>
 
 			<!-- Section 3: Docker Services -->
-			<section>
+			<section id="services" class="scroll-mt-20 md:scroll-mt-28">
 				<div
-					class="mb-6 flex items-center gap-2 border-b border-[#d8dee9] pb-2 dark:border-[#4c566a]"
+					class="mb-4 flex flex-wrap items-center gap-2 border-b border-[#d8dee9] pb-2 md:mb-6 dark:border-[#4c566a]"
 				>
 					<Cpu size={20} class="text-[#4c566a] dark:text-[#d8dee9]/70" />
 					<h2 class="text-xl font-extrabold text-[#2e3440] dark:text-[#eceff4]">Docker Services</h2>
-					<span class="ml-2 text-sm font-medium text-[#4c566a] dark:text-[#d8dee9]/60"
+					<span
+						class="ml-2 hidden text-sm font-medium text-[#4c566a] sm:inline dark:text-[#d8dee9]/60"
 						>(Compose stacks, databases, and other containers)</span
 					>
 				</div>

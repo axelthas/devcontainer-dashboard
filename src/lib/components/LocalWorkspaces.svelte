@@ -430,14 +430,17 @@
 	}
 </script>
 
-<section>
-	<div class="mb-4 flex items-center gap-2 border-b border-[#d8dee9] pb-2 dark:border-[#4c566a]">
+<section id="workspaces" class="scroll-mt-20 md:scroll-mt-28">
+	<div
+		class="mb-4 flex flex-wrap items-center gap-2 border-b border-[#d8dee9] pb-2 dark:border-[#4c566a]"
+	>
 		<FolderGit2 size={20} class="text-[#a3be8c] dark:text-[#a3be8c]" />
 		<h2 class="text-xl font-extrabold text-[#2e3440] dark:text-[#eceff4]">Local Workspaces</h2>
 		<a href={resolve('/ai')} class="text-sm text-[#5e81ac] underline dark:text-[#88c0d0]"
 			>AI folders</a
 		>
-		<span class="ml-1 text-sm font-medium text-[#4c566a] dark:text-[#d8dee9]/60"
+		<span
+			class="order-last basis-full text-sm font-medium break-all text-[#4c566a] sm:order-none sm:ml-1 sm:basis-auto dark:text-[#d8dee9]/60"
 			>({workspaceRoot})</span
 		>
 		<button
@@ -468,7 +471,7 @@
 			{#each workspaces as ws (ws.id)}
 				<!-- Task Workspace header -->
 				<div
-					class="flex w-full cursor-pointer flex-wrap items-center justify-between gap-3 border-b border-[#d8dee9] px-5 py-2 transition-colors last:border-b-0 hover:bg-[#e5e9f0] dark:border-[#4c566a] dark:hover:bg-[#434c5e]"
+					class="flex w-full cursor-pointer flex-wrap items-center justify-between gap-3 border-b border-[#d8dee9] px-3 py-2 transition-colors last:border-b-0 hover:bg-[#e5e9f0] sm:px-5 dark:border-[#4c566a] dark:hover:bg-[#434c5e]"
 					onclick={() => toggleExpand(ws.id)}
 					onkeydown={(e) => {
 						if (e.key === 'Enter' || e.key === ' ') toggleExpand(ws.id);
@@ -476,13 +479,15 @@
 					role="button"
 					tabindex="0"
 				>
-					<div class="flex items-center gap-3">
+					<div class="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
 						{#if expanded.has(ws.id)}
 							<ChevronDown size={16} class="text-[#4c566a] dark:text-[#d8dee9]/60" />
 						{:else}
 							<ChevronRight size={16} class="text-[#4c566a] dark:text-[#d8dee9]/60" />
 						{/if}
-						<span class="font-semibold text-[#2e3440] dark:text-[#eceff4]">{ws.name}</span>
+						<span class="min-w-0 font-semibold break-all text-[#2e3440] dark:text-[#eceff4]"
+							>{ws.name}</span
+						>
 						<span class="text-sm whitespace-nowrap text-[#4c566a] dark:text-[#d8dee9]/60"
 							>· {ws.repos.length} {ws.repos.length === 1 ? 'repo' : 'repos'}</span
 						>
@@ -629,10 +634,10 @@
 								{@const matchedContainer = findContainerForRepo(repo.path)}
 								{@const repoExpandable = repo.buildSession?.status === 'running'}
 								<div
-									class="flex min-h-[2.5rem] flex-wrap items-center gap-y-2 border-b border-[#d8dee9]/60 py-1.5 pr-5 pl-8 last:border-b-0 dark:border-[#4c566a]/60"
+									class="flex min-h-[2.5rem] flex-wrap items-center gap-x-2 gap-y-2 border-b border-[#d8dee9]/60 py-1.5 pr-3 pl-5 last:border-b-0 sm:gap-x-0 sm:pr-5 sm:pl-8 dark:border-[#4c566a]/60"
 								>
 									<!-- Repo name: takes available space -->
-									<div class="flex w-[200px] min-w-0 shrink-0 items-center gap-2">
+									<div class="flex w-full min-w-0 shrink-0 items-center gap-2 sm:w-[200px]">
 										{#if repoExpandable}
 											<button
 												onclick={() => toggleRepoExpand(repo.path)}
@@ -656,7 +661,7 @@
 									</div>
 
 									<!-- Branch column: fixed width, left-aligned so branches line up -->
-									<div class="flex w-[210px] shrink-0 items-center">
+									<div class="flex min-w-0 shrink items-center sm:w-[210px] sm:shrink-0">
 										{#if repo.currentBranch || repo.currentTag}
 											<div class="relative">
 												<button
@@ -753,7 +758,7 @@
 
 									<!-- Service buttons (when container exists) -->
 									{#if matchedContainer && Object.keys(matchedContainer.ports).length > 0}
-										<div class="mx-3 flex flex-wrap gap-1.5">
+										<div class="flex flex-wrap gap-1.5 sm:mx-3">
 											{#each Object.entries(matchedContainer.ports) as [containerPort, hostPort] (containerPort)}
 												<ServiceButton
 													{containerPort}
@@ -772,7 +777,7 @@
 									{/if}
 
 									<!-- Action column: devcontainer actions, then Open with pinned to the right edge -->
-									<div class="ml-auto flex shrink-0 items-center justify-end gap-2">
+									<div class="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2">
 										{#if repo.composeFiles?.length}
 											<!-- Compose sandbox controls; no devcontainer is required -->
 											<button

@@ -254,7 +254,7 @@
 			{/if}
 
 			<!-- Action buttons -->
-			<div class="ml-auto flex items-center gap-2">
+			<div class="ml-auto flex flex-wrap items-center justify-end gap-2">
 				{#if onBootstrap}
 					<button
 						onclick={onBootstrap}
