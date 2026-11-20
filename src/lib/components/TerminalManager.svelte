@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte';
+	import { onDestroy, untrack } from 'svelte';
 	import {
 		X,
 		Plus,
@@ -13,6 +13,7 @@
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import TerminalTab from './TerminalTab.svelte';
 	import BrainTerminalTab from './BrainTerminalTab.svelte';
+	import TerminalEngineSwitcher from './TerminalEngineSwitcher.svelte';
 	import { generateId } from '$lib/index';
 	import {
 		brainExecutionIdOf,
@@ -22,6 +23,11 @@
 	} from '$lib/brainAccess.svelte';
 	import type { BrainExecutionView } from '$lib/brainTypes';
 	import type { TerminalSession } from '$lib/types';
+	import type { TerminalEngineId, TerminalViewIdentity } from '$lib/terminalView';
+	import {
+		preferredTerminalEngine,
+		rememberTerminalEngine
+	} from '$lib/terminalEnginePreference.svelte';
 
 	interface TerminalSessionState extends TerminalSession {
 		command?: string;
@@ -90,6 +96,41 @@
 		const id = activeExecutionId;
 		const execution = id ? brainTabs.find((candidate) => candidate.id === id) : undefined;
 		if (execution) lastSelected.set(execution.grantId, execution.id);
+	});
+
+	/** Engine per shell tab. A tab keeps its engine until the operator switches it. */
+	const engines = new SvelteMap<string, TerminalEngineId>();
+	/** Core and renderer that each shell tab's viewer actually initialized. */
+	const identities = new SvelteMap<string, TerminalViewIdentity>();
+	/** The active tab when it is a shell tab. Brain tabs have no engine switcher. */
+	const activeShell = $derived(sessions.find((session) => session.id === activeId));
+
+	/** Use the pinned engine, else the engine for new tabs. */
+	function engineFor(id: string): TerminalEngineId {
+		return engines.get(id) ?? preferredTerminalEngine();
+	}
+	/** Replace one tab's viewer in place, and use the same engine for new tabs. */
+	function switchEngine(id: string, engine: TerminalEngineId) {
+		engines.set(id, engine);
+		rememberTerminalEngine(engine);
+	}
+	/** Track what each viewer reports; a disposed viewer reports undefined. */
+	function setIdentity(id: string, identity: TerminalViewIdentity | undefined) {
+		if (identity) identities.set(id, identity);
+		else identities.delete(id);
+	}
+	// Pin an engine to each new shell tab, so a later switch elsewhere never remounts it.
+	$effect(() => {
+		const ids = new Set(sessions.map((session) => session.id));
+		untrack(() => {
+			const preferred = preferredTerminalEngine();
+			for (const id of ids) if (!engines.has(id)) engines.set(id, preferred);
+			for (const id of [...engines.keys()])
+				if (!ids.has(id)) {
+					engines.delete(id);
+					identities.delete(id);
+				}
+		});
 	});
 
 	function groupActive(group: BrainGroup): boolean {
@@ -308,6 +349,14 @@
 			aria-label="New shell"><Plus size={14} /></button
 		>
 		<div class="flex-1"></div>
+		{#if open && activeShell}
+			{@const shellId = activeShell.id}
+			<TerminalEngineSwitcher
+				value={engineFor(shellId)}
+				identity={identities.get(shellId)}
+				onSelect={(engine) => switchEngine(shellId, engine)}
+			/>
+		{/if}
 		{#if open}
 			<button
 				onclick={() => (maximized = !maximized)}
@@ -343,10 +392,13 @@
 					name={session.name}
 					command={session.command}
 					cwd={session.cwd ?? workspaceRoot}
+					engine={engineFor(session.id)}
 					active={activeId === session.id}
 					visible={open && activeId === session.id}
 					focusOnActivate={true}
 					onExit={() => closeSession(session.id)}
+					onIdentity={(identity) => setIdentity(session.id, identity)}
+					onUseFallback={() => switchEngine(session.id, 'xterm')}
 				/>
 			</div>
 		{/each}
