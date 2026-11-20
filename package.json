@@ -16,7 +16,7 @@
 		"format": "prettier --write .",
 		"test:unit": "vitest",
 		"test:ai": "node --experimental-strip-types --test scripts/tests/ai.test.mjs scripts/tests/ai-frame-ancestors.test.mjs",
-		"test:brain": "node --experimental-strip-types --test scripts/tests/brain-access.test.mjs scripts/tests/brain-executions.test.mjs scripts/tests/brain-gateway.test.mjs scripts/tests/brain-mcp.test.mjs scripts/tests/brain-startup.test.mjs scripts/tests/brain-viewers.test.mjs",
+		"test:brain": "node --experimental-strip-types --test scripts/tests/brain-access.test.mjs scripts/tests/brain-executions.test.mjs scripts/tests/brain-gateway.test.mjs scripts/tests/brain-mcp.test.mjs scripts/tests/brain-shells.test.mjs scripts/tests/brain-startup.test.mjs scripts/tests/brain-viewers.test.mjs",
 		"test:compose": "node --experimental-strip-types --test scripts/tests/compose-sandbox.test.mjs scripts/tests/compose-query.test.mjs",
 		"test:deployment": "node --test scripts/tests/deployment.test.mjs scripts/tests/run-dashboard.test.mjs scripts/tests/bootstrap-hook.test.mjs scripts/tests/socket-symlink.test.mjs",
 		"test:production": "node scripts/tests/production-smoke.mjs",

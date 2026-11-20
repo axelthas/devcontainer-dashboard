@@ -8,6 +8,10 @@
  * Input ownership: Brain writes only to interactive commands, and only while it has control.
  * The operator takes control explicitly; Brain input is then refused until the operator hands
  * control back. Brain can always read the output, which includes what the PTY echoes.
+ *
+ * A shell (`kind: 'shell'`) is one long-lived interactive bash that `shells.ts` types commands
+ * into. It runs with a colour terminal, and job control puts each job in its own process
+ * group, so stopping a shell signals its whole session instead of one process group.
  */
 import { randomBytes } from 'node:crypto';
 import { StringDecoder } from 'node:string_decoder';
@@ -15,6 +19,7 @@ import type Dockerode from 'dockerode';
 import type { Duplex } from 'node:stream';
 import type {
 	BrainController,
+	BrainExecutionKind,
 	BrainExecutionStatus,
 	BrainExecutionView,
 	BrainOutputView,
@@ -59,12 +64,34 @@ const WRAPPER = `printf '\\036ddb-pgid:%s\\036' "$$"; if [ "$1" = closed ]; then
 const ALIVE_SCRIPT = 'kill -0 -"$1" 2>/dev/null || kill -0 -- -"$1" 2>/dev/null';
 const SIGNAL_SCRIPT =
 	'kill -"$2" -"$1" 2>/dev/null || kill -s "$2" -- -"$1" 2>/dev/null || kill -"$2" "$1" 2>/dev/null; exit 0';
+/**
+ * Session scripts for shells. The shell is the session leader (runc starts every exec in a
+ * new session), and its jobs keep the session ID. Field 4 after the command name in
+ * /proc/PID/stat is the session ID.
+ */
+const SESSION_EACH =
+	'for f in /proc/[0-9]*/stat; do s=$(cat "$f" 2>/dev/null) || continue; s=${s##*") "}; set -- $s; [ "$4" = "$p" ] || continue; q=${f#/proc/}; q=${q%/stat};';
+const SESSION_ALIVE_SCRIPT = `p=$1; ${SESSION_EACH} exit 0; done; exit 1`;
+const SESSION_SIGNAL_SCRIPT = `p=$1; g=$2; ${SESSION_EACH} kill -s "$g" "$q" 2>/dev/null; done; exit 0`;
 /** Non-interactive defaults for an agent: no colour, pagers or credential prompts. */
 const EXEC_ENV = ['TERM=dumb', 'NO_COLOR=1', 'PAGER=cat', 'GIT_PAGER=cat', 'GIT_TERMINAL_PROMPT=0'];
+/** A shell looks like a regular terminal, but still has no pagers or credential prompts. */
+const SHELL_ENV = ['TERM=xterm-256color', 'PAGER=cat', 'GIT_PAGER=cat', 'GIT_TERMINAL_PROMPT=0'];
+/** OSC, CSI and other escape sequences, and stray control characters except LF, CR and TAB. */
+const TERMINAL_ESCAPES =
+	/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b\[[0-?]*[ -/]*[@-~]|\u001b[ -/]*[0-~]|[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
 /** Ctrl+D: end-of-file for a reader in canonical terminal mode */
 const END_OF_FILE = '\u0004';
 
 const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Shell output as plain text for Brain: no colours, cursor movement, window titles or
+ * prompt markers. The operator's terminal receives the raw output.
+ */
+export function cleanTerminalText(text: string): string {
+	return text.replace(TERMINAL_ESCAPES, '');
+}
 
 /** True until the execution has a final status. */
 export function isActive(execution: BrainExecution): boolean {
@@ -118,14 +145,16 @@ export function readOutput(execution: BrainExecution, cursor?: number): BrainOut
 	const end = execution.outputStart + execution.output.length;
 	const start = Math.min(Math.max(cursor ?? execution.outputStart, execution.outputStart), end);
 	const offset = start - execution.outputStart;
-	const text = execution.output.slice(offset, offset + EXECUTION_LIMITS.read);
+	const raw = execution.output.slice(offset, offset + EXECUTION_LIMITS.read);
+	// Cursors count raw characters, so cleaning shell output never shifts them.
+	const text = execution.kind === 'shell' ? cleanTerminalText(raw) : raw;
 	return {
 		executionId: execution.id,
 		text,
 		cursor: start,
-		nextCursor: start + text.length,
+		nextCursor: start + raw.length,
 		truncatedBefore: (cursor ?? 0) < execution.outputStart,
-		more: start + text.length < end,
+		more: start + raw.length < end,
 		status: execution.status,
 		...(execution.exitCode === undefined ? {} : { exitCode: execution.exitCode })
 	};
@@ -267,10 +296,19 @@ function validWorkdir(value: string): boolean {
 	return value.startsWith('/') && value.length <= 4096 && !value.includes('\0');
 }
 
-/** Start one command in the granted container. Failures are kept as `failed` executions. */
+/**
+ * Start one command or shell in the granted container. Failures are kept as `failed`
+ * executions. `setup` runs before Docker starts the process, so it sees all output.
+ */
 export async function startExecution(
 	grant: BrainGrant,
-	request: { command: string; workdir?: string; interactive?: boolean },
+	request: {
+		command: string;
+		workdir?: string;
+		interactive?: boolean;
+		kind?: BrainExecutionKind;
+		setup?: (execution: BrainExecution) => void;
+	},
 	now = Date.now()
 ): Promise<BrainExecution> {
 	const { command } = request;
@@ -290,16 +328,19 @@ export async function startExecution(
 			429
 		);
 	pruneRetained(now);
+	const kind = request.kind ?? 'command';
 	const execution: BrainExecution = {
 		id: `x_${randomBytes(16).toString('base64url')}`,
 		grantId: grant.id,
 		containerId: grant.containerId,
 		containerName: grant.containerName,
+		kind,
 		command,
 		execUser: grant.execUser,
 		user: grant.user,
 		workdir: request.workdir ?? grant.workdir,
-		interactive: Boolean(request.interactive),
+		// Brain types every shell command, so a shell always accepts Brain input.
+		interactive: kind === 'shell' || Boolean(request.interactive),
 		controller: 'brain',
 		stdinClosed: false,
 		status: 'running',
@@ -312,6 +353,7 @@ export async function startExecution(
 		listeners: new Set()
 	};
 	brainState.executions.set(execution.id, execution);
+	request.setup?.(execution);
 	try {
 		const exec = await brainDocker()
 			.getContainer(grant.containerId)
@@ -326,7 +368,7 @@ export async function startExecution(
 				],
 				User: grant.execUser,
 				WorkingDir: execution.workdir,
-				Env: EXEC_ENV,
+				Env: kind === 'shell' ? SHELL_ENV : EXEC_ENV,
 				// Every command gets a PTY, so the operator can watch it and take control.
 				AttachStdin: true,
 				AttachStdout: true,
@@ -354,7 +396,7 @@ function openTerminal(execution: BrainExecution): Duplex | undefined {
 }
 
 /** Refuse a Brain action while the operator has control. */
-function assertBrainControl(execution: BrainExecution): void {
+export function assertBrainControl(execution: BrainExecution): void {
 	if (execution.controller === 'operator')
 		throw new BrainExecutionError(
 			'The operator has taken control of this command. Read its output, or wait until the operator hands control back.',
@@ -445,7 +487,7 @@ export function terminalState(execution: BrainExecution): BrainTerminalState {
 }
 
 /** Run a short control script in the container as the execution user. Returns its exit code. */
-async function runControl(
+export async function runControl(
 	execution: BrainExecution,
 	script: string,
 	args: string[],
@@ -478,10 +520,11 @@ async function runControl(
 	return info.Running || typeof info.ExitCode !== 'number' ? undefined : info.ExitCode;
 }
 
-/** True while any process of the group exists, or while that cannot be ruled out. */
+/** True while any process of the group (a shell: the session) exists, or that is unknown. */
 async function groupAlive(execution: BrainExecution, pgid: number): Promise<boolean> {
+	const script = execution.kind === 'shell' ? SESSION_ALIVE_SCRIPT : ALIVE_SCRIPT;
 	try {
-		return (await runControl(execution, ALIVE_SCRIPT, [String(pgid)])) !== 1;
+		return (await runControl(execution, script, [String(pgid)])) !== 1;
 	} catch {
 		// A stopped or removed container has no processes left.
 		try {
@@ -507,7 +550,8 @@ async function terminate(execution: BrainExecution): Promise<BrainExecutionStatu
 	] as const) {
 		if (!(await groupAlive(execution, pgid))) return 'stopped';
 		try {
-			await runControl(execution, SIGNAL_SCRIPT, [String(pgid), signal]);
+			const script = execution.kind === 'shell' ? SESSION_SIGNAL_SCRIPT : SIGNAL_SCRIPT;
+			await runControl(execution, script, [String(pgid), signal]);
 		} catch {
 			// The liveness check below decides the result.
 		}
@@ -555,13 +599,27 @@ export async function stopAllExecutions(reason: string, deadlineMs = 8000): Prom
 	await Promise.race([Promise.allSettled(stops), delay(deadlineMs)]);
 }
 
-/** Operator view of one execution. */
+/** Operator view of one execution. A shell shows its name, not its start script. */
 export function executionView(execution: BrainExecution): BrainExecutionView {
+	const shell = execution.shell;
 	return {
 		id: execution.id,
 		grantId: execution.grantId,
 		containerName: execution.containerName,
-		command: execution.command.slice(0, 500),
+		kind: execution.kind,
+		command: shell ? `shell ${shell.name}` : execution.command.slice(0, 500),
+		...(shell
+			? {
+					shell: {
+						name: shell.name,
+						ready: shell.ready,
+						busy: shell.current?.status === 'running',
+						cwd: shell.cwd,
+						command: shell.current?.command.slice(0, 500),
+						exitCode: shell.exitCode
+					}
+				}
+			: {}),
 		user: execution.user,
 		workdir: execution.workdir,
 		interactive: execution.interactive,

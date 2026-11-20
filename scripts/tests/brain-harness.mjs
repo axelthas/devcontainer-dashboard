@@ -15,6 +15,7 @@ const BRAIN_MODULES = [
 	'state',
 	'exposure',
 	'executions',
+	'shells',
 	'viewers',
 	'access',
 	'tools',

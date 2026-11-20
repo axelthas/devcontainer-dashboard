@@ -18,20 +18,21 @@ ClickUp Brain
   -> host loopback, BRAIN_MCP_PORT
   -> dashboard process, dedicated MCP listener (POST /mcp, bearer token)
   -> grant check against live Docker state
-  -> Docker exec API in the granted container, one PTY per command
+  -> Docker exec API in the granted container, one PTY per command or persistent shell
 
 Operator browser
   -> dashboard listener, GET /api/brain/terminal (WebSocket, session cookie, same origin)
-  -> live output of one command; keystrokes only after "Take over"
+  -> live output of one command or shell; keystrokes only after "Take over"
 ```
 
 | Module                                        | Purpose                                                                |
 | --------------------------------------------- | ---------------------------------------------------------------------- |
 | `src/lib/server/brain/gateway.ts`             | Configuration, listener, bearer authentication and request limits      |
 | `src/lib/server/brain/mcp.ts`                 | JSON-RPC: `initialize`, `ping`, `tools/list`, `tools/call`             |
-| `src/lib/server/brain/tools.ts`               | The five tools, argument validation and the audit log entries          |
+| `src/lib/server/brain/tools.ts`               | The six tools, argument validation and the audit log entries           |
 | `src/lib/server/brain/access.ts`              | Grant lifecycle, expiry, revocation and container-run checks           |
 | `src/lib/server/brain/executions.ts`          | Docker exec runtime, output retention, stdin and verified cancellation |
+| `src/lib/server/brain/shells.ts`              | Persistent shells: start script, prompt markers, typed commands        |
 | `src/lib/server/brain/viewers.ts`             | Terminal viewer protocol: replay, live output, operator input          |
 | `src/lib/server/brainTerminal.ts`             | WebSocket transport for terminal tabs, on the dashboard listener       |
 | `src/lib/server/brain/exposure.ts`            | Reach analysis for the grant dialog                                    |
@@ -40,7 +41,8 @@ Operator browser
 | `src/lib/brainAccess.svelte.ts`               | Browser state, provided as context by the dashboard page               |
 | `src/lib/components/BrainAccessButton.svelte` | Grant control on devcontainer rows, cards and service rows             |
 | `src/lib/components/BrainPanel.svelte`        | Header control and panel: grants, commands, output and activity        |
-| `src/lib/components/BrainTerminalTab.svelte`  | Terminal drawer tab for one command, with Take over and Stop           |
+| `src/lib/components/BrainTerminalTab.svelte`  | Terminal view of one command or shell, with Take over and Stop         |
+| `src/lib/components/TerminalManager.svelte`   | Drawer: one Brain tab per container, with a list of its shells         |
 
 The modules that the custom server imports use relative imports only, because `tsconfig.server.json` compiles them without SvelteKit aliases. `targets.ts` and `http.ts` are SvelteKit-only.
 
@@ -159,23 +161,42 @@ When a grant ends, its running commands receive TERM, then KILL. Brain also lose
 | Tool               | Purpose                                                                              |
 | ------------------ | ------------------------------------------------------------------------------------ |
 | `list_targets`     | List granted containers with name, kind, Compose service, workspace, user and expiry |
-| `execute`          | Start a command in one target. Wait up to `wait_seconds` (default 20, maximum 60).   |
+| `open_shell`       | Start a persistent shell in one target and wait for its first prompt                 |
+| `execute`          | Run a command in a shell, or start one process. Wait up to `wait_seconds` (20, ≤60). |
 | `read_output`      | Read output from an absolute cursor, optionally after waiting for new output         |
 | `write_stdin`      | Write to an interactive command, optionally followed by end-of-file                  |
-| `cancel_execution` | Stop a command and report whether the stop was confirmed                             |
+| `cancel_execution` | Stop a command or close a shell, and report whether the stop was confirmed           |
 
-Every `execute` call starts a new process with `bash -lc`, or `sh -lc` when bash is missing, in its own pseudo-terminal (PTY, 120 x 32). The working directory and variables do not carry over between calls. stdin is `/dev/null` unless `interactive` is true. Commands run with `TERM=dumb`, `NO_COLOR=1`, `PAGER=cat`, `GIT_PAGER=cat` and `GIT_TERMINAL_PROMPT=0`.
+`list_targets` also lists the open shells of each target: `shell_id`, name, `ready`, `busy`, controller and working directory.
+
+Without `shell_id`, every `execute` call starts a new process with `bash -lc`, or `sh -lc` when bash is missing, in its own pseudo-terminal (PTY, 120 x 32). The working directory and variables do not carry over between calls. stdin is `/dev/null` unless `interactive` is true. Commands run with `TERM=dumb`, `NO_COLOR=1`, `PAGER=cat`, `GIT_PAGER=cat` and `GIT_TERMINAL_PROMPT=0`.
 
 The PTY merges stdout and stderr, and its CRLF line endings are converted back to LF, so Brain reads output as without a terminal. For an interactive command, the PTY echoes input into the output. `close_stdin` sends Ctrl+D (end-of-file in canonical terminal mode); after that, Brain cannot write to the command again.
 
+## Persistent shells
+
+A one-off command per call is hard to follow: every command opens a tab, and nothing carries over. A shell is one long-lived interactive bash that Brain types commands into, as a person would. The operator sees one ordinary terminal with the user's prompt.
+
+1. `open_shell` starts `bash -lc` with the start script. The script writes a private start-up file and replaces itself with `bash --rcfile <file> -i`. The start-up file deletes itself, loads `~/.bashrc`, and adds shell integration. A shell needs bash; names are unique among the open shells of a grant (default `main`, then `shell-2`).
+2. Shell integration adds two OSC sequences with a per-shell nonce. Terminals do not display them. `PROMPT_COMMAND` prints a prompt marker with the exit code and the working directory, and keeps `$?` for the user's own prompt hooks. `PS0` prints a start marker after the echoed command line (bash 4.4 and later).
+3. `execute` with `shell_id` types the command and Enter. Short printable single-line commands are typed as they are. Other commands (more than 200 characters, more than one line, TAB, control characters or a final backslash) are written to a private file in `/tmp` and sourced, so directory and variable changes still apply. The terminal shows `. '/tmp/.ddb-brain-….sh' # <first line>`. The file deletes itself.
+4. The prompt marker ends the command. The result has `command_id`, `status` (the command's status), `exit_code`, `cwd` and the output between the start marker and the prompt marker, as plain text. Without a start marker (bash before 4.4), the output starts after the first line feed of the echo.
+5. `read_output` on a shell returns plain text, the shell `status`, `ready`, `cwd`, and `command` with the current or last command. While the cursor is inside a command, output stops at its prompt marker.
+
+A shell runs one command at a time. `execute` is refused while the shell has not shown its first prompt, while Brain's command runs, while a job holds the terminal foreground (for example a program that the operator started), and while the operator has control. `write_stdin` with `"\u0003"` interrupts the current command.
+
+Shells run with `TERM=xterm-256color`, `PAGER=cat`, `GIT_PAGER=cat` and `GIT_TERMINAL_PROMPT=0`. History expansion is off, so `!` in a command is literal, and history is not written to the user's history file. An open shell counts as one running command of its target.
+
+Known limits: a start-up file that replaces `PROMPT_COMMAND` later (for example on every prompt) removes the prompt marker, and commands then never end; an unclosed quote leaves bash at its `PS2` prompt until Brain sends Ctrl+C; on bash before 4.4, a typed command that the line editor wraps can leave part of its echo in the output.
+
 ## Terminal tabs and takeover
 
-Every running Brain command opens a tab in the terminal drawer, next to the shell tabs. The tab shows the command, the container, the user and the directory, live output, and **Stop**. Closing a tab never stops the command. **Open in terminal** in the Brain panel reopens the tab of any retained command.
+Brain's commands and shells in one container share one Brain tab in the terminal drawer, next to the shell tabs. When the tab holds more than one entry, a vertical list at its right selects between them (shells first), with a status for each: starting, idle, busy, running, you have control, or how it ended. The view shows the shell name or the command, the container, the user and the directory, live output, and **Stop** (**Close shell** for a shell). Closing the tab, or hiding an entry from the list, never stops a command or shell. **Open in terminal** in the Brain panel reopens any retained entry.
 
 The tab is read-only while Brain has control. Input control is explicit:
 
 1. **Take over** gives terminal input to the operator. The terminal resizes the PTY to its own size.
-2. While the operator has control, `write_stdin` and `cancel_execution` are refused for that command. The tool results report `controller: "operator"`.
+2. While the operator has control, `write_stdin`, `cancel_execution` and `execute` in that shell are refused. The tool results report `controller: "operator"`.
 3. **Hand back to Brain** returns control. Brain can write to an interactive command again.
 
 Brain can always read the output, including everything that the PTY echoes while the operator types. Programs that hide input (password prompts) do not echo it. For a command without Brain input, stdin is `/dev/null`: the operator's keys reach only programs that open `/dev/tty`, and Ctrl+C reaches the command's process group.
@@ -191,11 +212,13 @@ Docker has no API to kill an exec process. The command wrapper prints its proces
 3. waits up to 3 seconds, then sends KILL and waits up to 2 seconds,
 4. reports `stopped` only when no process of the group remains, else `stop_unconfirmed`.
 
-Known limits: processes that leave the group (for example with `setsid`), processes that change user, and a reused process group ID after the group has ended.
+A shell uses job control, so each job has its own process group. Stopping a shell therefore signals every process in the shell's session (the session ID in `/proc/PID/stat`), not one process group.
+
+Known limits: processes that leave the group or session (for example with `setsid`), processes that change user, and a reused process group ID after the group has ended.
 
 ## Limits
 
-- 16 grants, 16 running commands, 4 running commands per target, 64 retained commands for at most one hour.
+- 16 grants, 16 running commands, 4 running commands per target (an open shell counts as one), 64 retained commands for at most one hour.
 - Commands and stdin writes: 16,384 characters. Output: the newest 1,000,000 characters per command; reads return at most 65,536 characters.
 - Requests: 1 MiB body, 32 concurrent requests. Browser requests (with an `Origin` header) are refused.
 

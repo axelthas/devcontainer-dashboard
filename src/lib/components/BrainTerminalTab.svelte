@@ -1,8 +1,9 @@
 <script lang="ts">
 	/**
-	 * One Brain command in the terminal drawer: live output in a read-only terminal, and
-	 * explicit control. "Take over" gives terminal input to the operator and refuses Brain
-	 * input; "Hand back" returns it. Closing the tab or the socket never stops the command.
+	 * One Brain command or persistent shell in the terminal drawer: live output in a
+	 * read-only terminal, and explicit control. "Take over" gives terminal input to the
+	 * operator and refuses Brain input; "Hand back" returns it. Closing the tab or the socket
+	 * never stops the command or shell.
 	 */
 	import { tick, untrack } from 'svelte';
 	import type { Terminal } from '@xterm/xterm';
@@ -47,6 +48,7 @@
 	const running = $derived(isRunningStatus(status));
 	const controllable = $derived(status === 'running');
 	const operator = $derived(controllable && controller === 'operator');
+	const shell = $derived(execution.kind === 'shell' ? execution.shell : undefined);
 
 	/** Final result of a command that ended. */
 	function outcome(): string {
@@ -276,8 +278,10 @@
 			</span>
 		{/if}
 		<span class="min-w-0 truncate text-[#d8dee9]/60">
+			{#if shell}<span class="font-mono text-[#d8dee9]/80">{shell.name}</span> ·{/if}
 			{execution.containerName} · as <span class="font-mono">{execution.user}</span>
-			{#if execution.workdir}in <span class="font-mono">{execution.workdir}</span>{/if}
+			{#if shell?.cwd}in <span class="font-mono">{shell.cwd}</span>
+			{:else if execution.workdir}in <span class="font-mono">{execution.workdir}</span>{/if}
 		</span>
 		<span class="flex-1"></span>
 		{#if controllable}
@@ -308,14 +312,16 @@
 				onclick={() => void act(() => access.stop(execution.id))}
 				class="flex items-center gap-1 rounded-lg px-2 py-0.5 font-medium text-[#bf616a] transition-colors hover:bg-[#bf616a]/15 disabled:opacity-50"
 			>
-				<Square size={10} />Stop
+				<Square size={10} />{shell ? 'Close shell' : 'Stop'}
 			</button>
 		{/if}
 	</div>
-	<p class="truncate px-1 font-mono text-xs text-[#d8dee9]/80" title={execution.command}>
-		<span class="text-[#d8dee9]/40">$</span>
-		{execution.command}
-	</p>
+	{#if !shell}
+		<p class="truncate px-1 font-mono text-xs text-[#d8dee9]/80" title={execution.command}>
+			<span class="text-[#d8dee9]/40">$</span>
+			{execution.command}
+		</p>
+	{/if}
 	{#if operator}
 		<p class="px-1 text-xs text-[#ebcb8b]/80">
 			Brain cannot type or cancel until you hand back control. Brain can still read everything

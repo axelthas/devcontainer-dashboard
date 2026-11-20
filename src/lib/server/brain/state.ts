@@ -8,6 +8,7 @@ import type { Duplex } from 'node:stream';
 import type {
 	BrainAuditEntry,
 	BrainController,
+	BrainExecutionKind,
 	BrainExecutionStatus,
 	BrainExposure,
 	BrainTargetKind
@@ -37,13 +38,49 @@ export interface BrainGrant {
 	expiresAt: number;
 }
 
-/** One command that Brain started. The process runs inside the container, not here. */
+/** One command that Brain typed into a shell. Cursors are absolute output offsets. */
+export interface BrainShellCommand {
+	id: string;
+	command: string;
+	status: 'running' | 'exited';
+	/** Output end when Brain typed the command; the echoed command line follows */
+	startCursor: number;
+	/** Output start after the echoed line, from the start marker (bash 4.4 and later) */
+	outputCursor?: number;
+	/** Position of the prompt marker that ended the command */
+	endCursor?: number;
+	exitCode?: number;
+	/** Working directory after the command */
+	cwd?: string;
+	startedAt: number;
+	endedAt?: number;
+}
+
+/** Persistent shell state. Prompt markers carry `nonce`, so output cannot match by accident. */
+export interface BrainShell {
+	name: string;
+	nonce: string;
+	/** True after the first prompt marker */
+	ready: boolean;
+	cwd?: string;
+	exitCode?: number;
+	/** Brain's current or last command */
+	current?: BrainShellCommand;
+	/** Commands that Brain typed */
+	commands: number;
+}
+
+/** One command or shell that Brain started. The process runs inside the container, not here. */
 export interface BrainExecution {
 	id: string;
 	grantId: string;
 	containerId: string;
 	containerName: string;
+	kind: BrainExecutionKind;
+	/** The command, or the shell start script */
 	command: string;
+	/** Set for a persistent shell */
+	shell?: BrainShell;
 	execUser?: string;
 	user: string;
 	workdir?: string;
