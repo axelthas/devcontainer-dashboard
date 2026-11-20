@@ -7,6 +7,11 @@ import type { ContainerData } from '$lib/types';
 export type ContainerAction = 'start' | 'stop' | 'restart' | 'delete';
 export type ContainerActionKind = ContainerAction | 'rebuild';
 
+/** `confirmed`: the caller already showed its own confirmation, so skip the browser dialog. */
+export interface ActionOptions {
+	confirmed?: boolean;
+}
+
 /** Labels for a row that waits for an action to complete. */
 export const TRANSITION_LABELS: Record<ContainerActionKind, string> = {
 	start: 'Starting',
@@ -106,10 +111,11 @@ export class ContainerActions {
 	}
 
 	/** Confirm replacement separately from restart; the server resolves all filesystem authority. */
-	async rebuild(): Promise<void> {
+	async rebuild({ confirmed = false }: ActionOptions = {}): Promise<void> {
 		const { id, rebuildContainer, onOpenBuild } = this.#options();
 		if (!this.canRebuild || this.loadingAction !== null || !rebuildContainer) return;
 		if (
+			!confirmed &&
 			!confirm(
 				`Rebuild and restart "${rebuildContainer.projectName}" (${id})?\n\nThis replaces the container, interrupts its services and terminals, and discards changes in its writable layer. Workspace files and volumes are not deleted, but lifecycle scripts can change mounted data. There is no automatic rollback.`
 			)
@@ -135,9 +141,14 @@ export class ContainerActions {
 	}
 
 	/** Run one allowlisted lifecycle action. Delete asks for confirmation first. */
-	async run(action: ContainerAction): Promise<void> {
+	async run(action: ContainerAction, { confirmed = false }: ActionOptions = {}): Promise<void> {
 		if (this.loadingAction !== null) return;
-		if (action === 'delete' && !confirm('Delete this container? This cannot be undone.')) return;
+		if (
+			action === 'delete' &&
+			!confirmed &&
+			!confirm('Delete this container? This cannot be undone.')
+		)
+			return;
 		const { id, onRefresh } = this.#options();
 		this.loadingAction = action;
 		this.actionError = '';

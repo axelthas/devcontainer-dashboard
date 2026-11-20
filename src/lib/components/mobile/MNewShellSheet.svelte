@@ -39,7 +39,9 @@
 				<MRow
 					title={container.projectName}
 					subtitle={container.remoteUserError ??
-						(container.remoteUser ? `as ${container.remoteUser}` : container.name.replace(/^\//, ''))}
+						(container.remoteUser
+							? `as ${container.remoteUser}`
+							: container.name.replace(/^\//, ''))}
 					onclick={() => openIn(container)}
 					disabled={!containerShellCommand(container)}
 					tone="bg-transparent"

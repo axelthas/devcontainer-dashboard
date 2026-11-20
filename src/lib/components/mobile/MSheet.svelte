@@ -34,7 +34,7 @@
 	data-testid={testid}
 	onclose={() => open && onClose()}
 	onclick={backdropClick}
-	class="m-0 mt-auto max-h-[88dvh] w-full max-w-none overflow-hidden rounded-t-[22px] bg-m-screen p-0 text-m-ink backdrop:bg-black/50 open:flex open:flex-col open:animate-[m-sheet-up_300ms_cubic-bezier(0.32,0.72,0,1)]"
+	class="m-0 mt-auto max-h-[88dvh] w-full max-w-none overflow-hidden rounded-t-[22px] bg-m-screen p-0 text-m-ink backdrop:bg-black/50 open:flex open:animate-[m-sheet-up_300ms_cubic-bezier(0.32,0.72,0,1)] open:flex-col"
 	style:margin-bottom="var(--keyboard-inset, 0px)"
 >
 	{#if open}

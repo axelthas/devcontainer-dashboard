@@ -4,6 +4,7 @@
  * rules; only the presentation differs. Screens never poll on their own.
  */
 import { getContext, setContext } from 'svelte';
+import { resolve } from '$app/paths';
 import { SvelteMap } from 'svelte/reactivity';
 import { errorMessage, latestRequest, requestJson } from '$lib/requests';
 import { generateId } from '$lib/index';
@@ -295,6 +296,11 @@ export class MobileDashboard {
 		this.starts.delete(id);
 		this.sessions = this.sessions.filter((session) => session.id !== id);
 		void this.refreshSessions();
+	}
+
+	/** Open a terminal screen for a command: start it, or attach when `start` is omitted. */
+	terminalHref(id: string): string {
+		return resolve('/mobile/terminals/[id]', { id });
 	}
 
 	container(id: string): ContainerData | undefined {

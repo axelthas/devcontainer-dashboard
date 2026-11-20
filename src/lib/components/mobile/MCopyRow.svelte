@@ -29,7 +29,7 @@
 <div class="flex items-start gap-2 py-2.5 pr-1 pl-4">
 	<div class="min-w-0 flex-1">
 		<div class="text-[14px] text-m-dim">{failed ? 'Copy failed: select the text' : label}</div>
-		<div class="mt-0.5 font-mono text-[14.5px] leading-snug select-all [overflow-wrap:anywhere]">
+		<div class="mt-0.5 font-mono text-[14.5px] leading-snug [overflow-wrap:anywhere] select-all">
 			{value}
 		</div>
 	</div>

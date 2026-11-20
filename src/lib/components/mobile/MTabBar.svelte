@@ -11,9 +11,19 @@
 	let { current, terminalCount }: Props = $props();
 	const TABS = [
 		{ id: 'containers', label: 'Containers', icon: Box, href: resolve('/mobile/containers') },
-		{ id: 'workspaces', label: 'Workspaces', icon: FolderGit2, href: resolve('/mobile/workspaces') },
+		{
+			id: 'workspaces',
+			label: 'Workspaces',
+			icon: FolderGit2,
+			href: resolve('/mobile/workspaces')
+		},
 		{ id: 'services', label: 'Services', icon: Cpu, href: resolve('/mobile/services') },
-		{ id: 'terminals', label: 'Terminals', icon: SquareTerminal, href: resolve('/mobile/terminals') }
+		{
+			id: 'terminals',
+			label: 'Terminals',
+			icon: SquareTerminal,
+			href: resolve('/mobile/terminals')
+		}
 	] as const;
 </script>
 

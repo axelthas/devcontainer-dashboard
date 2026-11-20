@@ -57,7 +57,7 @@
 			{#if typeof title === 'string'}{title}{:else}{@render title()}{/if}
 		</span>
 		{#if subtitle}
-			<span class="mt-0.5 block text-[14px] leading-snug text-m-dim [overflow-wrap:anywhere]">
+			<span class="mt-0.5 block text-[14px] leading-snug [overflow-wrap:anywhere] text-m-dim">
 				{#if typeof subtitle === 'string'}{subtitle}{:else}{@render subtitle()}{/if}
 			</span>
 		{/if}

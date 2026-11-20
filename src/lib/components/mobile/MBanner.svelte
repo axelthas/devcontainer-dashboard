@@ -24,12 +24,14 @@
 	<div class="min-w-0 flex-1">
 		<div class="text-[16px] font-semibold [overflow-wrap:anywhere]">{title}</div>
 		{#if detail}
-			<div class="text-[14px] leading-snug opacity-90 [overflow-wrap:anywhere]">{detail}</div>
+			<div class="text-[14px] leading-snug [overflow-wrap:anywhere] opacity-90">{detail}</div>
 		{/if}
 	</div>
 	{#if action && onAction}
-		<button type="button" onclick={onAction} class="min-h-11 shrink-0 px-1 text-[15px] font-semibold"
-			>{action}</button
+		<button
+			type="button"
+			onclick={onAction}
+			class="min-h-11 shrink-0 px-1 text-[15px] font-semibold">{action}</button
 		>
 	{/if}
 </div>

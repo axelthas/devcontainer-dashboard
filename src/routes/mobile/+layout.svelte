@@ -10,7 +10,7 @@
 	import { provideMobileDashboard, type MobileInitialData } from '$lib/mobile/dashboard.svelte';
 	import MHostSheet from '$lib/components/mobile/MHostSheet.svelte';
 	import MTabBar from '$lib/components/mobile/MTabBar.svelte';
-	import type { Snippet } from 'svelte';
+	import { untrack, type Snippet } from 'svelte';
 
 	interface Props {
 		data: MobileInitialData;
@@ -19,7 +19,7 @@
 	let { data, children }: Props = $props();
 
 	// The layout data seeds the state once; polling owns every later update.
-	const dashboard = provideMobileDashboard(data);
+	const dashboard = provideMobileDashboard(untrack(() => data));
 	const brain = provideBrainAccess();
 
 	$effect(() => {
