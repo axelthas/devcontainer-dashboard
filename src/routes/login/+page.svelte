@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { LockKeyhole } from 'lucide-svelte';
+	import brandIcon from '$lib/assets/favicon.svg';
 	import type { ActionData, PageData } from './$types';
 
 	interface Props {
@@ -11,7 +11,7 @@
 </script>
 
 <svelte:head>
-	<title>Sign in | Devcontainer Dashboard</title>
+	<title>Sign in | DevHarbour</title>
 	<meta name="robots" content="noindex" />
 </svelte:head>
 
@@ -20,12 +20,10 @@
 >
 	<section class="w-full max-w-sm" aria-labelledby="login-title">
 		<div class="mb-8 flex items-center gap-3">
-			<div class="rounded-lg bg-[#88c0d0] p-2.5 shadow-md">
-				<LockKeyhole size={24} class="text-[#2e3440]" />
-			</div>
+			<img src={brandIcon} alt="" aria-hidden="true" width="56" height="56" class="shrink-0" />
 			<div>
 				<h1 id="login-title" class="text-xl font-bold text-[#2e3440] dark:text-[#eceff4]">
-					Devcontainer Dashboard
+					<span>Dev</span><span class="text-[#5e81ac] dark:text-[#88c0d0]">Harbour</span>
 				</h1>
 				<p class="text-sm text-[#4c566a] dark:text-[#d8dee9]/70">
 					Enter your password to continue.

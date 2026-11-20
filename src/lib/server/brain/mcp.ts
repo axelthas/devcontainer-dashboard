@@ -8,11 +8,11 @@ import { BRAIN_TOOLS, callTool, type ToolResult } from './tools.js';
 export const SUPPORTED_PROTOCOL_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
 export const SERVER_INFO = {
 	name: 'devcontainer-dashboard',
-	title: 'Devcontainer Dashboard',
+	title: 'DevHarbour',
 	version: '0.1.0'
 };
 const INSTRUCTIONS =
-	'This server runs shell commands in containers that the operator granted to you in the Devcontainer Dashboard. Call list_targets first. Use only the listed target_id values, choose the target that matches the task, and ask the user when more than one target could match. Never assume that access to one container implies access to another. For multi-step work, call open_shell once and pass its shell_id to execute, so the operator watches one ordinary shell and the working directory carries over.';
+	'This server runs shell commands in containers that the operator granted to you in DevHarbour. Call list_targets first. Use only the listed target_id values, choose the target that matches the task, and ask the user when more than one target could match. Never assume that access to one container implies access to another. For multi-step work, call open_shell once and pass its shell_id to execute, so the operator watches one ordinary shell and the working directory carries over.';
 
 type JsonRpcId = string | number | null;
 
