@@ -114,7 +114,9 @@ export class ComposeSandbox {
 	}
 
 	readonly files = $derived(this.repo.composeFiles ?? []);
-	readonly directories = $derived([...new Set(this.files.map(composeDirectory))]);
+	readonly directories = $derived(
+		this.files.map(composeDirectory).filter((item, index, all) => all.indexOf(item) === index)
+	);
 	readonly directory = $derived(composeDirectory(this.selectedFiles[0] ?? this.files[0] ?? ''));
 	readonly directoryFiles = $derived(
 		this.files.filter((file) => composeDirectory(file) === this.directory)

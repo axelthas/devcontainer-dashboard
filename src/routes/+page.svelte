@@ -10,8 +10,10 @@
 		List,
 		Eye,
 		EyeOff,
-		LogOut
+		LogOut,
+		Smartphone
 	} from 'lucide-svelte';
+	import { resolve } from '$app/paths';
 	import { untrack } from 'svelte';
 	import brandIcon from '$lib/assets/favicon.svg';
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
@@ -497,6 +499,18 @@
 							<Moon size={20} />
 						{/if}
 					</button>
+
+					<!-- Phones open the mobile interface by default; this returns there after a switch. -->
+					<!-- eslint-disable svelte/no-navigation-without-resolve -- the href is already resolved -->
+					<a
+						href={`${resolve('/interface')}?use=mobile`}
+						class="rounded-full border border-[#d8dee9] bg-[#eceff4] p-2 text-[#4c566a] transition-opacity hover:opacity-80 dark:border-[#434c5e] dark:bg-[#2e3440] dark:text-[#d8dee9]"
+						title="Phone layout"
+						aria-label="Phone layout"
+					>
+						<Smartphone size={20} />
+					</a>
+					<!-- eslint-enable svelte/no-navigation-without-resolve -->
 
 					<form method="POST" action="/logout">
 						<button

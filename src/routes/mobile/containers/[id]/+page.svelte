@@ -57,7 +57,7 @@
 		id: page.params.id ?? '',
 		onRefresh: () => dashboard.refreshAll(),
 		rebuildContainer: container,
-		onOpenBuild: (id) => void goto(dashboard.terminalHref(id))
+		onOpenBuild: (id) => void goto(resolve('/mobile/terminals/[id]', { id: id }))
 	}));
 	onDestroy(() => actions.dispose());
 
@@ -89,7 +89,7 @@
 			cwd: container.localWorkspacePath ?? '',
 			kind: 'shell'
 		});
-		void goto(dashboard.terminalHref(id));
+		void goto(resolve('/mobile/terminals/[id]', { id: id }));
 	}
 
 	/** Open a web port in DevHarbour's service viewer; synchronous, for popup rules. */

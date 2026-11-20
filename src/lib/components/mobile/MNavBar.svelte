@@ -25,7 +25,7 @@
 >
 	{#if back}
 		<div class="flex min-h-11 items-center justify-between gap-2 px-1">
-			<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- callers pass resolve() output -->
+			<!-- eslint-disable svelte/no-navigation-without-resolve -- the href is already resolved -->
 			<a
 				href={back.href}
 				class="flex min-h-11 min-w-11 items-center pr-2 text-[17px] text-m-frost"
@@ -34,6 +34,7 @@
 				<ChevronLeft size={26} strokeWidth={2.2} aria-hidden="true" />
 				<span class="max-w-[60vw] truncate">{back.label}</span>
 			</a>
+			<!-- eslint-enable svelte/no-navigation-without-resolve -->
 			<div class="flex items-center">{@render right?.()}</div>
 		</div>
 	{:else}

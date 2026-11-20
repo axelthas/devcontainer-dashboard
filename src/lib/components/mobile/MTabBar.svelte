@@ -10,19 +10,19 @@
 	}
 	let { current, terminalCount }: Props = $props();
 	const TABS = [
-		{ id: 'containers', label: 'Containers', icon: Box, href: resolve('/mobile/containers') },
+		{ id: 'containers', label: 'Containers', icon: Box, path: '/mobile/containers' },
 		{
 			id: 'workspaces',
 			label: 'Workspaces',
 			icon: FolderGit2,
-			href: resolve('/mobile/workspaces')
+			path: '/mobile/workspaces'
 		},
-		{ id: 'services', label: 'Services', icon: Cpu, href: resolve('/mobile/services') },
+		{ id: 'services', label: 'Services', icon: Cpu, path: '/mobile/services' },
 		{
 			id: 'terminals',
 			label: 'Terminals',
 			icon: SquareTerminal,
-			href: resolve('/mobile/terminals')
+			path: '/mobile/terminals'
 		}
 	] as const;
 </script>
@@ -34,9 +34,8 @@
 >
 	<div class="grid h-[52px] grid-cols-4 px-1">
 		{#each TABS as tab (tab.id)}
-			<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- resolved above -->
 			<a
-				href={tab.href}
+				href={resolve(tab.path)}
 				aria-current={current === tab.id ? 'page' : undefined}
 				class="relative flex flex-col items-center justify-center gap-0.5 {current === tab.id
 					? 'text-m-frost'

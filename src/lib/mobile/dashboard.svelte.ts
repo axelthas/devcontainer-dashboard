@@ -45,6 +45,7 @@ export const SSH_HOST_KEY = 'devcontainer-dashboard-vscode-ssh-host';
 const POLL_MS = 5000;
 const ACTIVE_POLL_MS = 3000;
 const TOAST_MS = 2600;
+const TIME_FORMAT = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' });
 
 /** A URL-safe key for a workspace; workspace IDs are base64 of the path. */
 export function workspaceKey(workspace: Pick<LocalWorkspaceData, 'id'>): string {
@@ -65,8 +66,8 @@ export class MobileDashboard {
 	containerError = $state('');
 	workspaceError = $state('');
 	terminalError = $state('');
-	/** Time of the last successful container read; null until the first poll answers. */
-	lastContainerRead = $state<Date | null>(null);
+	/** Clock time of the last successful container read; empty until the first poll answers. */
+	lastContainerRead = $state('');
 	toastMessage = $state('');
 	hostSheetOpen = $state(false);
 	newShellOpen = $state(false);
@@ -87,15 +88,12 @@ export class MobileDashboard {
 	);
 	readonly services = $derived(this.containers.filter((c) => !c.isDevcontainer));
 	readonly stacks = $derived.by<ComposeStack[]>(() => {
-		const groups = new Map<string, ContainerData[]>();
+		const groups: Record<string, ContainerData[]> = {};
 		for (const container of this.services) {
 			if (!container.composeProject) continue;
-			groups.set(container.composeProject, [
-				...(groups.get(container.composeProject) ?? []),
-				container
-			]);
+			(groups[container.composeProject] ??= []).push(container);
 		}
-		return [...groups.entries()]
+		return Object.entries(groups)
 			.map(([name, containers]) => ({
 				name,
 				containers: containers.sort(byStateThenName),
@@ -216,7 +214,7 @@ export class MobileDashboard {
 				(value) => {
 					this.containers = value;
 					this.containerError = '';
-					this.lastContainerRead = new Date();
+					this.lastContainerRead = TIME_FORMAT.format(Date.now());
 				}
 			);
 		} catch (cause) {

@@ -55,11 +55,15 @@
 	const composeFiles = $derived(repo?.composeFiles ?? []);
 	const run = $derived(repo?.composeRun);
 
-	let config = $state<string | undefined>(undefined);
-	$effect(() => {
-		if (repo && (!config || !repo.devcontainerConfigs.includes(config)))
-			config = savedConfig(repo.path, repo.devcontainerConfigs);
-	});
+	/** The operator's choice on this screen, else the choice saved for the repository. */
+	let chosenConfig = $state<string | undefined>(undefined);
+	const config = $derived(
+		repo && chosenConfig && repo.devcontainerConfigs.includes(chosenConfig)
+			? chosenConfig
+			: repo
+				? savedConfig(repo.path, repo.devcontainerConfigs)
+				: undefined
+	);
 
 	type Sheet = 'ref' | 'force' | 'open' | null;
 	let sheet = $state<Sheet>(null);
@@ -103,7 +107,7 @@
 
 	function chooseConfig(value: string) {
 		if (!repo) return;
-		config = value;
+		chosenConfig = value;
 		saveConfig(repo.path, value);
 	}
 
@@ -198,7 +202,7 @@
 	function terminal(name: string, command: string, cwd: string) {
 		sheet = null;
 		const id = dashboard.openTerminal({ name, command, cwd, kind: 'shell' });
-		void goto(dashboard.terminalHref(id));
+		void goto(resolve('/mobile/terminals/[id]', { id: id }));
 	}
 
 	/** A shell in the running container, else on the host in the repository folder. */

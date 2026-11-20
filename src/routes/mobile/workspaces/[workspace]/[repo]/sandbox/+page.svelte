@@ -98,7 +98,7 @@
 		if (!logs) return;
 		sheet = null;
 		const id = dashboard.openTerminal({ ...logs, kind: 'shell' });
-		void goto(dashboard.terminalHref(id));
+		void goto(resolve('/mobile/terminals/[id]', { id: id }));
 	}
 
 	async function copyCalls() {

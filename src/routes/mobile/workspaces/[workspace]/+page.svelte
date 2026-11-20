@@ -70,7 +70,7 @@
 		if (!workspace) return;
 		sheet = null;
 		const id = dashboard.openTerminal({ name, command, cwd: workspace.path, kind });
-		void goto(dashboard.terminalHref(id));
+		void goto(resolve('/mobile/terminals/[id]', { id: id }));
 	}
 
 	async function copyVscode() {

@@ -45,11 +45,12 @@
 				class="max-h-[60dvh] overflow-y-auto rounded-xl bg-m-term p-3 font-mono text-[13px] leading-relaxed [overflow-wrap:anywhere] whitespace-pre-wrap text-[#d8dee9]">{text ||
 					'The log is empty.'}</pre>
 		{/if}
-		<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- API download, not a page -->
+		<!-- eslint-disable svelte/no-navigation-without-resolve -- the href is already resolved -->
 		<a
 			{href}
 			class="mt-3 flex min-h-[50px] items-center justify-center gap-2 rounded-[14px] bg-m-raised text-[17px] font-semibold text-m-ink"
 			><Download size={18} />Download log</a
 		>
+		<!-- eslint-enable svelte/no-navigation-without-resolve -->
 	</div>
 </MSheet>

@@ -25,7 +25,7 @@
 			type="button"
 			aria-label="Clear search"
 			onclick={() => (value = '')}
-			class="-mr-2 flex size-10 items-center justify-center"><X size={16} /></button
+			class="-mr-2 flex size-11 items-center justify-center"><X size={16} /></button
 		>
 	{/if}
 </label>

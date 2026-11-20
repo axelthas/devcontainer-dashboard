@@ -43,15 +43,20 @@
 	// Keyboard inset for the terminal and for sheets with text fields.
 	$effect(() => trackVisualViewport());
 
+	/** Terminal screens use the whole screen, without the tab bar. */
+	const FULL_SCREEN = ['/mobile/terminals/[id]', '/mobile/terminals/brain/'];
+
 	/** The tab of the current route; the full-screen terminal has none. */
 	const section = $derived.by(() => {
 		const id = page.route.id ?? '';
-		if (id.startsWith('/mobile/terminals/[id]')) return null;
+		if (FULL_SCREEN.some((prefix) => id.startsWith(prefix))) return null;
 		for (const tab of ['containers', 'workspaces', 'services', 'terminals'] as const)
 			if (id.startsWith(`/mobile/${tab}`)) return tab;
 		return null;
 	});
-	const fullscreen = $derived((page.route.id ?? '').startsWith('/mobile/terminals/[id]'));
+	const fullscreen = $derived(
+		FULL_SCREEN.some((prefix) => (page.route.id ?? '').startsWith(prefix))
+	);
 </script>
 
 <svelte:head>

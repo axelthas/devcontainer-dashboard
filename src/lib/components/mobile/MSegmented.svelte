@@ -21,8 +21,7 @@
 			role="radio"
 			aria-checked={value === option.value}
 			onclick={() => onChange(option.value)}
-			class="min-h-[36px] truncate rounded-[8px] px-1 text-[14px] font-semibold {value ===
-			option.value
+			class="min-h-11 truncate rounded-[8px] px-1 text-[14px] font-semibold {value === option.value
 				? 'bg-m-surface text-m-ink shadow-sm'
 				: 'text-m-dim'}">{option.label}</button
 		>

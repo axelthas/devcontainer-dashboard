@@ -31,6 +31,8 @@
 		onUseFallback?: () => void;
 		/** Report connection changes, for controls that must not send while disconnected. */
 		onConnection?: (state: ConnectionState) => void;
+		/** Report the grid after each fit, for controls that show columns and rows. */
+		onGrid?: (grid: { cols: number; rows: number }) => void;
 	}
 	type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'failed' | 'exited';
 	let {
@@ -47,7 +49,8 @@
 		onExit,
 		onIdentity,
 		onUseFallback,
-		onConnection
+		onConnection,
+		onGrid
 	}: Props = $props();
 	let ready = $state(false);
 	let connection = $state<ConnectionState>('connecting');
@@ -91,10 +94,16 @@
 		socket.send(JSON.stringify({ type: 'data', data }));
 		return true;
 	}
+	/** Move keyboard focus into the viewer, which opens the on-screen keyboard on phones. */
+	export function focus() {
+		view?.focus();
+	}
 	/** Fit after layout, then send even unchanged geometry when a new viewer attaches. */
 	async function fitVisibleTerminal() {
 		if (!ready || !view || !canMeasureTerminal()) return;
-		sendResize(await view.fit());
+		const dimensions = await view.fit();
+		if (validTerminalDimensions(dimensions)) onGrid?.(dimensions);
+		sendResize(dimensions);
 	}
 	/** Describe an unknown failure for the status line. */
 	function errorText(error: unknown) {

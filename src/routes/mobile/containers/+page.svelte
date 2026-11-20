@@ -34,9 +34,7 @@
 		})
 	);
 	const readAt = $derived(
-		dashboard.lastContainerRead
-			? ` from ${dashboard.lastContainerRead.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-			: ''
+		dashboard.lastContainerRead ? ` from ${dashboard.lastContainerRead}` : ''
 	);
 </script>
 
