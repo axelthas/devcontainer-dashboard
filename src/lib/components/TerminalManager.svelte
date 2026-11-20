@@ -308,6 +308,9 @@
 		role="tablist"
 		aria-label="Terminals"
 	>
+		{#if !open}<span class="shrink-0 px-2 text-sm font-medium text-[#d8dee9] md:hidden"
+				>Terminals · {sessions.length + brainTabs.length}</span
+			>{/if}
 		{#each sessions as session (session.id)}
 			<div
 				class="flex shrink-0 items-center rounded-t {activeId === session.id

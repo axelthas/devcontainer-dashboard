@@ -6,9 +6,11 @@
 
 	interface Props {
 		container: ContainerData;
+		onOpen?: () => void;
+		menuItem?: boolean;
 	}
 
-	let { container }: Props = $props();
+	let { container, onOpen, menuItem = false }: Props = $props();
 
 	// Rows also render outside the dashboard page, for example in component tests.
 	const access = useBrainAccess();
@@ -23,7 +25,11 @@
 	{#if grant}
 		<button
 			type="button"
-			onclick={() => (open = true)}
+			role={menuItem ? 'menuitem' : undefined}
+			onclick={() => {
+				onOpen?.();
+				open = true;
+			}}
 			title={`Brain has shell access as ${grant.user}`}
 			class="flex items-center gap-1.5 rounded-lg bg-[#b48ead] px-2 py-1 text-xs font-medium whitespace-nowrap text-[#2e3440] transition-opacity hover:opacity-90"
 		>
@@ -33,7 +39,11 @@
 	{:else}
 		<button
 			type="button"
-			onclick={() => (open = true)}
+			role={menuItem ? 'menuitem' : undefined}
+			onclick={() => {
+				onOpen?.();
+				open = true;
+			}}
 			class="flex items-center gap-1.5 rounded-lg border border-dashed border-[#b48ead]/60 px-2 py-1 text-xs font-medium whitespace-nowrap text-[#b48ead] transition-colors hover:border-solid hover:bg-[#b48ead]/10"
 		>
 			<BrainCircuit size={12} />

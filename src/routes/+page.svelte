@@ -14,6 +14,7 @@
 		MoreHorizontal
 	} from 'lucide-svelte';
 	import { untrack } from 'svelte';
+	import { MediaQuery } from 'svelte/reactivity';
 	import brandIcon from '$lib/assets/favicon.svg';
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import type {
@@ -63,6 +64,8 @@
 	let containers = $state<ContainerData[]>(untrack(() => data.containers));
 	let workspaces = $state<LocalWorkspaceData[]>(untrack(() => data.workspaces));
 	let dark = $state(true);
+	const phoneLayout = new MediaQuery('(max-width: 767px)', false);
+	const isPhoneLayout = $derived(phoneLayout.current);
 	/** Phone-only disclosure for the host controls; desktop always shows them. */
 	let hostMenuOpen = $state(false);
 	/** Section that the phone section bar marks as current. */
@@ -104,10 +107,12 @@
 
 	$effect(() => {
 		localStorage.setItem(THEME_KEY, dark ? 'dark' : 'light');
+		document.documentElement.classList.toggle('dark', dark);
+		document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
 	});
 
 	const SSH_HOST_KEY = 'devcontainer-dashboard-vscode-ssh-host';
-	let vscodeSshHost = $state(data.vscodeSshHost);
+	let vscodeSshHost = $state(untrack(() => data.vscodeSshHost));
 
 	$effect(() => {
 		const stored = localStorage.getItem(SSH_HOST_KEY);
@@ -340,7 +345,7 @@
 	let bootstrapModalOpen = $state(false);
 
 	// Terminal manager state
-	const WORKSPACE_ROOT = data.workspaceRoot;
+	const WORKSPACE_ROOT = $derived(data.workspaceRoot);
 
 	let terminalOpen = $state(false);
 	let terminalSessions = $state<TerminalSession[]>([]);
@@ -509,13 +514,13 @@
 							class="flex items-center gap-1.5 rounded-full border border-[#a3be8c]/20 bg-[#a3be8c]/10 px-3 py-1.5 text-[#a3be8c]"
 						>
 							<Power size={16} />
-							<span>{runningCount} Running</span>
+							<span>{runningCount} running <span class="text-xs opacity-70">total</span></span>
 						</div>
 						<div
 							class="flex items-center gap-1.5 rounded-full border border-[#bf616a]/20 bg-[#bf616a]/10 px-3 py-1.5 text-[#bf616a]"
 						>
 							<Power size={16} />
-							<span>{stoppedCount} Stopped</span>
+							<span>{stoppedCount} stopped <span class="text-xs opacity-70">total</span></span>
 						</div>
 					</div>
 
@@ -632,11 +637,11 @@
 								{:else}
 									<Eye size={14} />
 								{/if}
-								<span>{stoppedDevcontainerCount} stopped</span>
+								<span>{stoppedDevcontainerCount} stopped devcontainers</span>
 							</button>
 						{/if}
 						<div
-							class="flex items-center gap-1 rounded-lg border border-[#d8dee9] bg-[#eceff4] p-0.5 dark:border-[#434c5e] dark:bg-[#2e3440]"
+							class="hidden items-center gap-1 rounded-lg border border-[#d8dee9] bg-[#eceff4] p-0.5 md:flex dark:border-[#434c5e] dark:bg-[#2e3440]"
 						>
 							<button
 								onclick={() => (devcontainerView = 'grid')}
@@ -662,7 +667,7 @@
 
 				{#if devcontainers.length === 0}
 					<p class="text-[#4c566a] italic dark:text-[#d8dee9]/60">No devcontainers found.</p>
-				{:else if devcontainerView === 'grid'}
+				{:else if devcontainerView === 'grid' && !isPhoneLayout}
 					<div class="grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-6 xl:grid-cols-3">
 						{#each visibleDevcontainers as container (container.id)}
 							<DevcontainerCard

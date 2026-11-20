@@ -254,7 +254,9 @@
 			{/if}
 
 			<!-- Action buttons -->
-			<div class="ml-auto flex flex-wrap items-center justify-end gap-2">
+			<div
+				class="bootstrap-phone-actions flex w-full flex-wrap items-center justify-start gap-2 md:ml-auto md:w-auto md:justify-end"
+			>
 				{#if onBootstrap}
 					<button
 						onclick={onBootstrap}

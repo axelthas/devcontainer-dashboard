@@ -1,10 +1,11 @@
 <script lang="ts">
-	import PublishedPorts from './PublishedPorts.svelte';
+	import PortLedger from './PortLedger.svelte';
+	import CopyValue from './CopyValue.svelte';
+	import MobileContainerActions from './MobileContainerActions.svelte';
 	import { onDestroy } from 'svelte';
 	import { Check, ChevronRight, Copy, FolderGit2, Loader2, Play, Plus } from 'lucide-svelte';
 	import type { ContainerData } from '$lib/types';
 	import { ContainerActions, TRANSITION_LABELS } from '$lib/containerActions.svelte';
-	import { getPortLabel } from '$lib/portConfig';
 	import {
 		containerOpenCodeBlocker,
 		containerOpenCodeCommand,
@@ -77,16 +78,6 @@
 			] as [string, string | undefined][]
 		).filter((entry): entry is [string, string] => Boolean(entry[1]))
 	);
-	/** Published ports, sorted by container port: container port → host port. */
-	const portMappings = $derived(
-		Object.entries(container.ports)
-			.map(([containerPort, hostPort]) => ({
-				containerPort,
-				hostPort,
-				label: getPortLabel(containerPort)
-			}))
-			.sort((a, b) => Number(a.containerPort) - Number(b.containerPort))
-	);
 	/** The exact commands that Open with runs in the terminal drawer, or why it cannot. */
 	const commands = $derived([
 		{
@@ -140,13 +131,16 @@
 <!-- Same skeleton as a local workspace row: chevron, identity, chips, then the action pill. -->
 <div
 	data-container-id={container.id}
+	data-mobile-row
 	class="transition-colors duration-300
 		{isRunning
 		? 'hover:bg-[#eceff4]/50 dark:hover:bg-[#434c5e]/50'
 		: 'bg-[#e5e9f0]/50 hover:bg-[#e5e9f0] dark:bg-[#2e3440]/30 dark:hover:bg-[#2e3440]/50'}"
 >
-	<div class="flex flex-wrap items-center justify-between gap-3 px-3 py-2 sm:px-5">
-		<div class="flex min-w-0 items-center gap-3">
+	<div
+		class="container-row-header flex flex-wrap items-center justify-between gap-3 px-3 py-2 sm:px-5"
+	>
+		<div class="container-row-identity flex min-w-0 items-center gap-3">
 			<button
 				type="button"
 				onclick={() => (expanded = !expanded)}
@@ -167,11 +161,12 @@
 						: 'bg-[#4c566a]'}"
 			></span>
 			<span
-				class="truncate font-semibold
+				class="container-project-name truncate font-semibold
 					{isRunning ? 'text-[#2e3440] dark:text-[#eceff4]' : 'text-[#4c566a] dark:text-[#d8dee9]/70'}"
 				>{container.projectName}</span
 			>
-			<span class="truncate font-mono text-xs text-[#4c566a] dark:text-[#d8dee9]/50"
+			<span
+				class="container-runtime-name truncate font-mono text-xs text-[#4c566a] dark:text-[#d8dee9]/50"
 				>{containerName}</span
 			>
 			{#if workspaceName}
@@ -184,11 +179,13 @@
 				</span>
 			{/if}
 			{#if !transition}
-				<NetworkChips {container} actions={networkActions} {onConnectNetwork} />
+				<div class="hidden md:contents">
+					<NetworkChips {container} actions={networkActions} {onConnectNetwork} />
+				</div>
 			{/if}
 		</div>
 
-		<div class="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2">
+		<div class="ml-auto hidden shrink-0 flex-wrap items-center justify-end gap-2 md:flex">
 			{#if transition}
 				<span
 					role="status"
@@ -240,6 +237,20 @@
 		</div>
 	</div>
 
+	<div class="px-3 pb-3 md:hidden">
+		<MobileContainerActions
+			{container}
+			{actions}
+			{vscodeSshHost}
+			{serviceProxyEnabled}
+			{onOpenTerminal}
+			onConnectNetwork={onConnectNetwork ? connectThis : undefined}
+			onDisconnectNetwork={(network) => void networkActions.disconnect(network)}
+		/>
+	</div>
+	{#if actions.loadingAction}<p class="px-3 pb-2 text-sm text-[#ebcb8b] md:hidden" role="status">
+			{transition}…
+		</p>{/if}
 	{#if actions.actionError}
 		<p role="alert" class="px-5 pb-2 text-right text-xs text-[#bf616a]">{actions.actionError}</p>
 	{/if}
@@ -254,12 +265,12 @@
 			id={detailsId}
 			class="mx-3 mb-3 grid gap-3 rounded-lg border border-[#d8dee9] bg-[#f0f4f8] p-3 sm:mr-5 sm:ml-14 dark:border-[#4c566a] dark:bg-[#2e3440]"
 		>
-			<dl class="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-xs">
+			<dl
+				class="mobile-details grid grid-cols-1 gap-x-4 gap-y-1 text-sm md:grid-cols-[max-content_1fr] md:text-xs"
+			>
 				{#each details as [label, value] (label)}
 					<dt class="text-[#4c566a] dark:text-[#d8dee9]/60">{label}</dt>
-					<dd class="min-w-0 truncate font-mono text-[#2e3440] dark:text-[#d8dee9]" title={value}>
-						{value}
-					</dd>
+					<dd class="min-w-0 text-[#2e3440] dark:text-[#d8dee9]"><CopyValue {value} {label} /></dd>
 				{/each}
 
 				<dt class="text-[#4c566a] dark:text-[#d8dee9]/60">Remote user</dt>
@@ -281,23 +292,17 @@
 
 				<dt class="text-[#4c566a] dark:text-[#d8dee9]/60">Ports</dt>
 				<dd class="min-w-0">
-					{#if portMappings.length > 0}
-						<ul aria-label="Port mapping" class="grid gap-0.5">
-							{#each portMappings as port (port.containerPort)}
-								<li class="flex gap-2">
-									<span class="w-24 shrink-0 truncate text-[#4c566a] dark:text-[#d8dee9]/60"
-										>{port.label}</span
-									>
-									<span class="font-mono text-[#2e3440] dark:text-[#d8dee9]"
-										>{port.containerPort} → host {port.hostPort}</span
-									>
-								</li>
-							{/each}
-						</ul>
-					{:else}
-						<span class="text-[#4c566a] dark:text-[#d8dee9]/60">No published ports</span>
-					{/if}
-					<PublishedPorts bindings={container.portBindings} />
+					<PortLedger
+						bindings={container.portBindings?.length
+							? container.portBindings
+							: Object.entries(container.ports).map(([containerPort, hostPort]) => ({
+									containerPort,
+									hostPort,
+									hostIp: '',
+									protocol: 'tcp'
+								}))}
+						running={isRunning}
+					/>
 				</dd>
 
 				<dt class="text-[#4c566a] dark:text-[#d8dee9]/60">Networks</dt>
@@ -343,7 +348,7 @@
 					<dd class="flex min-w-0 items-start gap-2">
 						{#if entry.command}
 							<code
-								class="min-w-0 flex-1 font-mono break-all whitespace-pre-wrap text-[#2e3440] dark:text-[#d8dee9]"
+								class="min-w-0 flex-1 overflow-x-auto rounded bg-[#e5e9f0] p-2 font-mono whitespace-pre text-[#2e3440] dark:bg-[#242933] dark:text-[#d8dee9]"
 								>{entry.command}</code
 							>
 							<button

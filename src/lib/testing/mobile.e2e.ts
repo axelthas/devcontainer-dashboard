@@ -158,8 +158,16 @@ test.describe('phone', () => {
 				'location'
 			);
 			await expect
-				.poll(() => page.locator(`#${id}`).evaluate((node) => node.getBoundingClientRect().top))
-				.toBeLessThan(200);
+				.poll(() =>
+					page.locator(`#${id}`).evaluate((node) => {
+						const top = node.getBoundingClientRect().top;
+						// A short final section cannot align to the top when the document ends.
+						const atBottom =
+							window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2;
+						return top >= 0 && top < window.innerHeight && (top < 200 || atBottom);
+					})
+				)
+				.toBe(true);
 		}
 	});
 

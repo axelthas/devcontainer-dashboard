@@ -40,7 +40,9 @@
 		{#each ports as port (`${port.containerPort}/${port.protocol}/${port.hostPort}`)}
 			{@const Icon = PORT_MAP[port.containerPort]?.icon ?? Server}
 			{@const web = webProtocol(servicePorts, port.containerPort, port.protocol)}
-			<li class="grid items-center gap-x-4 gap-y-0.5 md:grid-cols-[9rem_9rem_minmax(0,1fr)_auto]">
+			<li
+				class="port-ledger-row grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1 border-b border-[#4c566a]/30 py-2 last:border-0 md:grid-cols-[9rem_9rem_minmax(0,1fr)_auto]"
+			>
 				<span class="flex min-w-0 items-center gap-1.5 text-[#2e3440] dark:text-[#d8dee9]">
 					<Icon size={13} class="shrink-0 {accent(port.containerPort)}" />
 					<span class="truncate">{getPortLabel(port.containerPort)}</span>
@@ -48,7 +50,7 @@
 				<span class="font-mono text-[#2e3440] dark:text-[#d8dee9]"
 					>{port.containerPort}{port.protocol === 'tcp' ? '' : `/${port.protocol}`} → {port.hostPort}</span
 				>
-				<span class="flex min-w-0 flex-wrap items-center gap-1">
+				<span class="col-span-2 flex min-w-0 flex-wrap items-center gap-1 text-xs md:col-span-1">
 					{#each port.addresses as address (address)}
 						<span
 							class="rounded border px-1 font-mono {port.exposure === 'all'

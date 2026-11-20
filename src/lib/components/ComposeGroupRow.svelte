@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
+	import RowMenu from './RowMenu.svelte';
+	import { Ellipsis } from 'lucide-svelte';
 	import {
 		ChevronRight,
 		ChevronDown,
@@ -112,13 +114,13 @@
 	<div class="px-5"><RequestError message={actionError} /></div>
 	<!-- Summary row -->
 	<div
-		class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-3 py-3 transition-colors sm:px-5
+		class="compose-group-header flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-3 py-3 transition-colors sm:px-5
 			{anyRunning
 			? 'hover:bg-[#eceff4]/50 dark:hover:bg-[#434c5e]/50'
 			: 'bg-[#e5e9f0]/50 opacity-80 hover:bg-[#e5e9f0] dark:bg-[#2e3440]/30 dark:hover:bg-[#2e3440]/50'}"
 	>
 		<button
-			class="flex min-w-0 flex-grow cursor-pointer items-center gap-3 border-none bg-transparent p-0 text-left"
+			class="compose-group-identity flex min-w-0 flex-grow cursor-pointer items-center gap-3 border-none bg-transparent p-0 text-left"
 			onclick={() => (expanded = !expanded)}
 		>
 			<!-- Expand/collapse icon -->
@@ -179,7 +181,7 @@
 
 		<!-- Group actions -->
 		<div
-			class="flex shrink-0 items-center gap-1.5 rounded-xl border border-[#d8dee9] bg-[#eceff4] p-1 shadow-sm dark:border-[#434c5e] dark:bg-[#2e3440]"
+			class="hidden shrink-0 items-center gap-1.5 rounded-xl border border-[#d8dee9] bg-[#eceff4] p-1 shadow-sm md:flex dark:border-[#434c5e] dark:bg-[#2e3440]"
 			role="group"
 		>
 			{#if anyRunning}
@@ -230,6 +232,62 @@
 			>
 				<Trash2 size={16} />
 			</button>
+		</div>
+		<div class="md:hidden">
+			<RowMenu
+				label={`Stack actions: ${projectName}`}
+				menuLabel={`Stack ${projectName}`}
+				width={280}
+				height={210}
+				align="end"
+				triggerClass="flex size-11 items-center justify-center rounded-xl border border-[#4c566a] text-[#81a1c1]"
+			>
+				{#snippet trigger()}<Ellipsis size={18} />{/snippet}
+				{#snippet children(close)}
+					<span class="menu-caption">{projectName} · {runningCount}/{totalCount} running</span>
+					{#if anyRunning}
+						<button
+							type="button"
+							role="menuitem"
+							disabled={loadingAction !== null}
+							onclick={() => {
+								close();
+								void handleGroupAction('restart');
+							}}><RotateCw size={16} />Restart all</button
+						>
+						<button
+							type="button"
+							role="menuitem"
+							disabled={loadingAction !== null}
+							onclick={() => {
+								close();
+								void handleGroupAction('stop');
+							}}><Square size={16} />Stop all</button
+						>
+					{:else}
+						<button
+							type="button"
+							role="menuitem"
+							disabled={loadingAction !== null}
+							onclick={() => {
+								close();
+								void handleGroupAction('start');
+							}}><Play size={16} />Start all</button
+						>
+					{/if}
+					<div class="menu-divider" role="separator"></div>
+					<button
+						type="button"
+						role="menuitem"
+						class="menu-danger"
+						disabled={loadingAction !== null}
+						onclick={() => {
+							close();
+							removing = true;
+						}}><Trash2 size={16} />Remove sandbox…</button
+					>
+				{/snippet}
+			</RowMenu>
 		</div>
 	</div>
 
