@@ -6,7 +6,7 @@
  */
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Duplex } from 'node:stream';
@@ -28,6 +28,11 @@ before(async () => {
 	home = await mkdtemp(join(tmpdir(), 'ddash-shell-home-'));
 	// A user prompt hook that reads $?, as starship and similar prompts do.
 	await writeFile(join(home, '.bashrc'), "PS1='user$ '\nPROMPT_COMMAND='__user_status=$?'\n");
+	await writeFile(
+		join(home, '.zshrc'),
+		"PS1='user$ '\n__user_hook() { __user_status=$?; }\nprecmd_functions=(__user_hook)\n"
+	);
+	await writeFile(join(home, '.zshenv'), 'export DDB_ZSH_ENV=loaded\n');
 });
 after(async () => {
 	await brain.cleanup();
@@ -164,15 +169,17 @@ function processStream(child) {
 }
 
 /** Run every exec as a local process: TTY execs in a Python PTY, control scripts directly. */
-function installReal() {
+function installReal(path, extraEnv = {}) {
 	const children = [];
 	const docker = fakeDocker(new Map([[ID, runningContainer(ID)]]), (options) => {
-		const env = { PATH: process.env.PATH, HOME: home, LANG: 'C.UTF-8' };
+		const env = { PATH: process.env.PATH, HOME: home, LANG: 'C.UTF-8', ...extraEnv };
 		for (const entry of options.Env ?? []) {
 			const split = entry.indexOf('=');
 			env[entry.slice(0, split)] = entry.slice(split + 1);
 		}
-		const [program, ...args] = options.Cmd;
+		const cmd = [...options.Cmd];
+		if (options.Tty && path) cmd[5] = `PATH='${path}'; export PATH;\n${cmd[5]}`;
+		const [program, ...args] = cmd;
 		const child = options.Tty
 			? spawn('python3', ['-c', PTY_PROGRAM, program, ...args], {
 					cwd: options.WorkingDir,
@@ -203,12 +210,101 @@ function installReal() {
 	};
 }
 
+/** A restricted PATH exercises fallback order without installing or removing system shells. */
+async function shellPath(homeDir, names) {
+	const bin = join(homeDir, `bin-${names.join('-')}`);
+	await mkdir(bin);
+	for (const name of [...names, 'sh', 'cat', 'mktemp', 'rm', 'rmdir']) {
+		const destination =
+			name === 'zsh' && process.env.DDB_TEST_ZSH
+				? process.env.DDB_TEST_ZSH
+				: spawnSync('/bin/sh', ['-c', 'command -v "$1"', 'sh', name], {
+						encoding: 'utf8'
+					}).stdout.trim();
+		if (!destination) throw new Error(`Test executable not found: ${name}`);
+		await symlink(destination, join(bin, name));
+	}
+	return bin;
+}
+
 /** Call one MCP tool and return its structured result, or throw its error text. */
 async function call(name, input) {
 	const result = await brain.tools.callTool(name, input);
 	if (result.isError) throw new Error(result.content[0].text);
 	return result.structuredContent;
 }
+
+for (const shell of ['zsh', 'bash', 'sh']) {
+	const zshAvailable = process.env.DDB_TEST_ZSH || spawnSync('zsh', ['-c', 'exit 0']).status === 0;
+	test(
+		`persistent shell selects ${shell} and preserves command state`,
+		{ skip: (!realShells || (shell === 'zsh' && !zshAvailable)) && 'required shell unavailable' },
+		async () => {
+			const names = shell === 'zsh' ? ['zsh', 'bash'] : shell === 'bash' ? ['bash'] : [];
+			const path = await shellPath(home, names);
+			const real = installReal(path);
+			try {
+				const opened = await call('open_shell', { target_id: real.grant.id, wait_seconds: 10 });
+				assert.equal(opened.ready, true);
+				const run = (command) =>
+					call('execute', {
+						target_id: real.grant.id,
+						shell_id: opened.shell_id,
+						command,
+						wait_seconds: 10
+					});
+				const identity = await run(
+					'if [ -n "${ZSH_VERSION-}" ]; then echo zsh; elif [ -n "${BASH_VERSION-}" ]; then echo bash; else echo sh; fi'
+				);
+				assert.equal(identity.exit_code, 0);
+				assert.equal(identity.output.trim(), shell);
+				const failure = await run('false');
+				assert.equal(failure.exit_code, 1);
+				if (shell !== 'sh') assert.equal((await run('echo "$__user_status"')).output, '1\n');
+				if (shell === 'zsh') assert.equal((await run('echo "$DDB_ZSH_ENV"')).output, 'loaded\n');
+				const moved = await run('cd /tmp && export DDB_KEEP=kept');
+				assert.equal(moved.cwd, '/tmp');
+				assert.equal((await run('echo "$DDB_KEEP"')).output, 'kept\n');
+				const multiline = await run('echo first\necho second');
+				assert.equal(multiline.exit_code, 0);
+				assert.equal(multiline.output, 'first\nsecond\n');
+			} finally {
+				real.kill();
+			}
+		}
+	);
+}
+
+test(
+	'zsh preserves a custom ZDOTDIR and loads its startup files',
+	{
+		skip:
+			(!realShells && 'bash and python3 are required') ||
+			(!(process.env.DDB_TEST_ZSH || spawnSync('zsh', ['-c', 'exit 0']).status === 0) &&
+				'zsh is required')
+	},
+	async () => {
+		const dotdir = join(home, 'custom-zsh');
+		await mkdir(dotdir);
+		await writeFile(join(dotdir, '.zshenv'), 'export DDB_CUSTOM_ENV=env\n');
+		await writeFile(join(dotdir, '.zshrc'), "PS1='custom$ '\nexport DDB_CUSTOM_RC=rc\n");
+		const path = await shellPath(home, ['zsh']);
+		const real = installReal(path, { ZDOTDIR: dotdir });
+		try {
+			const opened = await call('open_shell', { target_id: real.grant.id, wait_seconds: 10 });
+			assert.equal(opened.ready, true);
+			const result = await call('execute', {
+				target_id: real.grant.id,
+				shell_id: opened.shell_id,
+				command: 'printf "%s|%s|%s\\n" "$DDB_CUSTOM_ENV" "$DDB_CUSTOM_RC" "$ZDOTDIR"',
+				wait_seconds: 10
+			});
+			assert.equal(result.output, `env|rc|${dotdir}\n`);
+		} finally {
+			real.kill();
+		}
+	}
+);
 
 test(
 	'a real shell keeps directory and variables, reports exit codes and keeps the user prompt hook',
