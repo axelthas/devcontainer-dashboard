@@ -237,7 +237,10 @@ async function createWtermView(
 	element: HTMLElement,
 	options: TerminalViewOptions
 ): Promise<TerminalView> {
-	const [{ WTerm }] = await Promise.all([import('@wterm/dom'), import('@wterm/dom/css')]);
+	const [{ WTerm }] = await Promise.all([
+		import('@wterm/dom'),
+		import('@wterm/dom/src/terminal.css')
+	]);
 	throwIfAborted(options.signal);
 	element.style.setProperty('--term-font-family', options.fontFamily);
 	element.style.setProperty('--term-font-size', `${options.fontSize}px`);

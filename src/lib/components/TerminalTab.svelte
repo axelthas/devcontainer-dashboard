@@ -47,7 +47,7 @@
 		onUseFallback
 	}: Props = $props();
 	let ready = $state(false);
-	let state = $state<ConnectionState>('connecting');
+	let connection = $state<ConnectionState>('connecting');
 	let reason = $state('');
 	/** The selected engine failed, as opposed to the connection or the process. */
 	let viewFailed = $state(false);
@@ -70,7 +70,7 @@
 		if (
 			!canMeasureTerminal() ||
 			!validTerminalDimensions(dimensions) ||
-			state !== 'connected' ||
+			connection !== 'connected' ||
 			socket?.readyState !== WebSocket.OPEN
 		)
 			return;
@@ -115,7 +115,7 @@
 			view = undefined;
 			ready = false;
 			viewFailed = true;
-			state = 'failed';
+			connection = 'failed';
 			reason = message;
 			onIdentity?.(undefined);
 		}
@@ -126,14 +126,14 @@
 			clearTimeout(retryTimer);
 			clearTimeout(connectTimer);
 			socket?.close();
-			state = 'connecting';
+			connection = 'connecting';
 			try {
 				const probe = await fetch(`/api/terminal/sessions?id=${encodeURIComponent(sessionId)}`, {
 					signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10_000)])
 				});
 				if (!current(version)) return;
 				if (!probe.ok) {
-					state = 'failed';
+					connection = 'failed';
 					reason =
 						probe.status === 401
 							? 'Session expired. Sign in, then retry.'
@@ -155,7 +155,7 @@
 						const message = JSON.parse(event.data);
 						if (message.type === 'ready') {
 							clearTimeout(connectTimer);
-							state = 'connected';
+							connection = 'connected';
 							reason = '';
 							retries = 0;
 							// Engines apply writes in call order, so the replay follows the reset.
@@ -165,18 +165,18 @@
 						} else if (message.type === 'data' && typeof message.data === 'string')
 							view?.write(message.data);
 						else if (message.type === 'exit') {
-							state = 'exited';
+							connection = 'exited';
 							reason = `Process exited (${message.exitCode ?? 0}).`;
 							if (!reportedExit) {
 								reportedExit = true;
 								onExit?.(message.exitCode ?? 0);
 							}
 						} else if (message.type === 'missing') {
-							state = 'failed';
+							connection = 'failed';
 							reason = 'Process no longer exists. Start a new terminal explicitly.';
 						}
 					} catch {
-						state = 'failed';
+						connection = 'failed';
 						reason = 'Invalid terminal response.';
 						ws.close(1008);
 					}
@@ -187,9 +187,9 @@
 				ws.onclose = (event) => {
 					if (!current(version)) return;
 					clearTimeout(connectTimer);
-					if (state === 'exited' || state === 'failed') return;
+					if (connection === 'exited' || connection === 'failed') return;
 					if (event.code === 1008) {
-						state = 'failed';
+						connection = 'failed';
 						reason = event.reason || 'Connection rejected. Sign in and retry.';
 						return;
 					}
@@ -201,10 +201,10 @@
 		}
 		/** Bound automatic recovery. Manual retry still attaches, never recreates. */
 		function scheduleReconnect() {
-			state = 'disconnected';
+			connection = 'disconnected';
 			reason = 'Disconnected. The process can continue in the background.';
 			if (retries >= 5) {
-				state = 'failed';
+				connection = 'failed';
 				return;
 			}
 			retryTimer = setTimeout(() => void connect(), Math.min(500 * 2 ** retries++, 8000));
@@ -213,7 +213,7 @@
 		async function prepareConnection() {
 			if (disposed || preparing) return;
 			preparing = true;
-			state = 'connecting';
+			connection = 'connecting';
 			reason = '';
 			try {
 				// An existing session is only probed here; its command is never sent again.
@@ -223,7 +223,7 @@
 				await connect();
 			} catch (error) {
 				if (!disposed) {
-					state = 'failed';
+					connection = 'failed';
 					reason = error instanceof Error ? error.message : 'Could not start terminal.';
 				}
 			} finally {
@@ -233,7 +233,7 @@
 		/** Mount the selected engine's viewer; recovery reuses the same session identity. */
 		async function init() {
 			viewFailed = false;
-			state = 'connecting';
+			connection = 'connecting';
 			reason = '';
 			try {
 				const created = await createTerminalView(selectedEngine, node, {
@@ -243,7 +243,12 @@
 					scrollback: 5000,
 					signal: controller.signal,
 					onData: (data) => {
-						if (state === 'connected' && active && visible && socket?.readyState === WebSocket.OPEN)
+						if (
+							connection === 'connected' &&
+							active &&
+							visible &&
+							socket?.readyState === WebSocket.OPEN
+						)
 							socket.send(JSON.stringify({ type: 'data', data }));
 					},
 					onResize: (dimensions) => sendResize(dimensions),
@@ -319,7 +324,7 @@
 </script>
 
 <div class="flex h-full w-full flex-col" hidden={!visible}>
-	{#if state !== 'connected'}
+	{#if connection !== 'connected'}
 		<div role="status" class="flex shrink-0 items-center gap-2 px-2 py-1 text-xs text-[#d8dee9]">
 			<span>{reason || 'Connecting...'}</span>
 			{#if viewFailed && engine !== DEFAULT_TERMINAL_ENGINE && onUseFallback}<button
@@ -328,7 +333,7 @@
 					class="font-semibold text-[#88c0d0] underline"
 					>Use {TERMINAL_ENGINES[DEFAULT_TERMINAL_ENGINE].label}</button
 				>{/if}
-			{#if state === 'failed' || state === 'disconnected'}<button
+			{#if connection === 'failed' || connection === 'disconnected'}<button
 					type="button"
 					onclick={retry}
 					class="underline">{viewFailed ? 'Retry' : 'Retry connection'}</button

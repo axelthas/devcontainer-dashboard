@@ -50,8 +50,14 @@
 		if (engine !== value) onSelect(engine);
 	}
 
-	/** Menu keyboard navigation. Escape and outside clicks use native popover dismissal. */
+	/** Menu keyboard navigation. Escape returns focus to the trigger; outside clicks dismiss natively. */
 	function navigate(event: KeyboardEvent) {
+		if (event.key === 'Escape') {
+			event.preventDefault();
+			menu.hidePopover();
+			trigger.focus();
+			return;
+		}
 		if (event.key === 'Tab') {
 			menu.hidePopover();
 			return;
@@ -114,6 +120,8 @@
 			tabindex="-1"
 			type="button"
 			aria-checked={engine === value}
+			aria-labelledby={`${menuId}-${engine}`}
+			aria-describedby={`${menuId}-${engine}-hint`}
 			onclick={() => choose(engine)}
 			class="flex w-full items-start gap-2 rounded px-2 py-1.5 text-left hover:bg-[#434c5e] focus:bg-[#434c5e] focus:outline-none"
 		>
@@ -121,8 +129,12 @@
 				>{#if engine === value}<Check size={13} />{/if}</span
 			>
 			<span class="min-w-0">
-				<span class="block text-xs font-medium">{TERMINAL_ENGINES[engine].label}</span>
-				<span class="block text-[11px] text-[#d8dee9]/60">{TERMINAL_ENGINES[engine].hint}</span>
+				<span id={`${menuId}-${engine}`} class="block text-xs font-medium"
+					>{TERMINAL_ENGINES[engine].label}</span
+				>
+				<span id={`${menuId}-${engine}-hint`} class="block text-[11px] text-[#d8dee9]/60"
+					>{TERMINAL_ENGINES[engine].hint}</span
+				>
 			</span>
 		</button>
 	{/each}
