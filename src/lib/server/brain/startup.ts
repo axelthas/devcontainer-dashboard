@@ -338,15 +338,18 @@ async function acquireLock(path: string): Promise<() => Promise<void>> {
 			start: string;
 		};
 		if (owner.host !== hostname() || !Number.isInteger(owner.pid) || owner.pid < 1)
-			throw new Error('Brain Funnel journal locked by another instance; inspect it manually');
-		let alive = true;
+			throw new Error('Brain Funnel journal locked by another instance; inspect it manually', {
+				cause: error
+			});
+		let alive: boolean;
 		try {
 			alive = (await processStart(owner.pid)) === owner.start;
 		} catch (lookup) {
-			if (hasCode(lookup, 'ENOENT')) alive = false;
-			else throw lookup;
+			if (!hasCode(lookup, 'ENOENT')) throw lookup;
+			// The owner process has ended, so its lock is stale.
+			alive = false;
 		}
-		if (alive) throw new Error('Brain Funnel journal is already in use');
+		if (alive) throw new Error('Brain Funnel journal is already in use', { cause: error });
 		await rm(path, { recursive: true });
 		await mkdir(path);
 	}

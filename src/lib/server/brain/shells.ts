@@ -265,6 +265,7 @@ export function typeable(command: string): boolean {
 	return (
 		command.length <= SHELL_LIMITS.typed &&
 		// Printable characters only: TAB would complete, control keys would edit the line.
+		// eslint-disable-next-line no-control-regex -- rejecting control characters is the purpose
 		/^[^\u0000-\u001f\u007f]*$/.test(command) &&
 		// A final backslash continues the line, and bash would wait at its PS2 prompt.
 		!command.endsWith('\\')
@@ -273,6 +274,7 @@ export function typeable(command: string): boolean {
 
 /** First command line, printable and short, for the comment after a script command. */
 function summary(command: string): string {
+	// eslint-disable-next-line no-control-regex -- replacing control characters is the purpose
 	const line = (command.trim().split('\n')[0] ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ');
 	return line.length > SHELL_LIMITS.summary ? `${line.slice(0, SHELL_LIMITS.summary)}…` : line;
 }

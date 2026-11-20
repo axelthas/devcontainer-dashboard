@@ -79,6 +79,7 @@ const EXEC_ENV = ['TERM=dumb', 'NO_COLOR=1', 'PAGER=cat', 'GIT_PAGER=cat', 'GIT_
 const SHELL_ENV = ['TERM=xterm-256color', 'PAGER=cat', 'GIT_PAGER=cat', 'GIT_TERMINAL_PROMPT=0'];
 /** OSC, CSI and other escape sequences, and stray control characters except LF, CR and TAB. */
 const TERMINAL_ESCAPES =
+	// eslint-disable-next-line no-control-regex -- stripping terminal control sequences is the purpose
 	/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b\[[0-?]*[ -/]*[@-~]|\u001b[ -/]*[0-~]|[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
 /** Ctrl+D: end-of-file for a reader in canonical terminal mode */
 const END_OF_FILE = '\u0004';
