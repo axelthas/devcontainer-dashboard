@@ -27,10 +27,7 @@ before(async () => {
 	brain = await loadBrain();
 	home = await mkdtemp(join(tmpdir(), 'ddash-shell-home-'));
 	// A user prompt hook that reads $?, as starship and similar prompts do.
-	await writeFile(
-		join(home, '.bashrc'),
-		"PS1='user$ '\nPROMPT_COMMAND='__user_status=$?'\n"
-	);
+	await writeFile(join(home, '.bashrc'), "PS1='user$ '\nPROMPT_COMMAND='__user_status=$?'\n");
 });
 after(async () => {
 	await brain.cleanup();

@@ -68,7 +68,7 @@ export const BRAIN_TOOLS: ToolDefinition[] = [
 		name: 'open_shell',
 		title: 'Open a persistent shell',
 		description:
-			'Start a persistent interactive bash in one granted container, in a terminal that the operator watches. Prefer a shell for multi-step work: pass its shell_id to execute, and the working directory, variables and history carry over between commands. The shell loads the user\'s ~/.bashrc, so output can contain the user\'s prompt. Open a second shell, with a name such as build, only for work that must run in parallel. Open shells count toward the running-command limit of the target; close a shell with cancel_execution. Waits for the first prompt and returns shell_id and ready.',
+			"Start a persistent interactive bash in one granted container, in a terminal that the operator watches. Prefer a shell for multi-step work: pass its shell_id to execute, and the working directory, variables and history carry over between commands. The shell loads the user's ~/.bashrc, so output can contain the user's prompt. Open a second shell, with a name such as build, only for work that must run in parallel. Open shells count toward the running-command limit of the target; close a shell with cancel_execution. Waits for the first prompt and returns shell_id and ready.",
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -93,7 +93,7 @@ export const BRAIN_TOOLS: ToolDefinition[] = [
 		name: 'execute',
 		title: 'Run a command',
 		description:
-			'Run a shell command in one granted container as the granted user, in a terminal that the operator can watch. With shell_id from open_shell, the command is typed into that persistent shell: the working directory and variables carry over, the result has command_id, exit_code and cwd, and status is the command\'s status. A shell runs one command at a time; a busy shell refuses another command. Without shell_id, every call starts a new process with bash -lc (or sh -lc when bash is missing), and nothing carries over; stdin is /dev/null unless interactive is true. The operator can take control of the terminal at any time; execute in that shell, write_stdin and cancel_execution are then refused until the operator hands control back. When the status is still running, call read_output with execution_id and next_cursor.',
+			"Run a shell command in one granted container as the granted user, in a terminal that the operator can watch. With shell_id from open_shell, the command is typed into that persistent shell: the working directory and variables carry over, the result has command_id, exit_code and cwd, and status is the command's status. A shell runs one command at a time; a busy shell refuses another command. Without shell_id, every call starts a new process with bash -lc (or sh -lc when bash is missing), and nothing carries over; stdin is /dev/null unless interactive is true. The operator can take control of the terminal at any time; execute in that shell, write_stdin and cancel_execution are then refused until the operator hands control back. When the status is still running, call read_output with execution_id and next_cursor.",
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -123,7 +123,7 @@ export const BRAIN_TOOLS: ToolDefinition[] = [
 		name: 'read_output',
 		title: 'Read command output',
 		description:
-			'Read output of an execution or shell from a cursor. Use next_cursor from the previous result. With wait_seconds, wait for new output or completion first. For a shell, output is plain text without colours, status is the shell\'s status, and command reports the current or last command with its status, exit_code and cwd; output stops at the end of that command until the cursor passes it.',
+			"Read output of an execution or shell from a cursor. Use next_cursor from the previous result. With wait_seconds, wait for new output or completion first. For a shell, output is plain text without colours, status is the shell's status, and command reports the current or last command with its status, exit_code and cwd; output stops at the end of that command until the cursor passes it.",
 		inputSchema: {
 			type: 'object',
 			properties: {

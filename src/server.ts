@@ -82,10 +82,14 @@ async function closeResources() {
 		await new Promise<void>((resolve) => brainServer.close(() => resolve()));
 	}
 	await stopAllExecutions('The dashboard is shutting down');
-	try { await funnel?.close(); }
-	finally {
-		try { await tailscaleRuntime?.close(); }
-		finally { await ai?.close(); }
+	try {
+		await funnel?.close();
+	} finally {
+		try {
+			await tailscaleRuntime?.close();
+		} finally {
+			await ai?.close();
+		}
 	}
 }
 try {

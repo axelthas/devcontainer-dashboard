@@ -58,7 +58,11 @@ function parseMessage(
 	try {
 		const message = JSON.parse(raw);
 		if (message?.type === 'data' && typeof message.data === 'string') return message;
-		if (message?.type === 'resize' && typeof message.cols === 'number' && typeof message.rows === 'number')
+		if (
+			message?.type === 'resize' &&
+			typeof message.cols === 'number' &&
+			typeof message.rows === 'number'
+		)
 			return message;
 	} catch {
 		// Invalid JSON is rejected below.
@@ -131,7 +135,8 @@ export function connectViewer(executionId: string, peer: ViewerPeer): ViewerConn
 				else await resizeTerminal(execution, message.cols, message.rows);
 			} catch (cause) {
 				// Report refusals (for example, typing while Brain has control) to this viewer only.
-				if (cause instanceof BrainExecutionError) send(peer, { type: 'error', message: cause.message });
+				if (cause instanceof BrainExecutionError)
+					send(peer, { type: 'error', message: cause.message });
 				else throw cause;
 			}
 		},

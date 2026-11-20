@@ -80,9 +80,11 @@
 		class="flex items-center gap-1.5 rounded-full border border-[#b48ead]/40 bg-[#b48ead]/10 px-3 py-1.5 text-sm font-medium text-[#b48ead] transition-colors hover:bg-[#b48ead]/20"
 	>
 		<BrainCircuit size={16} />
-		<span>{status.enabled
-			? `Brain · ${grants.length} ${grants.length === 1 ? 'grant' : 'grants'}`
-			: 'Brain disabled'}</span>
+		<span
+			>{status.enabled
+				? `Brain · ${grants.length} ${grants.length === 1 ? 'grant' : 'grants'}`
+				: 'Brain disabled'}</span
+		>
 	</button>
 
 	<dialog
@@ -117,192 +119,200 @@
 					<section class="grid gap-3">
 						<h3 class="font-semibold">Brain shell access is disabled</h3>
 						<p class="text-xs">
-							Add <code>--brain</code> to your production launcher command, then recreate the
-							dashboard container. This creates a persistent token and a loopback-only MCP listener.
+							Add <code>--brain</code> to your production launcher command, then recreate the dashboard
+							container. This creates a persistent token and a loopback-only MCP listener.
 						</p>
-						<pre class="overflow-auto rounded-lg bg-[#2e3440] p-3 font-mono text-xs text-[#d8dee9]">bash scripts/run-dashboard.sh --build --brain</pre>
+						<pre
+							class="overflow-auto rounded-lg bg-[#2e3440] p-3 font-mono text-xs text-[#d8dee9]">bash scripts/run-dashboard.sh --build --brain</pre>
 						<p class="text-xs">
-							For ClickUp access over the internet, also add <code>--brain-funnel</code> to
-							your existing Tailscale launch command. It requires <code>--tailscale-socket</code>,
-							an HTTPS <code>--origin</code>, and tailnet Funnel permission.
+							For ClickUp access over the internet, also add <code>--brain-funnel</code> to your
+							existing Tailscale launch command. It requires <code>--tailscale-socket</code>, an
+							HTTPS <code>--origin</code>, and tailnet Funnel permission.
 						</p>
 						<p class="text-xs text-[#bf616a]">
-							Funnel makes only the token-protected MCP endpoint public, not the dashboard.
-							You must still grant access to each container.
+							Funnel makes only the token-protected MCP endpoint public, not the dashboard. You must
+							still grant access to each container.
 						</p>
 					</section>
 				{:else}
-				<section class="grid gap-2">
-					<h3 class="text-xs font-semibold text-[#4c566a] uppercase dark:text-[#d8dee9]/60">
-						Endpoint
-					</h3>
-					{#if status.publicUrl}
-						<p class="flex items-center gap-2 font-mono text-xs break-all">
-							<Globe size={14} class="shrink-0 text-[#88c0d0]" />{status.publicUrl}
-						</p>
-					{:else}
-						<p class="text-xs text-[#4c566a] dark:text-[#d8dee9]/70">
-							The MCP endpoint is running locally. Add --brain-funnel to your Tailscale launch command
-							to publish it and show its connection URL here.
-						</p>
-					{/if}
-					<p class="flex flex-wrap gap-1">
-						{#each TOOLS as tool (tool)}
-							<span
-								class="rounded border border-[#d8dee9] px-1.5 py-0.5 font-mono text-xs dark:border-[#4c566a]"
-								>{tool}</span
-							>
-						{/each}
-					</p>
-					<p class="text-xs text-[#4c566a] dark:text-[#d8dee9]/60">
-						Brain cannot create grants. Commands can reach everything available inside a granted
-						container, including its mounted sockets, credentials and networks.
-					</p>
-				</section>
-
-				<section class="grid gap-2">
-					<div class="flex items-center justify-between gap-2">
+					<section class="grid gap-2">
 						<h3 class="text-xs font-semibold text-[#4c566a] uppercase dark:text-[#d8dee9]/60">
-							Granted containers
+							Endpoint
 						</h3>
-						{#if grants.length > 0}
-							<button
-								type="button"
-								disabled={Boolean(working)}
-								onclick={revokeAll}
-								class="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-[#bf616a] transition-colors hover:bg-[#bf616a]/10 disabled:opacity-50"
-							>
-								<Ban size={12} />Revoke all
-							</button>
+						{#if status.publicUrl}
+							<p class="flex items-center gap-2 font-mono text-xs break-all">
+								<Globe size={14} class="shrink-0 text-[#88c0d0]" />{status.publicUrl}
+							</p>
+						{:else}
+							<p class="text-xs text-[#4c566a] dark:text-[#d8dee9]/70">
+								The MCP endpoint is running locally. Add --brain-funnel to your Tailscale launch
+								command to publish it and show its connection URL here.
+							</p>
 						{/if}
-					</div>
-					{#if grants.length === 0}
-						<p class="text-xs text-[#4c566a] dark:text-[#d8dee9]/70">
-							No containers are granted. Use Grant Brain on a running container.
-						</p>
-					{:else}
-						<ul class="grid gap-2">
-							{#each grants as grant (grant.id)}
-								<li
-									class="flex items-center justify-between gap-3 rounded-lg border-l-4 border-[#b48ead] bg-white px-3 py-2 dark:bg-[#3b4252]"
+						<p class="flex flex-wrap gap-1">
+							{#each TOOLS as tool (tool)}
+								<span
+									class="rounded border border-[#d8dee9] px-1.5 py-0.5 font-mono text-xs dark:border-[#4c566a]"
+									>{tool}</span
 								>
-									<div class="min-w-0">
-										<p class="truncate font-semibold">{grant.containerName}</p>
-										<p class="text-xs text-[#4c566a] dark:text-[#d8dee9]/60">
-											as <span class="font-mono">{grant.user}</span> · {formatRemaining(
-												grant.expiresAt,
-												access.now
-											)} left · {grant.runningExecutions} running
-										</p>
-									</div>
-									<button
-										type="button"
-										disabled={Boolean(working)}
-										onclick={() => void act(grant.id, () => access.revoke(grant.id))}
-										class="shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-[#bf616a] transition-colors hover:bg-[#bf616a]/10 disabled:opacity-50"
-									>
-										Revoke
-									</button>
-								</li>
 							{/each}
-						</ul>
-					{/if}
-				</section>
+						</p>
+						<p class="text-xs text-[#4c566a] dark:text-[#d8dee9]/60">
+							Brain cannot create grants. Commands can reach everything available inside a granted
+							container, including its mounted sockets, credentials and networks.
+						</p>
+					</section>
 
-				<section class="grid gap-2">
-					<h3 class="text-xs font-semibold text-[#4c566a] uppercase dark:text-[#d8dee9]/60">
-						Commands
-					</h3>
-					{#if executions.length === 0}
-						<p class="text-xs text-[#4c566a] dark:text-[#d8dee9]/70">Brain has run no commands.</p>
-					{:else}
-						<ul class="grid gap-2">
-							{#each executions as execution (execution.id)}
-								<li class="grid gap-2 rounded-lg bg-white px-3 py-2 dark:bg-[#3b4252]">
-									<div class="flex items-center gap-2">
+					<section class="grid gap-2">
+						<div class="flex items-center justify-between gap-2">
+							<h3 class="text-xs font-semibold text-[#4c566a] uppercase dark:text-[#d8dee9]/60">
+								Granted containers
+							</h3>
+							{#if grants.length > 0}
+								<button
+									type="button"
+									disabled={Boolean(working)}
+									onclick={revokeAll}
+									class="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-[#bf616a] transition-colors hover:bg-[#bf616a]/10 disabled:opacity-50"
+								>
+									<Ban size={12} />Revoke all
+								</button>
+							{/if}
+						</div>
+						{#if grants.length === 0}
+							<p class="text-xs text-[#4c566a] dark:text-[#d8dee9]/70">
+								No containers are granted. Use Grant Brain on a running container.
+							</p>
+						{:else}
+							<ul class="grid gap-2">
+								{#each grants as grant (grant.id)}
+									<li
+										class="flex items-center justify-between gap-3 rounded-lg border-l-4 border-[#b48ead] bg-white px-3 py-2 dark:bg-[#3b4252]"
+									>
+										<div class="min-w-0">
+											<p class="truncate font-semibold">{grant.containerName}</p>
+											<p class="text-xs text-[#4c566a] dark:text-[#d8dee9]/60">
+												as <span class="font-mono">{grant.user}</span> · {formatRemaining(
+													grant.expiresAt,
+													access.now
+												)} left · {grant.runningExecutions} running
+											</p>
+										</div>
 										<button
 											type="button"
-											aria-expanded={selected === execution.id}
-											aria-label={`Output: ${execution.command}`}
-											onclick={() => (selected = selected === execution.id ? null : execution.id)}
-											class="shrink-0 rounded p-0.5 text-[#4c566a] hover:bg-[#e5e9f0] dark:text-[#d8dee9]/60 dark:hover:bg-[#434c5e]"
+											disabled={Boolean(working)}
+											onclick={() => void act(grant.id, () => access.revoke(grant.id))}
+											class="shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-[#bf616a] transition-colors hover:bg-[#bf616a]/10 disabled:opacity-50"
 										>
-											<ChevronRight
-												size={14}
-												class="transition-transform {selected === execution.id ? 'rotate-90' : ''}"
-											/>
+											Revoke
 										</button>
-										<code
-											class="min-w-0 flex-1 truncate font-mono text-xs"
-											title={execution.command}>{execution.command}</code
-										>
-										<span class="shrink-0 text-xs {STATUS_CLASS[execution.status]}"
-											>{outcome(execution)}</span
-										>
-										<button
-											type="button"
-											title="Open in terminal"
-											aria-label={`Open in terminal: ${execution.command}`}
-											onclick={() => openInTerminal(execution.id)}
-											class="shrink-0 rounded p-0.5 text-[#4c566a] transition-colors hover:bg-[#e5e9f0] hover:text-[#b48ead] dark:text-[#d8dee9]/60 dark:hover:bg-[#434c5e]"
-										>
-											<Terminal size={14} />
-										</button>
-										{#if execution.status === 'running'}
+									</li>
+								{/each}
+							</ul>
+						{/if}
+					</section>
+
+					<section class="grid gap-2">
+						<h3 class="text-xs font-semibold text-[#4c566a] uppercase dark:text-[#d8dee9]/60">
+							Commands
+						</h3>
+						{#if executions.length === 0}
+							<p class="text-xs text-[#4c566a] dark:text-[#d8dee9]/70">
+								Brain has run no commands.
+							</p>
+						{:else}
+							<ul class="grid gap-2">
+								{#each executions as execution (execution.id)}
+									<li class="grid gap-2 rounded-lg bg-white px-3 py-2 dark:bg-[#3b4252]">
+										<div class="flex items-center gap-2">
 											<button
 												type="button"
-												disabled={Boolean(working)}
-												onclick={() => void act(execution.id, () => access.stop(execution.id))}
-												class="flex shrink-0 items-center gap-1 rounded-lg px-2 py-0.5 text-xs font-medium text-[#bf616a] transition-colors hover:bg-[#bf616a]/10 disabled:opacity-50"
+												aria-expanded={selected === execution.id}
+												aria-label={`Output: ${execution.command}`}
+												onclick={() => (selected = selected === execution.id ? null : execution.id)}
+												class="shrink-0 rounded p-0.5 text-[#4c566a] hover:bg-[#e5e9f0] dark:text-[#d8dee9]/60 dark:hover:bg-[#434c5e]"
 											>
-												<Square size={10} />Stop
+												<ChevronRight
+													size={14}
+													class="transition-transform {selected === execution.id
+														? 'rotate-90'
+														: ''}"
+												/>
 											</button>
+											<code
+												class="min-w-0 flex-1 truncate font-mono text-xs"
+												title={execution.command}>{execution.command}</code
+											>
+											<span class="shrink-0 text-xs {STATUS_CLASS[execution.status]}"
+												>{outcome(execution)}</span
+											>
+											<button
+												type="button"
+												title="Open in terminal"
+												aria-label={`Open in terminal: ${execution.command}`}
+												onclick={() => openInTerminal(execution.id)}
+												class="shrink-0 rounded p-0.5 text-[#4c566a] transition-colors hover:bg-[#e5e9f0] hover:text-[#b48ead] dark:text-[#d8dee9]/60 dark:hover:bg-[#434c5e]"
+											>
+												<Terminal size={14} />
+											</button>
+											{#if execution.status === 'running'}
+												<button
+													type="button"
+													disabled={Boolean(working)}
+													onclick={() => void act(execution.id, () => access.stop(execution.id))}
+													class="flex shrink-0 items-center gap-1 rounded-lg px-2 py-0.5 text-xs font-medium text-[#bf616a] transition-colors hover:bg-[#bf616a]/10 disabled:opacity-50"
+												>
+													<Square size={10} />Stop
+												</button>
+											{/if}
+										</div>
+										<p class="text-xs text-[#4c566a] dark:text-[#d8dee9]/60">
+											{execution.containerName} · as
+											<span class="font-mono">{execution.user}</span>
+											{#if execution.stopReason}· {execution.stopReason}{/if}
+											{#if execution.error}· {execution.error}{/if}
+										</p>
+										{#if selected === execution.id}
+											<BrainExecutionOutput executionId={execution.id} />
 										{/if}
-									</div>
-									<p class="text-xs text-[#4c566a] dark:text-[#d8dee9]/60">
-										{execution.containerName} · as
-										<span class="font-mono">{execution.user}</span>
-										{#if execution.stopReason}· {execution.stopReason}{/if}
-										{#if execution.error}· {execution.error}{/if}
-									</p>
-									{#if selected === execution.id}
-										<BrainExecutionOutput executionId={execution.id} />
-									{/if}
-								</li>
-							{/each}
-						</ul>
-					{/if}
-				</section>
+									</li>
+								{/each}
+							</ul>
+						{/if}
+					</section>
 
-				<section class="grid gap-2">
-					<h3 class="text-xs font-semibold text-[#4c566a] uppercase dark:text-[#d8dee9]/60">
-						Activity
-					</h3>
-					{#if audit.length === 0}
-						<p class="text-xs text-[#4c566a] dark:text-[#d8dee9]/70">No activity yet.</p>
-					{:else}
-						<ol class="grid gap-1.5">
-							{#each audit as entry, index (`${entry.at}-${index}`)}
-								<li class="grid grid-cols-[max-content_1fr] gap-x-3 text-xs">
-									<time datetime={entry.at} class="font-mono text-[#4c566a] dark:text-[#d8dee9]/60"
-										>{new Date(entry.at).toLocaleTimeString()}</time
-									>
-									<span class="min-w-0">
-										<span class="font-mono text-[#b48ead]">{entry.tool}</span>
-										{#if entry.target}<span class="text-[#4c566a] dark:text-[#d8dee9]/60">
-												→ {entry.target}</span
-											>{/if}
-										<span class="block truncate font-mono" title={entry.detail}>{entry.detail}</span
+					<section class="grid gap-2">
+						<h3 class="text-xs font-semibold text-[#4c566a] uppercase dark:text-[#d8dee9]/60">
+							Activity
+						</h3>
+						{#if audit.length === 0}
+							<p class="text-xs text-[#4c566a] dark:text-[#d8dee9]/70">No activity yet.</p>
+						{:else}
+							<ol class="grid gap-1.5">
+								{#each audit as entry, index (`${entry.at}-${index}`)}
+									<li class="grid grid-cols-[max-content_1fr] gap-x-3 text-xs">
+										<time
+											datetime={entry.at}
+											class="font-mono text-[#4c566a] dark:text-[#d8dee9]/60"
+											>{new Date(entry.at).toLocaleTimeString()}</time
 										>
-										<span class={OUTCOME_CLASS[entry.outcome]}
-											>{entry.outcome === 'denied' ? 'Refused' : entry.outcome}</span
-										>
-									</span>
-								</li>
-							{/each}
-						</ol>
-					{/if}
-				</section>
+										<span class="min-w-0">
+											<span class="font-mono text-[#b48ead]">{entry.tool}</span>
+											{#if entry.target}<span class="text-[#4c566a] dark:text-[#d8dee9]/60">
+													→ {entry.target}</span
+												>{/if}
+											<span class="block truncate font-mono" title={entry.detail}
+												>{entry.detail}</span
+											>
+											<span class={OUTCOME_CLASS[entry.outcome]}
+												>{entry.outcome === 'denied' ? 'Refused' : entry.outcome}</span
+											>
+										</span>
+									</li>
+								{/each}
+							</ol>
+						{/if}
+					</section>
 				{/if}
 			</div>
 		</div>

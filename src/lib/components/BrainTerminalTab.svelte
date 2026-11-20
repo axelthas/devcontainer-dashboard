@@ -324,8 +324,8 @@
 	{/if}
 	{#if operator}
 		<p class="px-1 text-xs text-[#ebcb8b]/80">
-			Brain cannot type or cancel until you hand back control. Brain can still read everything
-			shown here, including what you type.
+			Brain cannot type or cancel until you hand back control. Brain can still read everything shown
+			here, including what you type.
 			{#if !execution.interactive}This command does not read input; Ctrl+C and password prompts
 				still reach it.{/if}
 		</p>

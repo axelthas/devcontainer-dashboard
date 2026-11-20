@@ -52,8 +52,7 @@ export function validateBrainFunnelStatus(
 		(self.Capabilities != null &&
 			(!Array.isArray(self.Capabilities) ||
 				!self.Capabilities.every((cap) => typeof cap === 'string'))) ||
-		(self.CapMap != null &&
-			(typeof self.CapMap !== 'object' || Array.isArray(self.CapMap)))
+		(self.CapMap != null && (typeof self.CapMap !== 'object' || Array.isArray(self.CapMap)))
 	)
 		throw preflightError('invalid node capability data from Tailscale.');
 	const capabilities = new Set<string>([
@@ -64,43 +63,54 @@ export function validateBrainFunnelStatus(
 	if (!capabilities.has('funnel'))
 		missing.push(
 			'Funnel permission is missing for this node. Add the "funnel" node attribute ' +
-			'for its user or tag in the Tailscale access-control policy. ' +
-			'Tagged devices need a matching tag target. See https://tailscale.com/s/no-funnel.'
+				'for its user or tag in the Tailscale access-control policy. ' +
+				'Tagged devices need a matching tag target. See https://tailscale.com/s/no-funnel.'
 		);
 	if (!capabilities.has('https'))
 		missing.push('HTTPS is not enabled for this node/tailnet. See https://tailscale.com/s/https.');
 	if (missing.length) throw preflightError(missing.join(' '));
-	const dnsName = typeof self.DNSName === 'string'
-		? self.DNSName.replace(/\.$/, '').toLowerCase()
-		: '';
+	const dnsName =
+		typeof self.DNSName === 'string' ? self.DNSName.replace(/\.$/, '').toLowerCase() : '';
 	if (!dnsName || dnsName !== settings.hostname.toLowerCase())
 		throw preflightError(
-			'the --origin hostname does not match this node\'s Self.DNSName. ' +
-			'Use the hostname reported by tailscale status --json.'
+			"the --origin hostname does not match this node's Self.DNSName. " +
+				'Use the hostname reported by tailscale status --json.'
 		);
 	const portCapabilities = [...capabilities].filter((cap) =>
 		cap.startsWith(FUNNEL_PORTS_CAPABILITY)
 	);
 	const allowed = portCapabilities.some((cap) => {
 		let parsed: URL;
-		try { parsed = new URL(cap); } catch { return false; }
+		try {
+			parsed = new URL(cap);
+		} catch {
+			return false;
+		}
 		if (
 			`${parsed.origin}${parsed.pathname}` !== FUNNEL_PORTS_CAPABILITY ||
-			parsed.username || parsed.password || parsed.hash
-		) return false;
+			parsed.username ||
+			parsed.password ||
+			parsed.hash
+		)
+			return false;
 		return (parsed.searchParams.get('ports') ?? '').split(',').some((part) => {
 			const range = /^([0-9]{1,5})(?:-([0-9]{1,5}))?$/.exec(part);
 			if (!range) return false;
 			const first = Number(range[1]);
 			const last = Number(range[2] ?? range[1]);
-			return first >= 1 && last <= 65535 && first <= last &&
-				settings.port >= first && settings.port <= last;
+			return (
+				first >= 1 &&
+				last <= 65535 &&
+				first <= last &&
+				settings.port >= first &&
+				settings.port <= last
+			);
 		});
 	});
 	if (!allowed)
 		throw preflightError(
 			`port ${settings.port} is not allowed by this node's Funnel port capability. ` +
-			'Check the tailnet policy and --brain-funnel-port; no route was created.'
+				'Check the tailnet policy and --brain-funnel-port; no route was created.'
 		);
 }
 
@@ -112,8 +122,7 @@ export async function preflightBrainFunnel(
 	socketPath: string,
 	settings: Pick<Funnel, 'hostname' | 'port'>
 ): Promise<void> {
-	if (!isAbsolute(socketPath))
-		throw preflightError('the Tailscale socket path must be absolute.');
+	if (!isAbsolute(socketPath)) throw preflightError('the Tailscale socket path must be absolute.');
 	const body = await new Promise<string>((resolve, reject) => {
 		const req = request(
 			{
@@ -126,16 +135,22 @@ export async function preflightBrainFunnel(
 			(response) => {
 				if (response.statusCode !== 200) {
 					response.resume();
-					reject(preflightError(
-						`cannot read Tailscale status (HTTP ${response.statusCode}). ` +
-						'Check the mounted socket and operator permissions.'
-					));
+					reject(
+						preflightError(
+							`cannot read Tailscale status (HTTP ${response.statusCode}). ` +
+								'Check the mounted socket and operator permissions.'
+						)
+					);
 					return;
 				}
 				const chunks: Buffer[] = [];
 				let size = 0;
-				response.on('error', () => reject(preflightError('Tailscale status response was interrupted.')));
-				response.on('aborted', () => reject(preflightError('Tailscale status response was interrupted.')));
+				response.on('error', () =>
+					reject(preflightError('Tailscale status response was interrupted.'))
+				);
+				response.on('aborted', () =>
+					reject(preflightError('Tailscale status response was interrupted.'))
+				);
 				response.on('data', (chunk: Buffer) => {
 					size += chunk.length;
 					if (size > 1_048_576) {
@@ -148,15 +163,22 @@ export async function preflightBrainFunnel(
 				response.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
 			}
 		);
-		req.on('error', () => reject(preflightError(
-			'cannot read Tailscale status within 5 seconds. Check the mounted socket, ' +
-			'daemon and operator permissions.'
-		)));
+		req.on('error', () =>
+			reject(
+				preflightError(
+					'cannot read Tailscale status within 5 seconds. Check the mounted socket, ' +
+						'daemon and operator permissions.'
+				)
+			)
+		);
 		req.end();
 	});
 	let status: unknown;
-	try { status = JSON.parse(body); }
-	catch { throw preflightError('Tailscale returned invalid status JSON.'); }
+	try {
+		status = JSON.parse(body);
+	} catch {
+		throw preflightError('Tailscale returned invalid status JSON.');
+	}
 	validateBrainFunnelStatus(status, settings);
 }
 
@@ -220,15 +242,24 @@ export function brainFunnelSettings(
 		throw new Error('Brain Funnel port must be 443, 8443 or 10000');
 	const port = Number(raw);
 	if (
-		[Number(origin.port || '443'), Number(env.PORT || '3000'),
-			Number(env.TAILSCALE_GATEWAY_PORT || '3003'), brain.port,
-			Number(env.AI_PUBLIC_PORT || '3002')].includes(port)
+		[
+			Number(origin.port || '443'),
+			Number(env.PORT || '3000'),
+			Number(env.TAILSCALE_GATEWAY_PORT || '3003'),
+			brain.port,
+			Number(env.AI_PUBLIC_PORT || '3002')
+		].includes(port)
 	)
 		throw new Error('Brain Funnel port conflicts with a dashboard, AI or MCP listener');
 	const range = /^(\d+)-(\d+)$/.exec(env.TAILSCALE_SERVE_PORTS ?? '8400-8499');
 	if (!range || (port >= Number(range[1]) && port <= Number(range[2])))
 		throw new Error('Brain Funnel port must be outside the service allocation range');
-	return { hostname: origin.hostname, port, upstream: brain.port, stateFile: '/data/brain-funnel.json' };
+	return {
+		hostname: origin.hostname,
+		port,
+		upstream: brain.port,
+		stateFile: '/data/brain-funnel.json'
+	};
 }
 
 /** Exact values we own in the daemon configuration. No extra metadata is sent to tailscaled. */
@@ -247,31 +278,44 @@ export function ownsBrainFunnel(config: ServeConfig, entry: Entry): boolean {
 		!isDeepStrictEqual(config.TCP?.[entry.port], want.tcp) ||
 		!isDeepStrictEqual(config.Web?.[want.key], want.web) ||
 		config.AllowFunnel?.[want.key] !== true ||
-		Object.keys(config.Web ?? {}).some((key) => key !== want.key && key.endsWith(`:${entry.port}`)) ||
-		Object.keys(config.AllowFunnel ?? {}).some((key) => key !== want.key && key.endsWith(`:${entry.port}`))
-	) return false;
+		Object.keys(config.Web ?? {}).some(
+			(key) => key !== want.key && key.endsWith(`:${entry.port}`)
+		) ||
+		Object.keys(config.AllowFunnel ?? {}).some(
+			(key) => key !== want.key && key.endsWith(`:${entry.port}`)
+		)
+	)
+		return false;
 	const occupied = (scope: ServeConfig): boolean => {
 		if (
 			Object.prototype.hasOwnProperty.call(scope.TCP ?? {}, String(entry.port)) ||
 			['Web', 'AllowFunnel'].some((field) =>
 				Object.keys((scope[field] ?? {}) as object).some((key) => key.endsWith(`:${entry.port}`))
 			)
-		) return true;
-		return [...Object.values(scope.Foreground ?? {}), ...Object.values(scope.Services ?? {})]
-			.some(occupied);
+		)
+			return true;
+		return [...Object.values(scope.Foreground ?? {}), ...Object.values(scope.Services ?? {})].some(
+			occupied
+		);
 	};
-	return ![...Object.values(config.Foreground ?? {}), ...Object.values(config.Services ?? {})]
-		.some(occupied);
+	return ![...Object.values(config.Foreground ?? {}), ...Object.values(config.Services ?? {})].some(
+		occupied
+	);
 }
 
 /** Reject malformed ownership records. Corrupt state never authorizes deletion. */
 function parseEntry(value: unknown): Entry {
 	const entry = value as Entry;
 	if (
-		!entry || entry.version !== 1 || !/^[a-z0-9.-]+\.ts\.net$/.test(entry.hostname) ||
-		![443, 8443, 10000].includes(entry.port) || !Number.isInteger(entry.upstream) ||
-		entry.upstream < 1 || entry.upstream > 65535
-	) throw new Error('Invalid Brain Funnel journal; inspect it manually');
+		!entry ||
+		entry.version !== 1 ||
+		!/^[a-z0-9.-]+\.ts\.net$/.test(entry.hostname) ||
+		![443, 8443, 10000].includes(entry.port) ||
+		!Number.isInteger(entry.upstream) ||
+		entry.upstream < 1 ||
+		entry.upstream > 65535
+	)
+		throw new Error('Invalid Brain Funnel journal; inspect it manually');
 	return entry;
 }
 
@@ -289,33 +333,51 @@ async function acquireLock(path: string): Promise<() => Promise<void>> {
 	} catch (error) {
 		if (!hasCode(error, 'EEXIST')) throw error;
 		const owner = JSON.parse(await readFile(join(path, 'owner'), 'utf8')) as {
-			host: string; pid: number; start: string;
+			host: string;
+			pid: number;
+			start: string;
 		};
 		if (owner.host !== hostname() || !Number.isInteger(owner.pid) || owner.pid < 1)
 			throw new Error('Brain Funnel journal locked by another instance; inspect it manually');
 		let alive = true;
-		try { alive = (await processStart(owner.pid)) === owner.start; }
-		catch (lookup) { if (hasCode(lookup, 'ENOENT')) alive = false; else throw lookup; }
+		try {
+			alive = (await processStart(owner.pid)) === owner.start;
+		} catch (lookup) {
+			if (hasCode(lookup, 'ENOENT')) alive = false;
+			else throw lookup;
+		}
 		if (alive) throw new Error('Brain Funnel journal is already in use');
 		await rm(path, { recursive: true });
 		await mkdir(path);
 	}
 	const owner = await open(join(path, 'owner'), 'wx', 0o600);
 	try {
-		await owner.writeFile(JSON.stringify({ host: hostname(), pid: process.pid, start: await processStart(process.pid) }));
+		await owner.writeFile(
+			JSON.stringify({ host: hostname(), pid: process.pid, start: await processStart(process.pid) })
+		);
 		await owner.sync();
-	} finally { await owner.close(); }
+	} finally {
+		await owner.close();
+	}
 	return () => rm(path, { recursive: true });
 }
 
 /** Durable intent before a daemon write, including if the API response is lost. */
 async function persist(path: string, entry: Entry): Promise<void> {
 	const file = await open(`${path}.tmp`, 'w', 0o600);
-	try { await file.writeFile(JSON.stringify(entry)); await file.sync(); }
-	finally { await file.close(); }
+	try {
+		await file.writeFile(JSON.stringify(entry));
+		await file.sync();
+	} finally {
+		await file.close();
+	}
 	await rename(`${path}.tmp`, path);
 	const directory = await open(dirname(path), 'r');
-	try { await directory.sync(); } finally { await directory.close(); }
+	try {
+		await directory.sync();
+	} finally {
+		await directory.close();
+	}
 }
 
 /** Remove only the exact listener we recorded; preserve operator edits and unrelated routes. */
@@ -344,14 +406,22 @@ export async function startBrainFunnel(
 	let attemptedWrite = false;
 	try {
 		let previous: Entry | undefined;
-		try { previous = parseEntry(JSON.parse(await readFile(stateFile, 'utf8'))); }
-		catch (error) { if (!hasCode(error, 'ENOENT')) throw error; }
+		try {
+			previous = parseEntry(JSON.parse(await readFile(stateFile, 'utf8')));
+		} catch (error) {
+			if (!hasCode(error, 'ENOENT')) throw error;
+		}
 		if (previous) {
 			await retire(client, previous);
 			await rm(stateFile);
 		}
 		if (settings) {
-			entry = { version: 1, hostname: settings.hostname, port: settings.port, upstream: settings.upstream };
+			entry = {
+				version: 1,
+				hostname: settings.hostname,
+				port: settings.port,
+				upstream: settings.upstream
+			};
 			const intent = entry;
 			await client.update(async (config) => {
 				// Also checks foreground, services and disabled Funnel reservations. Never adopt an unowned entry.
@@ -368,8 +438,13 @@ export async function startBrainFunnel(
 	} catch (error) {
 		// The POST might have committed even when its response was lost. Retain intent on cleanup failure.
 		try {
-			if (entry && attemptedWrite) { await retire(client, entry); await rm(stateFile, { force: true }); }
-		} finally { await unlock(); }
+			if (entry && attemptedWrite) {
+				await retire(client, entry);
+				await rm(stateFile, { force: true });
+			}
+		} finally {
+			await unlock();
+		}
 		throw error;
 	}
 	let closed = false;
@@ -381,8 +456,13 @@ export async function startBrainFunnel(
 			if (closed) return;
 			closed = true;
 			try {
-				if (entry) { await retire(client, entry); await rm(stateFile, { force: true }); }
-			} finally { await unlock(); }
+				if (entry) {
+					await retire(client, entry);
+					await rm(stateFile, { force: true });
+				}
+			} finally {
+				await unlock();
+			}
 		}
 	};
 }

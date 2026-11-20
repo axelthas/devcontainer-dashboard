@@ -44,7 +44,10 @@ function install({ alive = () => false, exitCode = 0 } = {}) {
 			setImmediate(() => stream.push(null));
 			return { stream, inspect: async () => ({ Running: false, ExitCode: code }) };
 		}
-		return { stream: main, inspect: async () => ({ Running: !finished, ExitCode: finished ? exitCode : null }) };
+		return {
+			stream: main,
+			inspect: async () => ({ Running: !finished, ExitCode: finished ? exitCode : null })
+		};
 	});
 	brain.state.resetBrainStateForTesting(docker);
 	const grant = brain.access.createGrant(target(ID), 60);
@@ -89,7 +92,9 @@ test('a command runs as the granted user, strips the marker and reports its exit
 	assert.equal(options.AttachStdin, true);
 	assert.equal(options.Cmd.at(-2), 'closed');
 	assert.equal(options.Cmd.at(-1), 'npm test');
-	assert.ok(!options.Env.some((entry) => entry.startsWith('BRAIN_MCP') || entry.startsWith('DASHBOARD')));
+	assert.ok(
+		!options.Env.some((entry) => entry.startsWith('BRAIN_MCP') || entry.startsWith('DASHBOARD'))
+	);
 	assert.deepEqual(fake.docker.resizes, [{ h: 32, w: 120 }]);
 	fake.main.push(Buffer.from(MARKER.slice(0, 5)));
 	fake.main.push(Buffer.from(`${MARKER.slice(5)}ok\r`));
@@ -107,7 +112,14 @@ test('a command runs as the granted user, strips the marker and reports its exit
 
 test('output beyond the retention limit drops the oldest text and keeps cursors absolute', () => {
 	const { appendOutput, readOutput, EXECUTION_LIMITS } = brain.executions;
-	const execution = { id: 'x', output: '', outputStart: 0, version: 0, waiters: new Set(), status: 'running' };
+	const execution = {
+		id: 'x',
+		output: '',
+		outputStart: 0,
+		version: 0,
+		waiters: new Set(),
+		status: 'running'
+	};
 	appendOutput(execution, 'a'.repeat(EXECUTION_LIMITS.output + 70_000));
 	appendOutput(execution, 'END');
 	assert.equal(execution.output.length, EXECUTION_LIMITS.output + 3);
@@ -126,7 +138,10 @@ test('stdin is refused for non-interactive commands and after a stop begins', as
 	const fake = install({ alive: () => true });
 	const closed = await brain.executions.startExecution(fake.grant, { command: 'cat' });
 	assert.throws(() => brain.executions.writeInput(closed, 'x'), /without stdin/);
-	const open = await brain.executions.startExecution(fake.grant, { command: 'cat', interactive: true });
+	const open = await brain.executions.startExecution(fake.grant, {
+		command: 'cat',
+		interactive: true
+	});
 	assert.equal(fake.docker.execs.at(-1).options.Cmd.at(-2), 'open');
 	brain.executions.writeInput(open, 'line\n');
 	assert.deepEqual(fake.main.written, ['line\n']);
@@ -161,8 +176,14 @@ test('limits reject oversized commands, relative directories and too many runnin
 	const fake = install();
 	const { startExecution, EXECUTION_LIMITS } = brain.executions;
 	await assert.rejects(startExecution(fake.grant, { command: ' ' }), /1 to/);
-	await assert.rejects(startExecution(fake.grant, { command: 'x'.repeat(EXECUTION_LIMITS.command + 1) }), /1 to/);
-	await assert.rejects(startExecution(fake.grant, { command: 'ls', workdir: 'relative' }), /absolute/);
+	await assert.rejects(
+		startExecution(fake.grant, { command: 'x'.repeat(EXECUTION_LIMITS.command + 1) }),
+		/1 to/
+	);
+	await assert.rejects(
+		startExecution(fake.grant, { command: 'ls', workdir: 'relative' }),
+		/absolute/
+	);
 	for (let index = 0; index < EXECUTION_LIMITS.runningPerGrant; index++)
 		await startExecution(fake.grant, { command: 'sleep 300' });
 	await assert.rejects(startExecution(fake.grant, { command: 'sleep 300' }), /At most/);
@@ -182,7 +203,10 @@ test('a failed exec start is kept as a failed execution', async () => {
 
 test('end-of-file is Ctrl+D, submits an unfinished line first, and closes Brain input', async () => {
 	const fake = install({ alive: () => true });
-	const execution = await brain.executions.startExecution(fake.grant, { command: 'cat', interactive: true });
+	const execution = await brain.executions.startExecution(fake.grant, {
+		command: 'cat',
+		interactive: true
+	});
 	brain.executions.writeInput(execution, 'partial', true);
 	assert.deepEqual(fake.main.written, ['partial', '\u0004\u0004']);
 	assert.throws(() => brain.executions.writeInput(execution, 'more\n'), /stdin was closed/);

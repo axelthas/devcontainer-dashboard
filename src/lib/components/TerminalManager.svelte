@@ -366,16 +366,8 @@
 					<div class="relative min-w-0 flex-1">
 						{#each group.executions as execution (execution.id)}
 							{@const tabId = brainTabId(execution.id)}
-							<div
-								data-terminal-pane={tabId}
-								class="absolute inset-0"
-								hidden={activeId !== tabId}
-							>
-								<BrainTerminalTab
-									{execution}
-									access={brain}
-									visible={open && activeId === tabId}
-								/>
+							<div data-terminal-pane={tabId} class="absolute inset-0" hidden={activeId !== tabId}>
+								<BrainTerminalTab {execution} access={brain} visible={open && activeId === tabId} />
 							</div>
 						{/each}
 					</div>

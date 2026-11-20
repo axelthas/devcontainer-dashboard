@@ -81,7 +81,7 @@ export function shellStartScript(nonce: string): string {
 	return [
 		"command -v bash >/dev/null 2>&1 || { echo 'Brain shells need bash in the container.' >&2; exit 127; }",
 		'rc=$(mktemp "${TMPDIR:-/tmp}/.ddb-brain-rc.XXXXXX") || exit 1',
-		"cat > \"$rc\" <<'DDB_BRAIN_RC'",
+		'cat > "$rc" <<\'DDB_BRAIN_RC\'',
 		shellRc(nonce),
 		'DDB_BRAIN_RC',
 		'DDB_BRAIN_RC="$rc" exec bash --rcfile "$rc" -i'

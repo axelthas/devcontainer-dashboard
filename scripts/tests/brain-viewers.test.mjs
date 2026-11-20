@@ -50,11 +50,17 @@ async function start({ interactive = false } = {}) {
 			setImmediate(() => stream.push(null));
 			return { stream, inspect: async () => ({ Running: false, ExitCode: 1 }) };
 		}
-		return { stream: main, inspect: async () => ({ Running: !finished, ExitCode: finished ? 0 : null }) };
+		return {
+			stream: main,
+			inspect: async () => ({ Running: !finished, ExitCode: finished ? 0 : null })
+		};
 	});
 	brain.state.resetBrainStateForTesting(docker);
 	const grant = brain.access.createGrant(target(ID), 60);
-	const execution = await brain.executions.startExecution(grant, { command: 'npm test', interactive });
+	const execution = await brain.executions.startExecution(grant, {
+		command: 'npm test',
+		interactive
+	});
 	main.push(Buffer.from(`${MARKER}first\r\n`));
 	await eventually(() => execution.output === 'first\n');
 	return {
