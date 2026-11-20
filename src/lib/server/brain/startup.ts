@@ -325,6 +325,11 @@ async function processStart(pid: number): Promise<string> {
 	return stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19];
 }
 
+/** Preserve a caught error's cause without requiring the ES2022 Error constructor overload. */
+function causedError(message: string, cause: unknown): Error & { cause: unknown } {
+	return Object.assign(new Error(message), { cause });
+}
+
 /** Lock the journal; refuse uncertain owners rather than touch another instance's route. */
 async function acquireLock(path: string): Promise<() => Promise<void>> {
 	await mkdir(dirname(path), { recursive: true });
@@ -338,9 +343,10 @@ async function acquireLock(path: string): Promise<() => Promise<void>> {
 			start: string;
 		};
 		if (owner.host !== hostname() || !Number.isInteger(owner.pid) || owner.pid < 1)
-			throw new Error('Brain Funnel journal locked by another instance; inspect it manually', {
-				cause: error
-			});
+			throw causedError(
+				'Brain Funnel journal locked by another instance; inspect it manually',
+				error
+			);
 		let alive: boolean;
 		try {
 			alive = (await processStart(owner.pid)) === owner.start;
@@ -349,7 +355,7 @@ async function acquireLock(path: string): Promise<() => Promise<void>> {
 			// The owner process has ended, so its lock is stale.
 			alive = false;
 		}
-		if (alive) throw new Error('Brain Funnel journal is already in use', { cause: error });
+		if (alive) throw causedError('Brain Funnel journal is already in use', error);
 		await rm(path, { recursive: true });
 		await mkdir(path);
 	}
