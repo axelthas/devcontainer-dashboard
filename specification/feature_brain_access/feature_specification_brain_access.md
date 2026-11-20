@@ -175,19 +175,19 @@ The PTY merges stdout and stderr, and its CRLF line endings are converted back t
 
 ## Persistent shells
 
-A one-off command per call is hard to follow: every command opens a tab, and nothing carries over. A shell is one long-lived interactive bash that Brain types commands into, as a person would. The operator sees one ordinary terminal with the user's prompt.
+A one-off command per call is hard to follow: every command opens a tab, and nothing carries over. A shell is one long-lived interactive shell that Brain types commands into, as a person would. The operator sees one ordinary terminal with the user's prompt.
 
-1. `open_shell` starts `bash -lc` with the start script. The script writes a private start-up file and replaces itself with `bash --rcfile <file> -i`. The start-up file deletes itself, loads `~/.bashrc`, and adds shell integration. A shell needs bash; names are unique among the open shells of a grant (default `main`, then `shell-2`).
-2. Shell integration adds two OSC sequences with a per-shell nonce. Terminals do not display them. `PROMPT_COMMAND` prints a prompt marker with the exit code and the working directory, and keeps `$?` for the user's own prompt hooks. `PS0` prints a start marker after the echoed command line (bash 4.4 and later).
+1. `open_shell` selects the first available interactive shell: zsh, bash, then sh. Zsh loads the user's `.zshenv` and `.zshrc`, respecting `ZDOTDIR`; bash loads `~/.bashrc`; sh loads its `ENV` file when set. Private integration files delete themselves. Shell names are unique among the open shells of a grant (default `main`, then `shell-2`).
+2. Shell integration adds OSC sequences with a per-shell nonce. Terminals do not display them. A prompt hook reports the exit code and working directory. Zsh's `preexec` and bash's `PS0` (4.4 and later) also print a start marker after the echoed command line.
 3. `execute` with `shell_id` types the command and Enter. Short printable single-line commands are typed as they are. Other commands (more than 200 characters, more than one line, TAB, control characters or a final backslash) are written to a private file in `/tmp` and sourced, so directory and variable changes still apply. The terminal shows `. '/tmp/.ddb-brain-….sh' # <first line>`. The file deletes itself.
-4. The prompt marker ends the command. The result has `command_id`, `status` (the command's status), `exit_code`, `cwd` and the output between the start marker and the prompt marker, as plain text. Without a start marker (bash before 4.4), the output starts after the first line feed of the echo.
+4. The prompt marker ends the command. The result has `command_id`, `status` (the command's status), `exit_code`, `cwd` and the output between the start marker and the prompt marker, as plain text. Without a start marker (sh or bash before 4.4), the output starts after the first line feed of the echo.
 5. `read_output` on a shell returns plain text, the shell `status`, `ready`, `cwd`, and `command` with the current or last command. While the cursor is inside a command, output stops at its prompt marker.
 
 A shell runs one command at a time. `execute` is refused while the shell has not shown its first prompt, while Brain's command runs, while a job holds the terminal foreground (for example a program that the operator started), and while the operator has control. `write_stdin` with `"\u0003"` interrupts the current command.
 
-Shells run with `TERM=xterm-256color`, `PAGER=cat`, `GIT_PAGER=cat` and `GIT_TERMINAL_PROMPT=0`. History expansion is off, so `!` in a command is literal, and history is not written to the user's history file. An open shell counts as one running command of its target.
+Shells run with `TERM=xterm-256color`, `PAGER=cat`, `GIT_PAGER=cat` and `GIT_TERMINAL_PROMPT=0`. History expansion is off in zsh and bash, and history is not written to the user's history file. Zsh's `PROMPT_SP` is disabled to keep its prompt-padding marker out of command output. An open shell counts as one running command of its target.
 
-Known limits: a start-up file that replaces `PROMPT_COMMAND` later (for example on every prompt) removes the prompt marker, and commands then never end; an unclosed quote leaves bash at its `PS2` prompt until Brain sends Ctrl+C; on bash before 4.4, a typed command that the line editor wraps can leave part of its echo in the output.
+Known limits: startup files that later replace the shell's prompt integration can remove the prompt marker, and commands then never end. An unclosed quote leaves the shell at its continuation prompt until Brain sends Ctrl+C. On sh and bash before 4.4, a typed command that wraps can leave part of its echo in the output.
 
 ## Terminal tabs and takeover
 
