@@ -55,15 +55,34 @@ bash run-dashboard.sh
 ```
 
 This pulls `ghcr.io/axelthas/devcontainer-dashboard:latest` and runs it in the
-foreground. It prompts for a workspace directory and password.
+background. It prompts for a workspace directory and password.
 
 - Open `http://127.0.0.1:3000`.
 - The default workspace is `~/ddash-workspace`.
-- Ctrl+C stops the container. Data and shell-history volumes persist.
+- The launcher exits after starting the container. Data and shell-history volumes persist.
+- Use `docker logs -f devcontainer-dashboard` to follow logs; Ctrl+C only exits the log viewer.
 - Use `--image ghcr.io/axelthas/devcontainer-dashboard:TAG` to select another published tag.
 
 Published images do not automatically include unmerged branch changes. Use `--build`
 when testing this branch.
+
+### Automatic restart
+
+Both launcher modes use Docker's `always` restart policy by default. The dashboard
+restarts after it exits and starts again whenever the Docker daemon starts. Docker
+must itself be configured to start at host boot.
+
+Use `docker stop devcontainer-dashboard` to stop the registry instance temporarily.
+It stays stopped until you run `docker start devcontainer-dashboard` or restart
+Docker. To keep it stopped across Docker restarts, first run
+`docker update --restart=no devcontainer-dashboard`, then stop it.
+For build instances, use the container name printed by the launcher.
+
+Do not rerun the launcher to resume an existing instance; use `docker start` instead.
+Existing containers do not acquire this policy from a launcher update. For a retained
+container, apply it with `docker update --restart=always CONTAINER_NAME`.
+Older registry containers launched with `--rm` must be recreated without `--rm`;
+preserve their named volumes.
 
 ### Launcher options and remote access
 
