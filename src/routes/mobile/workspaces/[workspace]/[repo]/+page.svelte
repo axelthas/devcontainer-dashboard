@@ -29,7 +29,7 @@
 	import { configDisplayName, saveConfig, savedConfig } from '$lib/mobile/devcontainerConfig';
 	import { COMPOSE_ACTION_LABELS } from '$lib/composeCommands';
 	import { errorMessage, RequestError, requestJson } from '$lib/requests';
-	import { openContainerService } from '$lib/serviceLaunch';
+	import { openMobileService } from '$lib/mobile/serviceOpen';
 	import { buildContainerVscodeUri } from '$lib/vscode';
 	import MBanner from '$lib/components/mobile/MBanner.svelte';
 	import MButton from '$lib/components/mobile/MButton.svelte';
@@ -234,7 +234,7 @@
 	function openChamber() {
 		if (container && running && container.ports['3000']) {
 			sheet = null;
-			openContainerService({
+			openMobileService({
 				containerPort: '3000',
 				hostPort: container.ports['3000'],
 				label: 'OpenChamber',

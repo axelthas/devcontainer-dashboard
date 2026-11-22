@@ -43,8 +43,12 @@
 	// Keyboard inset for the terminal and for sheets with text fields.
 	$effect(() => trackVisualViewport());
 
-	/** Terminal screens use the whole screen, without the tab bar. */
-	const FULL_SCREEN = ['/mobile/terminals/[id]', '/mobile/terminals/brain/'];
+	/** Terminal screens and the service viewer use the whole screen, without the tab bar. */
+	const FULL_SCREEN = [
+		'/mobile/terminals/[id]',
+		'/mobile/terminals/brain/',
+		'/mobile/services/view'
+	];
 
 	/** The tab of the current route; the full-screen terminal has none. */
 	const section = $derived.by(() => {

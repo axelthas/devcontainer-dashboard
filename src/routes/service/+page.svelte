@@ -6,17 +6,8 @@
 	import { ExternalLink, LayoutDashboard, FolderOpen, Server } from 'lucide-svelte';
 	import { PORT_MAP } from '$lib/portConfig';
 	import { serviceViewerHref } from '$lib/serviceTargets';
+	import { unavailableText, type ViewerContract } from '$lib/serviceViewer';
 	import type { PageData } from './$types';
-
-	/** Viewer contract returned by the server load; see src/routes/service/+page.server.ts. */
-	interface ViewerContract {
-		kind: 'proxy' | 'legacy' | 'unsupported' | 'unavailable' | 'proxy-disabled';
-		target?: string;
-		directUrl?: string;
-		containerId?: string;
-		containerPort?: string;
-		reason?: string;
-	}
 
 	interface Props {
 		data: PageData;
@@ -39,29 +30,7 @@
 
 	const portEntries = $derived(allPorts ? Object.entries(allPorts) : []);
 
-	const UNAVAILABLE_REASONS: Record<string, string> = {
-		'unknown-container': 'This container is no longer available.',
-		'not-running': 'The container is not running. Start it from the dashboard.',
-		'no-published-binding': 'The service has no published port.',
-		'port-not-allowed': 'This port is not enabled as a web service.',
-		'proxy-disabled': 'The service gateway is disabled on this dashboard (SERVICE_PROXY_ENABLED).',
-		'wildcard-binding-disabled':
-			'This service is published on all interfaces. Restart the dashboard with --tailscale-allow-wildcard-bindings, or publish the service on loopback. HTTPS proxying does not close the original port.',
-		'unsupported-binding':
-			'This binding is not supported. Use IPv4 loopback, or IPv4 wildcard publishing with the compatibility option.',
-		'ambiguous-binding': 'This service has multiple published host ports. Use one host port.',
-		'invalid-service-binding': 'Docker reported an invalid published host port.',
-		'service-unreachable':
-			'The published service is unreachable through host loopback. Check that it is ready and that the dashboard uses the supported Linux host-network deployment.',
-		'tailscale-allocation-failed':
-			'Could not prepare the Tailscale HTTPS service origin. Check the dashboard logs, Tailscale permissions, and available HTTPS ports.',
-		'missing-identity': 'No service selected.'
-	};
-
-	const unavailableMessage = $derived(
-		(viewer.kind === 'unavailable' && viewer.reason && UNAVAILABLE_REASONS[viewer.reason]) ||
-			'This service is not available.'
-	);
+	const unavailableMessage = $derived(unavailableText(viewer));
 
 	function switchService(containerPort: string) {
 		const config = PORT_MAP[containerPort];

@@ -21,7 +21,7 @@
 	import { ContainerActions, TRANSITION_LABELS } from '$lib/containerActions.svelte';
 	import { useMobileDashboard } from '$lib/mobile/dashboard.svelte';
 	import { portEntries, tcpAddress, type PortEntry } from '$lib/mobile/ports';
-	import { openContainerService } from '$lib/serviceLaunch';
+	import { openMobileService } from '$lib/mobile/serviceOpen';
 	import MBanner from '$lib/components/mobile/MBanner.svelte';
 	import MButton from '$lib/components/mobile/MButton.svelte';
 	import MConfirm from '$lib/components/mobile/MConfirm.svelte';
@@ -63,7 +63,7 @@
 
 	function openPort(entry: PortEntry) {
 		if (!container) return;
-		openContainerService({
+		openMobileService({
 			containerPort: entry.containerPort,
 			hostPort: entry.hostPort,
 			label: entry.label,

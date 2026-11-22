@@ -34,7 +34,7 @@
 	} from '$lib/containerOpenTargets';
 	import { useMobileDashboard, workspaceKey } from '$lib/mobile/dashboard.svelte';
 	import { portEntries, tcpAddress, type PortEntry } from '$lib/mobile/ports';
-	import { openContainerService } from '$lib/serviceLaunch';
+	import { openMobileService } from '$lib/mobile/serviceOpen';
 	import { buildContainerVscodeUri } from '$lib/vscode';
 	import BrainAccessDialog from '$lib/components/BrainAccessDialog.svelte';
 	import MBanner from '$lib/components/mobile/MBanner.svelte';
@@ -91,10 +91,10 @@
 		void goto(resolve('/mobile/terminals/[id]', { id: id }));
 	}
 
-	/** Open a web port in DevHarbour's service viewer; synchronous, for popup rules. */
+	/** Open a web port in the phone service viewer, inside the app. */
 	function openPort(entry: PortEntry) {
 		if (!container) return;
-		openContainerService({
+		openMobileService({
 			containerPort: entry.containerPort,
 			hostPort: entry.hostPort,
 			label: entry.label,
