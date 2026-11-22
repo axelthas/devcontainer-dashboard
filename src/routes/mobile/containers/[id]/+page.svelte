@@ -1,7 +1,7 @@
 <script lang="ts">
 	/**
 	 * One devcontainer: what it serves, how to get a shell in it, and where it lives.
-	 * Lifecycle actions are one level down in the actions sheet; destructive ones confirm.
+	 * Workspace context and controls lead. Technical details stay collapsed; destructive actions confirm.
 	 */
 	import {
 		ArrowUpRight,
@@ -13,7 +13,6 @@
 		Globe,
 		Hammer,
 		Loader2,
-		Network,
 		Play,
 		RotateCw,
 		Server,
@@ -45,7 +44,7 @@
 	import MCopyRow from '$lib/components/mobile/MCopyRow.svelte';
 	import MDot from '$lib/components/mobile/MDot.svelte';
 	import MGroup from '$lib/components/mobile/MGroup.svelte';
-	import MIconButton from '$lib/components/mobile/MIconButton.svelte';
+	import MContainerNetworks from '$lib/components/mobile/MContainerNetworks.svelte';
 	import MNavBar from '$lib/components/mobile/MNavBar.svelte';
 	import MRow from '$lib/components/mobile/MRow.svelte';
 	import MSheet from '$lib/components/mobile/MSheet.svelte';
@@ -61,7 +60,7 @@
 	}));
 	onDestroy(() => actions.dispose());
 
-	type Sheet = 'actions' | 'rebuild' | 'delete' | null;
+	type Sheet = 'rebuild' | 'delete' | null;
 	let sheet = $state<Sheet>(null);
 	let brainOpen = $state(false);
 
@@ -139,25 +138,14 @@
 	}
 </script>
 
-<MNavBar back={{ href: resolve('/mobile/containers'), label: 'Containers' }}>
-	{#snippet right()}
-		{#if container}
-			<MIconButton
-				label="Container actions"
-				onclick={() => (sheet = 'actions')}
-				testid="container-actions"
-			/>
-		{/if}
-	{/snippet}
-</MNavBar>
-
+<MNavBar back={{ href: resolve('/mobile/containers'), label: 'Containers' }} />
 {#if !container}
 	<p class="px-8 py-12 text-center text-[16px] text-m-dim" data-testid="container-missing">
 		This container no longer exists.
 	</p>
 {:else}
 	<div class="px-5 pt-1 pb-5">
-		<div class="flex items-center gap-2 text-[15px] text-m-dim">
+		<div class="flex items-center gap-2 text-[15px] text-m-dim" role="status">
 			<MDot state={container.state} busy={Boolean(transition)} />
 			{transition ||
 				(running ? 'Running' : container.state === 'exited' ? 'Stopped' : container.state)}
@@ -165,79 +153,161 @@
 		<h2 class="mt-1 text-[26px] leading-tight font-bold [overflow-wrap:anywhere]">
 			{container.projectName}
 		</h2>
-		<div class="mt-1 font-mono text-[14px] [overflow-wrap:anywhere] text-m-dim">
-			{container.name.replace(/^\//, '')}{container.remoteUser
-				? ` · as ${container.remoteUser}`
-				: ''}
+		<div
+			class="mt-3 overflow-hidden rounded-[14px] border border-m-frost/20 bg-m-frost/10"
+			data-testid="container-context"
+		>
+			{#if workspace}
+				<MRow
+					title={workspace.name}
+					subtitle="Workspace"
+					mono
+					href={resolve('/mobile/workspaces/[workspace]', { workspace: workspaceKey(workspace) })}
+				>
+					{#snippet icon()}<FolderGit2 size={18} />{/snippet}
+				</MRow>
+			{:else}
+				<MRow
+					title="Workspace unknown"
+					subtitle={container.localWorkspacePath ?? 'No local workspace path is available.'}
+				>
+					{#snippet icon()}<FolderGit2 size={18} />{/snippet}
+				</MRow>
+			{/if}
 		</div>
-		{#if grant}
-			<div class="mt-3">
+		{#if repoName && repoName !== container.projectName}<p
+				class="mt-2 px-1 text-[14px] [overflow-wrap:anywhere] text-m-dim"
+			>
+				Repository: {repoName}
+			</p>{/if}
+		{#if grant}<div class="mt-3">
 				<MChip tone="border-m-brain/50 text-m-brain"
 					><BrainCircuit size={13} />Brain shell access · {formatRemaining(
 						grant.expiresAt,
 						now
 					)}</MChip
 				>
-			</div>
-		{/if}
+			</div>{/if}
 	</div>
-
-	{#if actions.actionError}
-		<MBanner
+	{#if actions.actionError}<MBanner
 			icon={Server}
 			tone="bg-m-stop/15 text-m-stop"
 			title="Action failed"
 			detail={actions.actionError}
-		/>
-	{/if}
-	{#if container.remoteUserError}
-		<MBanner
+		/>{/if}
+	{#if container.remoteUserError}<MBanner
 			icon={Server}
 			tone="bg-m-beak/15 text-m-beak"
 			title="Shells are unavailable"
 			detail={container.remoteUserError}
-		/>
+		/>{/if}
+
+	<section class="mx-4 mb-6" aria-label="Container controls">
+		<h2 class="mb-2 px-1 text-[14px] font-semibold tracking-wide text-m-dim uppercase">
+			Container controls
+		</h2>
+		<div class="grid grid-cols-2 gap-2">
+			{#if running}
+				<MButton
+					tone="plain"
+					onclick={() => act('restart')}
+					disabled={actions.busy}
+					testid="container-restart"><RotateCw size={18} />Restart</MButton
+				>
+				<MButton
+					tone="plain"
+					onclick={() => act('stop')}
+					disabled={actions.busy}
+					testid="container-stop"><Square size={18} />Stop</MButton
+				>
+			{:else}
+				<MButton
+					tone="plain"
+					onclick={() => act('start')}
+					disabled={actions.busy}
+					testid="container-start"
+					>{#if actions.loadingAction === 'start'}<Loader2
+							size={18}
+							class="animate-spin"
+						/>{:else}<Play size={18} />{/if}Start</MButton
+				>
+				<MButton tone="plain" onclick={() => act('restart')} disabled>
+					<RotateCw size={18} />Restart</MButton
+				>
+			{/if}
+			<MButton
+				tone="plain"
+				onclick={() => (sheet = 'rebuild')}
+				disabled={!actions.canRebuild || actions.busy}
+				testid="container-rebuild"><Hammer size={18} />Rebuild…</MButton
+			>
+			<MButton
+				tone="danger"
+				onclick={() => (sheet = 'delete')}
+				disabled={actions.busy}
+				testid="container-delete"><Trash2 size={18} />Delete…</MButton
+			>
+		</div>
+		{#if !actions.canRebuild}<p class="mt-2 px-1 text-[14px] text-m-dim">
+				Rebuild is unavailable: the build labels of this container are missing.
+			</p>{/if}
+	</section>
+
+	{#key container.id}<MContainerNetworks {container} />{/key}
+
+	{#if brain?.enabled}
+		<MGroup title="Access"
+			><MRow
+				title="Brain shell access"
+				subtitle={grant
+					? `${formatRemaining(grant.expiresAt, now)} · revoke or change`
+					: 'Review access before granting'}
+				tone="bg-m-brain/15 text-m-brain"
+				onclick={() => (brainOpen = true)}
+				chevron>{#snippet icon()}<BrainCircuit size={18} />{/snippet}</MRow
+			></MGroup
+		>
 	{/if}
 
-	{#if running}
-		{#if web.length}
-			<MGroup title="Open">
-				{#each web as entry (entry.containerPort)}
-					<MRow
-						title={entry.label}
-						subtitle={`Port ${entry.containerPort} · opens in DevHarbour`}
-						tone="bg-m-frost/15 text-m-frost"
-						onclick={() => openPort(entry)}
-					>
-						{#snippet icon()}<Globe size={18} />{/snippet}
-						{#snippet trailing()}<ArrowUpRight size={18} class="shrink-0 text-m-dim" />{/snippet}
-					</MRow>
-				{/each}
-			</MGroup>
-		{/if}
-		<MGroup title="Shell">
-			<MRow
-				title="Terminal"
-				subtitle={containerShellBlocker(container) ??
-					container.containerWorkspaceFolder ??
-					'Login shell'}
-				disabled={!shellCommand}
+	<section class="mx-4 mb-6" aria-label="Shell">
+		<h2 class="mb-2 px-1 text-[14px] font-semibold tracking-wide text-m-dim uppercase">Open</h2>
+		<div class="grid grid-cols-2 gap-2">
+			<MButton
 				onclick={() => openCommand(container.projectName, shellCommand)}
-				chevron
-				testid="container-terminal"
+				disabled={!running || !shellCommand}
+				testid="container-terminal"><SquareTerminal size={18} />Terminal</MButton
 			>
-				{#snippet icon()}<SquareTerminal size={18} />{/snippet}
-			</MRow>
-			<MRow
-				title="OpenCode TUI"
-				subtitle={containerOpenCodeBlocker(container) ?? 'Opens in a terminal'}
-				tone="bg-m-brain/15 text-m-brain"
-				disabled={!openCodeCommand}
+			<MButton
+				tone="brain"
 				onclick={() => openCommand(`${container.projectName} · OpenCode`, openCodeCommand)}
-				chevron
+				disabled={!running || !openCodeCommand}><Bot size={18} />OpenCode</MButton
 			>
-				{#snippet icon()}<Bot size={18} />{/snippet}
-			</MRow>
+		</div>
+		{#if !running}<p class="mt-2 px-1 text-[14px] text-m-dim">
+				Start the container to open shells and services.
+			</p>{:else}
+			{#if !shellCommand}<p class="mt-2 px-1 text-[14px] text-m-dim">
+					{containerShellBlocker(container)}
+				</p>{/if}
+			{#if !openCodeCommand}<p class="mt-2 px-1 text-[14px] text-m-dim">
+					{containerOpenCodeBlocker(container)}
+				</p>{/if}
+		{/if}
+	</section>
+	{#if running}
+		<MGroup title="Services and editors">
+			{#each web as entry (entry.containerPort)}
+				<MRow
+					title={entry.label}
+					subtitle={`Port ${entry.containerPort} · opens in DevHarbour`}
+					tone="bg-m-frost/15 text-m-frost"
+					onclick={() => openPort(entry)}
+					>{#snippet icon()}<Globe size={18} />{/snippet}{#snippet trailing()}<ArrowUpRight
+							size={18}
+							class="shrink-0 text-m-dim"
+						/>{/snippet}</MRow
+				>
+			{/each}
 			<MRow
 				title="Copy VS Code link"
 				subtitle="Open it on your computer"
@@ -248,144 +318,49 @@
 						'the VS Code link'
 					)}
 			>
-				{#snippet icon()}<Code size={18} />{/snippet}
-				{#snippet trailing()}<Copy size={17} class="shrink-0 text-m-frost" />{/snippet}
+				{#snippet icon()}<Code size={18} />{/snippet}{#snippet trailing()}<Copy
+						size={17}
+						class="shrink-0 text-m-frost"
+					/>{/snippet}
 			</MRow>
 		</MGroup>
-	{:else}
-		<div class="mx-4 mb-6 grid gap-2">
-			<MButton
-				onclick={() => void actions.run('start')}
-				disabled={actions.busy}
-				testid="container-start"
-			>
-				{#if actions.loadingAction === 'start'}<Loader2
-						size={18}
-						class="animate-spin"
-					/>{:else}<Play size={18} class="fill-current" />{/if}Start container
-			</MButton>
-			<p class="px-1 text-[14px] text-m-dim">Services and shells open when it runs.</p>
-		</div>
 	{/if}
+	<details class="mb-6" data-testid="container-details">
+		<summary
+			class="mx-4 mb-3 flex min-h-14 cursor-pointer items-center gap-3 rounded-[14px] bg-m-surface px-4 text-[17px] font-semibold"
+			><Server size={18} class="text-m-dim" />Technical details</summary
+		>
 
-	<MGroup title="Details">
-		{#if container.localWorkspacePath}
-			<MCopyRow label="Local folder" value={container.localWorkspacePath} />
-		{/if}
-		{#if container.containerWorkspaceFolder}
-			<MCopyRow label="Container folder" value={container.containerWorkspaceFolder} />
-		{/if}
-		{#if container.devcontainerConfigFile}
-			<MCopyRow label="Config" value={container.devcontainerConfigFile} />
-		{/if}
-		<MCopyRow label="Image" value={container.image} />
-		{#if workspace && repoName}
-			<MRow
-				title="Repository"
-				subtitle={`${workspace.name} › ${repoName}`}
-				href={resolve('/mobile/workspaces/[workspace]/[repo]', {
-					workspace: workspaceKey(workspace),
-					repo: repoName
-				})}
-			>
-				{#snippet icon()}<FolderGit2 size={18} />{/snippet}
-			</MRow>
-		{/if}
-	</MGroup>
-
-	{#if tcp.length}
-		<MGroup title="Other ports" footer="Tap to copy the address that a client connects to.">
-			{#each tcp as entry (`${entry.containerPort}/${entry.port.protocol}`)}
-				{@const address = tcpAddress(entry, page.url.hostname)}
-				<MRow
-					title={address}
-					subtitle={`${entry.label} · ${entry.containerPort}/${entry.port.protocol}`}
-					mono
-					onclick={() => void copy(address, address)}
-				>
-					{#snippet trailing()}<Copy size={17} class="shrink-0 text-m-frost" />{/snippet}
-				</MRow>
-			{/each}
-		</MGroup>
-	{/if}
-
-	{#if container.networks?.length}
-		<MGroup title="Networks" footer="Connect to other networks from the desktop dashboard.">
-			{#each container.networks as network (network.name)}
-				<MRow
-					title={network.name}
-					subtitle={[network.ip || network.configuredIp, ...network.aliases]
-						.filter(Boolean)
-						.join(' · ') || 'No address'}
-					tone="bg-m-glacier/15 text-m-glacier"
-				>
-					{#snippet icon()}<Network size={18} />{/snippet}
-				</MRow>
-			{/each}
-		</MGroup>
-	{/if}
-
-	<MSheet
-		open={sheet === 'actions'}
-		title={container.projectName}
-		onClose={() => (sheet = null)}
-		testid="container-actions-sheet"
-	>
 		<MGroup>
-			{#if running}
-				<MRow title="Restart" onclick={() => act('restart')} disabled={actions.busy}>
-					{#snippet icon()}<RotateCw size={18} />{/snippet}
-				</MRow>
-				<MRow title="Stop" onclick={() => act('stop')} disabled={actions.busy}>
-					{#snippet icon()}<Square size={16} />{/snippet}
-				</MRow>
-			{:else}
-				<MRow title="Start" onclick={() => act('start')} disabled={actions.busy}>
-					{#snippet icon()}<Play size={18} />{/snippet}
-				</MRow>
+			<MCopyRow label="Container name" value={container.name.replace(/^\//, '')} />
+			{#if container.localWorkspacePath}
+				<MCopyRow label="Local folder" value={container.localWorkspacePath} />
 			{/if}
-			<MRow
-				title="Rebuild and restart…"
-				subtitle={actions.canRebuild ? undefined : 'The build labels of this container are missing'}
-				tone="bg-m-warn/15 text-m-warn"
-				onclick={() => (sheet = 'rebuild')}
-				disabled={!actions.canRebuild || actions.busy}
-				chevron
-			>
-				{#snippet icon()}<Hammer size={18} />{/snippet}
-			</MRow>
+			{#if container.containerWorkspaceFolder}
+				<MCopyRow label="Container folder" value={container.containerWorkspaceFolder} />
+			{/if}
+			{#if container.devcontainerConfigFile}
+				<MCopyRow label="Config" value={container.devcontainerConfigFile} />
+			{/if}
+			<MCopyRow label="Image" value={container.image} />
 		</MGroup>
-		{#if brain?.enabled}
-			<MGroup>
-				<MRow
-					title={grant ? 'Brain access' : 'Give Brain shell access…'}
-					subtitle={grant
-						? `${formatRemaining(grant.expiresAt, now)} · revoke or change`
-						: undefined}
-					tone="bg-m-brain/15 text-m-brain"
-					onclick={() => {
-						sheet = null;
-						brainOpen = true;
-					}}
-					chevron
-				>
-					{#snippet icon()}<BrainCircuit size={18} />{/snippet}
-				</MRow>
+
+		{#if tcp.length}
+			<MGroup title="Other ports" footer="Tap to copy the address that a client connects to.">
+				{#each tcp as entry (`${entry.containerPort}/${entry.port.protocol}`)}
+					{@const address = tcpAddress(entry, page.url.hostname)}
+					<MRow
+						title={address}
+						subtitle={`${entry.label} · ${entry.containerPort}/${entry.port.protocol}`}
+						mono
+						onclick={() => void copy(address, address)}
+					>
+						{#snippet trailing()}<Copy size={17} class="shrink-0 text-m-frost" />{/snippet}
+					</MRow>
+				{/each}
 			</MGroup>
 		{/if}
-		<MGroup>
-			<MRow
-				title="Delete container…"
-				danger
-				tone="bg-m-stop/15 text-m-stop"
-				onclick={() => (sheet = 'delete')}
-				disabled={actions.busy}
-				chevron
-			>
-				{#snippet icon()}<Trash2 size={18} />{/snippet}
-			</MRow>
-		</MGroup>
-	</MSheet>
+	</details>
 
 	<MSheet open={sheet === 'rebuild'} title="Rebuild" onClose={() => (sheet = null)}>
 		<MConfirm

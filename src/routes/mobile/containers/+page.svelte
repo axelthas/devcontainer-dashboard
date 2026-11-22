@@ -30,7 +30,12 @@
 			if (filter === 'running' && c.state !== 'running') return false;
 			if (filter === 'stopped' && c.state === 'running') return false;
 			const needle = query.trim().toLowerCase();
-			return !needle || `${c.projectName} ${c.name}`.toLowerCase().includes(needle);
+			return (
+				!needle ||
+				`${c.projectName} ${c.name} ${dashboard.workspaceOf(c.localWorkspacePath)?.name ?? c.localWorkspacePath ?? ''}`
+					.toLowerCase()
+					.includes(needle)
+			);
 		})
 	);
 	const readAt = $derived(
@@ -94,7 +99,9 @@
 				{#snippet icon()}<MDot state={container.state} />{/snippet}
 				{#snippet title()}<span class="font-semibold">{container.projectName}</span>{/snippet}
 				{#snippet subtitle()}<span class="font-mono text-[13px]"
-						>{container.name.replace(/^\//, '')}</span
+						>{dashboard.workspaceOf(container.localWorkspacePath)?.name ??
+							container.localWorkspacePath ??
+							'Workspace unknown'}</span
 					>{/snippet}
 				{#snippet trailing()}
 					{#if grant}

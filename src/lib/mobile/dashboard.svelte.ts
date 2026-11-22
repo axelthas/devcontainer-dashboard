@@ -62,6 +62,7 @@ export class MobileDashboard {
 	containers = $state<ContainerData[]>([]);
 	workspaces = $state<LocalWorkspaceData[]>([]);
 	networks = $state<NetworkData[]>([]);
+	networkError = $state('');
 	sessions = $state<TerminalSession[]>([]);
 	containerError = $state('');
 	workspaceError = $state('');
@@ -243,10 +244,13 @@ export class MobileDashboard {
 		try {
 			await this.#networkReads.run(
 				(signal) => requestJson<NetworkData[]>('/api/networks', { signal }),
-				(value) => (this.networks = value)
+				(value) => {
+					this.networks = value;
+					this.networkError = '';
+				}
 			);
-		} catch {
-			// The container detail shows networks from the container data instead.
+		} catch (cause) {
+			this.networkError = errorMessage(cause);
 		}
 	}
 

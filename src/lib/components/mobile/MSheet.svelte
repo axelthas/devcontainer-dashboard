@@ -18,12 +18,14 @@
 		open: boolean;
 		title: string;
 		onClose: () => void;
+		/** Prevent dismissal during a write whose result is not known yet. */
+		closeDisabled?: boolean;
 		/** A step back inside the sheet, for sheets with more than one step. */
 		back?: { label: string; onclick: () => void };
 		testid?: string;
 		children: Snippet;
 	}
-	let { open, title, onClose, back, testid, children }: Props = $props();
+	let { open, title, onClose, closeDisabled = false, back, testid, children }: Props = $props();
 	let dialog: HTMLDialogElement | undefined = $state();
 	const uid = $props.id();
 
@@ -58,7 +60,7 @@
 
 	/** A click on the dialog element itself is a click on the backdrop. */
 	function backdropClick(event: MouseEvent) {
-		if (event.target === dialog) onClose();
+		if (!closeDisabled && event.target === dialog) onClose();
 	}
 </script>
 
@@ -67,6 +69,9 @@
 	aria-labelledby="{uid}-title"
 	data-testid={testid}
 	onclose={closed}
+	oncancel={(event) => {
+		if (closeDisabled) event.preventDefault();
+	}}
 	onclick={backdropClick}
 	class="m-0 mt-auto max-h-[88dvh] w-full max-w-none overflow-hidden overscroll-none rounded-t-[22px] bg-m-screen p-0 text-m-ink backdrop:bg-black/50 open:flex open:animate-[m-sheet-up_300ms_cubic-bezier(0.32,0.72,0,1)] open:flex-col"
 	style:margin-bottom="var(--keyboard-inset, 0px)"
@@ -98,6 +103,7 @@
 				<button
 					type="button"
 					onclick={onClose}
+					disabled={closeDisabled}
 					class="min-h-11 shrink-0 px-1 text-[17px] font-semibold text-m-frost">Done</button
 				>
 			</div>

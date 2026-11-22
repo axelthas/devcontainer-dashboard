@@ -141,7 +141,7 @@ test.describe('screens fit a phone', () => {
 		});
 	}
 
-	test('container detail and its actions sheet', async ({ page }) => {
+	test('container detail and visible controls', async ({ page }) => {
 		await page.goto('/mobile/containers');
 		await page.getByRole('radio', { name: 'All' }).click();
 		const row = page.getByTestId('container-row').first();
@@ -149,10 +149,10 @@ test.describe('screens fit a phone', () => {
 		await row.click();
 		await expect(page).toHaveURL(/\/mobile\/containers\/[0-9a-f]{12}$/);
 		await expectPhoneFit(page);
-		await page.getByTestId('container-actions').click();
-		const sheet = page.getByTestId('container-actions-sheet');
-		await expect(sheet).toBeVisible();
-		await expect(sheet.getByRole('button', { name: /Delete container/ })).toBeVisible();
+		await expect(page.getByTestId('container-delete')).toBeVisible();
+		await expect(page.getByTestId('container-context')).toBeVisible();
+		await page.getByTestId('container-delete').click();
+		await expect(page.getByTestId('confirm-action')).toHaveText('Delete container');
 		await expectPhoneFit(page);
 	});
 
