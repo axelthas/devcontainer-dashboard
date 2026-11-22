@@ -709,7 +709,7 @@ test('the viewer allocates a root HTTPS iframe and does not fall back on failure
 		calls.push(args);
 		return `https://${publicHost}:8400`;
 	};
-	const module = await routeModule(t, 'src/routes/service/+page.server.ts', [
+	const viewer = await routeModule(t, 'src/lib/server/serviceViewer.ts', [
 		[
 			"import { describeServiceTarget, isServiceProxyEnabled } from '$lib/server/serviceGatewayRuntime.js';",
 			"const describeServiceTarget = async () => { throw Error('Unexpected path gateway fallback'); }; const isServiceProxyEnabled = () => false;"
@@ -723,45 +723,69 @@ test('the viewer allocates a root HTTPS iframe and does not fall back on failure
 			"const embedProfile = () => ({mode:'direct'}); const serviceDirectUrl = () => ''; const serviceProxyPath = () => '';"
 		]
 	]);
-	const url = new URL(`/service?cid=${id}&port=4096`, dashboardOrigin);
-	const result = await module.load({ url });
-	assert.equal(result.viewer.kind, 'proxy');
-	assert.equal(result.viewer.target, `https://${publicHost}:8400/`);
-	assert.deepEqual(calls, [[id, '4096']]);
-	globalThis.__testTailscaleLaunch = async () => {
-		throw new Error('Allocation failed');
-	};
-	const failed = await module.load({ url });
-	assert.equal(failed.viewer.kind, 'unavailable');
-	assert.equal(failed.viewer.target, undefined);
-	assert.equal(failed.viewer.reason, 'tailscale-allocation-failed');
-	for (const code of [
-		'wildcard-binding-disabled',
-		'unsupported-binding',
-		'ambiguous-binding',
-		'invalid-service-binding',
-		'port-not-allowed',
-		'not-running',
-		'no-published-binding',
-		'unknown-container',
-		'service-unreachable'
+	// Exercise both actual route wrappers against the actual shared viewer logic.
+	globalThis.__testLoadServiceViewer = viewer.loadServiceViewer;
+	t.after(() => delete globalThis.__testLoadServiceViewer);
+	for (const path of [
+		'src/routes/service/+page.server.ts',
+		'src/routes/mobile/services/view/+page.server.ts'
 	]) {
-		globalThis.__testTailscaleLaunch = async () => {
-			throw Object.assign(new Error('private upstream details'), { code });
-		};
-		const response = await module.load({ url });
-		assert.equal(response.viewer.reason, code);
-		assert.equal(response.viewer.target, undefined);
-		assert.doesNotMatch(JSON.stringify(response.viewer), /private upstream details/);
+		const module = await routeModule(t, path, [
+			[
+				"import { loadServiceViewer } from '$lib/server/serviceViewer';",
+				'const loadServiceViewer = (url: URL) => (globalThis as any).__testLoadServiceViewer(url);'
+			]
+		]);
+		await expectViewer(module);
 	}
-	globalThis.__testTailscaleLaunch = async () => {
-		throw Object.assign(new Error('secret'), { code: 'untrusted-code' });
-	};
-	assert.equal((await module.load({ url })).viewer.reason, 'tailscale-allocation-failed');
-	const legacy = await module.load({
-		url: new URL('/service?url=http://evil.example', dashboardOrigin)
-	});
-	assert.equal(legacy.viewer.kind, 'unavailable');
+
+	/** Keep allocation, fail-closed and error-redaction checks identical for both routes. */
+	async function expectViewer(module) {
+		globalThis.__testTailscaleLaunch = async (...args) => {
+			calls.push(args);
+			return `https://${publicHost}:8400`;
+		};
+		calls.length = 0;
+		const url = new URL(`/service?cid=${id}&port=4096`, dashboardOrigin);
+		const result = await module.load({ url });
+		assert.equal(result.viewer.kind, 'proxy');
+		assert.equal(result.viewer.target, `https://${publicHost}:8400/`);
+		assert.deepEqual(calls, [[id, '4096']]);
+		globalThis.__testTailscaleLaunch = async () => {
+			throw new Error('Allocation failed');
+		};
+		const failed = await module.load({ url });
+		assert.equal(failed.viewer.kind, 'unavailable');
+		assert.equal(failed.viewer.target, undefined);
+		assert.equal(failed.viewer.reason, 'tailscale-allocation-failed');
+		for (const code of [
+			'wildcard-binding-disabled',
+			'unsupported-binding',
+			'ambiguous-binding',
+			'invalid-service-binding',
+			'port-not-allowed',
+			'not-running',
+			'no-published-binding',
+			'unknown-container',
+			'service-unreachable'
+		]) {
+			globalThis.__testTailscaleLaunch = async () => {
+				throw Object.assign(new Error('private upstream details'), { code });
+			};
+			const response = await module.load({ url });
+			assert.equal(response.viewer.reason, code);
+			assert.equal(response.viewer.target, undefined);
+			assert.doesNotMatch(JSON.stringify(response.viewer), /private upstream details/);
+		}
+		globalThis.__testTailscaleLaunch = async () => {
+			throw Object.assign(new Error('secret'), { code: 'untrusted-code' });
+		};
+		assert.equal((await module.load({ url })).viewer.reason, 'tailscale-allocation-failed');
+		const legacy = await module.load({
+			url: new URL('/service?url=http://evil.example', dashboardOrigin)
+		});
+		assert.equal(legacy.viewer.kind, 'unavailable');
+	}
 });
 
 test('dashboard policy refuses service-origin writes and reads while allowing login and same-origin API use', async (t) => {
