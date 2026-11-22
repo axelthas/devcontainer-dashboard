@@ -29,7 +29,12 @@ const DEVICES = [
 
 for (const device of DEVICES) {
 	test.describe(device.name, () => {
-		test.use({ viewport: device.viewport, userAgent: device.userAgent, isMobile: true, hasTouch: true });
+		test.use({
+			viewport: device.viewport,
+			userAgent: device.userAgent,
+			isMobile: true,
+			hasTouch: true
+		});
 
 		for (const theme of ['dark', 'light'] as const) {
 			for (const inset of [0, 59]) {
@@ -71,7 +76,9 @@ for (const device of DEVICES) {
 						}
 						await expect(page).toHaveURL(new RegExp(`/mobile/${tab.id}$`));
 						await expect(app).toHaveAttribute('data-navigation-paint', 'kept');
-						await expect(page.getByRole('heading', { level: 1, name: tab.label, exact: true })).toBeVisible();
+						await expect(
+							page.getByRole('heading', { level: 1, name: tab.label, exact: true })
+						).toBeVisible();
 						const strip = page.getByTestId('mobile-top-safe-area');
 						const header = page.getByTestId('mobile-nav-bar');
 						// Paint has a nonzero floor; layout padding remains the actual device inset.
