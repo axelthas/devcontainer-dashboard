@@ -71,7 +71,7 @@ for (const device of DEVICES) {
 						if (index > 0) {
 							await page
 								.getByRole('navigation', { name: 'Sections' })
-								.getByRole('link', { name: tab.label, exact: true })
+								.locator(`a[href="/mobile/${tab.id}"]`)
 								.click();
 						}
 						await expect(page).toHaveURL(new RegExp(`/mobile/${tab.id}$`));

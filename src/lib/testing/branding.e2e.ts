@@ -180,10 +180,11 @@ test.describe('installed-app navigation contract', () => {
 				documents.push(request.url());
 		});
 		for (const label of ['Workspaces', 'Services', 'Terminals', 'Containers']) {
-			const link = page.getByRole('navigation', { name: 'Sections' }).getByRole('link', {
-				name: label,
-				exact: true
-			});
+			// The Terminals accessible name can include a live session-count badge.
+			const link = page
+				.getByRole('navigation', { name: 'Sections' })
+				.locator(`a[href="/mobile/${label.toLowerCase()}"]`);
+			await expect(link).toContainText(label);
 			const href = await link.getAttribute('href');
 			const target = new URL(href!, page.url());
 			expect(target.origin).toBe(new URL(page.url()).origin);
