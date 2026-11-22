@@ -66,8 +66,6 @@
 <svelte:head>
 	<title>DevHarbour</title>
 	<meta name="theme-color" content={dashboard.light ? '#eceff4' : '#2e3440'} />
-	<meta name="apple-mobile-web-app-capable" content="yes" />
-	<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 </svelte:head>
 
 <div

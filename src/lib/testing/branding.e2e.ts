@@ -115,3 +115,90 @@ test('dashboard branding preserves saved preferences in both themes', async ({ p
 		page.getByRole('heading', { level: 1, name: 'DevHarbour', exact: true })
 	).toBeVisible();
 });
+
+/** Native iOS install behaviour still requires a physical-phone check. */
+test.describe('installed-app navigation contract', () => {
+	test.use({
+		viewport: { width: 393, height: 852 },
+		isMobile: true,
+		hasTouch: true,
+		userAgent:
+			'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1'
+	});
+
+	test('sign-in publishes an anonymous manifest, standalone mode and an opaque status bar', async ({
+		page
+	}) => {
+		// Check the server response, not only metadata inserted after client hydration.
+		const login = await page.request.get('/login');
+		const html = await login.text();
+		expect(html).toContain('rel="manifest" href="/manifest.webmanifest"');
+		expect(html).toContain('name="apple-mobile-web-app-capable" content="yes"');
+		expect(html).toContain('name="apple-mobile-web-app-status-bar-style" content="black"');
+		const response = await page.request.get('/manifest.webmanifest', { maxRedirects: 0 });
+		expect(response.status()).toBe(200);
+		expect(response.headers()['content-type']).toContain('application/manifest+json');
+		const manifest = await response.json();
+		expect(manifest).toMatchObject({
+			id: '/',
+			name: 'DevHarbour',
+			start_url: '/mobile/containers',
+			scope: '/',
+			display: 'standalone'
+		});
+		// Login, the interface switch and all tabs must be within the declared scope.
+		const scope = new URL(manifest.scope, response.url());
+		for (const path of [
+			'/login',
+			'/interface',
+			'/mobile/containers',
+			'/mobile/workspaces',
+			'/mobile/services',
+			'/mobile/terminals'
+		]) {
+			const target = new URL(path, response.url());
+			expect(target.origin).toBe(scope.origin);
+			expect(target.pathname.startsWith(scope.pathname)).toBe(true);
+		}
+	});
+
+	test('tab clicks keep the document, app metadata and same-origin links', async ({ page }) => {
+		await loginTerminalTest(page);
+		await page.goto('/mobile/containers');
+		// Opening a sheet proves client hydration completed before navigation is tested.
+		await page.getByTestId('host-button').click();
+		const sheet = page.getByTestId('host-sheet');
+		await expect(sheet).toBeVisible();
+		await sheet.getByRole('button', { name: 'Done' }).click();
+		await expect(sheet).toBeHidden();
+		await page.evaluate(() =>
+			document.documentElement.setAttribute('data-install-document', 'kept')
+		);
+		const documents: string[] = [];
+		page.on('request', (request) => {
+			if (request.isNavigationRequest() && request.frame() === page.mainFrame())
+				documents.push(request.url());
+		});
+		for (const label of ['Workspaces', 'Services', 'Terminals', 'Containers']) {
+			const link = page.getByRole('navigation', { name: 'Sections' }).getByRole('link', {
+				name: label,
+				exact: true
+			});
+			const href = await link.getAttribute('href');
+			const target = new URL(href!, page.url());
+			expect(target.origin).toBe(new URL(page.url()).origin);
+			await expect(link).not.toHaveAttribute('target', '_blank');
+			await link.click();
+			await expect(page).toHaveURL(target.href);
+			await expect(page.getByRole('heading', { level: 1, name: label, exact: true })).toBeVisible();
+			await expect(page.locator('html')).toHaveAttribute('data-install-document', 'kept');
+			await expect(page.locator('meta[name="apple-mobile-web-app-capable"]')).toHaveCount(1);
+			await expect(
+				page.locator('meta[name="apple-mobile-web-app-status-bar-style"]')
+			).toHaveAttribute('content', 'black');
+			await expect(page.locator('link[rel="manifest"]')).toHaveCount(1);
+		}
+		expect(documents).toEqual([]);
+		expect(page.context().pages()).toHaveLength(1);
+	});
+});
