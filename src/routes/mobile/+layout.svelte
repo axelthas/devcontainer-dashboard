@@ -100,7 +100,7 @@
 	{#if dashboard.toastMessage}
 		<div
 			role="status"
-			class="pointer-events-none fixed inset-x-4 z-50 mx-auto w-fit max-w-[calc(100vw-32px)] animate-[m-fade-up_200ms_ease-out] rounded-full bg-m-ink px-4 py-2 text-[15px] font-medium text-m-screen shadow-lg"
+			class="pointer-events-none fixed inset-x-4 z-50 mx-auto w-fit max-w-[calc(100vw-32px)] animate-[m-fade-up_200ms_ease-out] rounded-full bg-m-ink px-4 py-2 text-center text-[15px] font-medium text-m-screen shadow-lg"
 			style:top="calc(env(safe-area-inset-top) + 56px)"
 			data-testid="mobile-toast"
 		>
