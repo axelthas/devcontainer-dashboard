@@ -95,6 +95,7 @@ export const GET: RequestHandler = async () => {
 			...resolveRemoteUser(labels),
 			composeProject,
 			composeService: labels['com.docker.compose.service'] ?? undefined,
+			composeWorkingDir: labels['com.docker.compose.project.working_dir'] || undefined,
 			sandboxTag: isImageTag(sandboxTag) ? sandboxTag : undefined,
 			networks: containerNetworks(c.NetworkSettings?.Networks),
 			networkPresets: resolveNetworkPresets(labels)

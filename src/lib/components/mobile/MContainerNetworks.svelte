@@ -1,5 +1,9 @@
 <script lang="ts">
-	/** Mobile network controls, with the same requests, rules and reconnect memory as desktop. */
+	/**
+	 * Mobile network controls, with the same requests, rules and reconnect memory as desktop.
+	 * `readonly` shows the same rows without changes, for containers that the server refuses
+	 * to rewire (only devcontainers change networks from DevHarbour).
+	 */
 	import { onMount } from 'svelte';
 	import { Loader2, Network, Plus, RefreshCw, Unplug } from 'lucide-svelte';
 	import type { ContainerData } from '$lib/types';
@@ -14,13 +18,13 @@
 	import MConfirm from './MConfirm.svelte';
 	import MNetworkSheet from './MNetworkSheet.svelte';
 
-	let { container }: { container: ContainerData } = $props();
+	let { container, readonly = false }: { container: ContainerData; readonly?: boolean } = $props();
 	const dashboard = useMobileDashboard();
 	const running = $derived(container.state === 'running');
 	const attached = $derived(userNetworks(container));
-	const pending = $derived(running ? networkMemory.pending(container) : []);
+	const pending = $derived(running && !readonly ? networkMemory.pending(container) : []);
 	const suggestion = $derived(
-		running && !attached.length && !pending.length
+		running && !readonly && !attached.length && !pending.length
 			? container.networkPresets?.[0]?.network
 			: undefined
 	);
@@ -32,7 +36,9 @@
 	let warning = $state('');
 	const current = $derived(attached.find((entry) => entry.name === selected));
 
-	onMount(() => networkMemory.load());
+	onMount(() => {
+		if (!readonly) networkMemory.load();
+	});
 
 	/** Refresh network availability before choices; failed refreshes leave a visible warning. */
 	function openConnect(network?: string) {
@@ -121,7 +127,11 @@
 
 <MGroup
 	title="Networks"
-	footer={!running ? 'Start the container to connect it to a network.' : undefined}
+	footer={readonly
+		? 'The Compose file sets the networks of this container. DevHarbour changes networks of devcontainers only.'
+		: !running
+			? 'Start the container to connect it to a network.'
+			: undefined}
 >
 	{#each attached as network (network.name)}
 		<MRow
@@ -134,13 +144,15 @@
 				.join(' · ')}
 			mono
 			tone="bg-m-run/15 text-m-run"
-			onclick={() => {
-				selected = network.name;
-				confirmDisconnect = false;
-				failure = '';
-			}}
+			onclick={readonly
+				? undefined
+				: () => {
+						selected = network.name;
+						confirmDisconnect = false;
+						failure = '';
+					}}
 			disabled={Boolean(working)}
-			chevron
+			chevron={!readonly}
 			testid="attached-network"
 		>
 			{#snippet icon()}{#if working === network.name}<Loader2
@@ -172,65 +184,75 @@
 			chevron
 			testid="network-join">{#snippet icon()}<Plus size={18} />{/snippet}</MRow
 		>{/if}
-	<MRow
-		title="Connect to a network…"
-		onclick={() => openConnect()}
-		disabled={!running || Boolean(working)}
-		testid="network-connect">{#snippet icon()}<Network size={18} />{/snippet}</MRow
-	>
+	{#if readonly}
+		{#if !attached.length}<MRow
+				title="No user-defined networks"
+				subtitle="Only the default Docker network"
+				testid="network-none">{#snippet icon()}<Network size={18} />{/snippet}</MRow
+			>{/if}
+	{:else}
+		<MRow
+			title="Connect to a network…"
+			onclick={() => openConnect()}
+			disabled={!running || Boolean(working)}
+			testid="network-connect">{#snippet icon()}<Network size={18} />{/snippet}</MRow
+		>
+	{/if}
 </MGroup>
 {#if failure && !selected}<p role="alert" class="mx-5 mb-5 text-[15px] text-m-stop">
 		{failure}
 	</p>{/if}
 {#if warning}<p role="status" class="mx-5 mb-5 text-[15px] text-m-warn">{warning}</p>{/if}
 
-<MNetworkSheet
-	container={connect ? container : null}
-	network={connect?.network}
-	networks={dashboard.networks}
-	networksError={dashboard.networkError}
-	onClose={() => (connect = null)}
-	onConnected={connected}
-/>
-<MSheet
-	open={Boolean(selected)}
-	title={selected ?? 'Network'}
-	onClose={() => {
-		if (!working) selected = null;
-	}}
-	closeDisabled={Boolean(working)}
-	testid="network-actions-sheet"
->
-	{#if selected}
-		{#if confirmDisconnect}
-			<MConfirm
-				title={`Disconnect from ${selected}?`}
-				body={disconnectQuestion(container, selected)}
-				action="Disconnect"
-				busy={Boolean(working)}
-				error={failure}
-				onConfirm={() => void disconnect()}
-				onCancel={() => {
-					if (!working) confirmDisconnect = false;
-				}}
-			/>
-		{:else}
-			<p class="px-5 pb-3 font-mono text-[14px] [overflow-wrap:anywhere] text-m-dim">
-				{[current?.ip || current?.configuredIp, ...(current?.aliases ?? [])]
-					.filter(Boolean)
-					.join(' · ') || 'No address while stopped'}
-			</p>
-			<MGroup>
-				<MRow
-					title="Change address or alias…"
-					onclick={() => openConnect(selected ?? undefined)}
-					disabled={!running}
-					chevron>{#snippet icon()}<Network size={18} />{/snippet}</MRow
-				>
-				<MRow title="Disconnect…" danger onclick={() => (confirmDisconnect = true)}
-					>{#snippet icon()}<Unplug size={18} />{/snippet}</MRow
-				>
-			</MGroup>
+{#if !readonly}
+	<MNetworkSheet
+		container={connect ? container : null}
+		network={connect?.network}
+		networks={dashboard.networks}
+		networksError={dashboard.networkError}
+		onClose={() => (connect = null)}
+		onConnected={connected}
+	/>
+	<MSheet
+		open={Boolean(selected)}
+		title={selected ?? 'Network'}
+		onClose={() => {
+			if (!working) selected = null;
+		}}
+		closeDisabled={Boolean(working)}
+		testid="network-actions-sheet"
+	>
+		{#if selected}
+			{#if confirmDisconnect}
+				<MConfirm
+					title={`Disconnect from ${selected}?`}
+					body={disconnectQuestion(container, selected)}
+					action="Disconnect"
+					busy={Boolean(working)}
+					error={failure}
+					onConfirm={() => void disconnect()}
+					onCancel={() => {
+						if (!working) confirmDisconnect = false;
+					}}
+				/>
+			{:else}
+				<p class="px-5 pb-3 font-mono text-[14px] [overflow-wrap:anywhere] text-m-dim">
+					{[current?.ip || current?.configuredIp, ...(current?.aliases ?? [])]
+						.filter(Boolean)
+						.join(' · ') || 'No address while stopped'}
+				</p>
+				<MGroup>
+					<MRow
+						title="Change address or alias…"
+						onclick={() => openConnect(selected ?? undefined)}
+						disabled={!running}
+						chevron>{#snippet icon()}<Network size={18} />{/snippet}</MRow
+					>
+					<MRow title="Disconnect…" danger onclick={() => (confirmDisconnect = true)}
+						>{#snippet icon()}<Unplug size={18} />{/snippet}</MRow
+					>
+				</MGroup>
+			{/if}
 		{/if}
-	{/if}
-</MSheet>
+	</MSheet>
+{/if}

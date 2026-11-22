@@ -6,6 +6,7 @@
 	import { ContainerActions, TRANSITION_LABELS } from '$lib/containerActions.svelte';
 	import { containerExposure } from '$lib/publishedPorts';
 	import { DEFAULT_NETWORKS } from '$lib/networkRules';
+	import { serviceShellCommand } from '$lib/containerOpenTargets';
 	import SandboxServicesMenu from './SandboxServicesMenu.svelte';
 	import SandboxOpenWithMenu from './SandboxOpenWithMenu.svelte';
 	import ContainerMoreMenu from './ContainerMoreMenu.svelte';
@@ -54,9 +55,7 @@
 	const portCount = $derived(Object.keys(container.ports).length);
 	const exposedToAll = $derived(containerExposure(container.portBindings) === 'all');
 	/** The shell command that Open with runs; the same for every plain Docker container. */
-	const terminalCommand = $derived(
-		`docker exec -it ${containerName} bash || docker exec -it ${containerName} sh`
-	);
+	const terminalCommand = $derived(serviceShellCommand(container));
 	/** Every network of the container, default networks included, for the details. */
 	const networkRows = $derived(
 		(container.networks ?? []).map((network) => ({

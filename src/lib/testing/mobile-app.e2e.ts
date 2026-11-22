@@ -156,6 +156,32 @@ test.describe('screens fit a phone', () => {
 		await expectPhoneFit(page);
 	});
 
+	test('service container detail follows the container detail', async ({ page }) => {
+		await page.goto('/mobile/services');
+		const stack = page.getByTestId('stack-row').first();
+		test.skip(!(await stack.count()), 'The host has no Compose stacks.');
+		await stack.click();
+		await page.getByTestId('stack-service').first().click();
+		await expect(page).toHaveURL(/\/mobile\/services\/container\/[0-9a-f]{12}$/);
+		// Origin leads, as the workspace does on the devcontainer screen.
+		await expect(page.getByTestId('service-context')).toBeVisible();
+		await expect(page.getByTestId('service-stack')).toBeVisible();
+		await expect(page.getByTestId('service-sandbox')).toBeVisible();
+		// Controls are on the screen, not behind a menu.
+		await expect(page.getByRole('region', { name: 'Container controls' })).toBeVisible();
+		await expect(page.getByTestId('service-delete')).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Service actions' })).toHaveCount(0);
+		await expect(page.getByTestId('service-logs')).toBeEnabled();
+		// The server refuses network changes for plain containers, so none are offered.
+		await expect(page.getByRole('region', { name: 'Networks' })).toBeVisible();
+		await expect(page.getByTestId('network-connect')).toHaveCount(0);
+		await expect(page.getByTestId('service-details')).toHaveJSProperty('open', false);
+		await expectPhoneFit(page);
+		await page.getByTestId('service-delete').click();
+		await expect(page.getByTestId('confirm-action')).toHaveText('Delete container');
+		await expectPhoneFit(page);
+	});
+
 	test('workspace and repository drill-down', async ({ page }) => {
 		const workspace = (await workspaces(page)).find((candidate) => candidate.repos.length);
 		test.skip(!workspace, 'The host has no workspace with repositories.');
