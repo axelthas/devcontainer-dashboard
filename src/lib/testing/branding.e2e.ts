@@ -41,6 +41,49 @@ test('sign-in shows the new name and loads the puffin before authentication', as
 	expect(await response.text()).toContain('DevHarbour puffin');
 });
 
+test('home-screen icon is an opaque PNG that loads before authentication', async ({ page }) => {
+	await page.goto('/login');
+	const touchIcon = page.locator('link[rel="apple-touch-icon"]');
+	await expect(touchIcon).toHaveAttribute('href', /^(https?:\/\/[^/]+)?\/apple-touch-icon\.png$/);
+	await expect(page.locator('meta[name="apple-mobile-web-app-title"]')).toHaveAttribute(
+		'content',
+		'DevHarbour'
+	);
+	// iOS can request the icon without the session cookie, so it must not need a sign-in.
+	const response = await page.request.get('/apple-touch-icon.png', { maxRedirects: 0 });
+	expect(response.status()).toBe(200);
+	expect(response.headers()['content-type']).toContain('image/png');
+	// iOS fills transparent pixels with black, so every pixel must be opaque.
+	const pixels = await page.evaluate(async () => {
+		const image = new Image();
+		image.src = '/apple-touch-icon.png';
+		await image.decode();
+		const canvas = document.createElement('canvas');
+		canvas.width = image.naturalWidth;
+		canvas.height = image.naturalHeight;
+		const context = canvas.getContext('2d')!;
+		context.drawImage(image, 0, 0);
+		const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
+		let transparent = 0;
+		for (let index = 3; index < data.length; index += 4) if (data[index] < 255) transparent++;
+		return {
+			width: canvas.width,
+			height: canvas.height,
+			corner: [...data.slice(0, 4)],
+			transparent
+		};
+	});
+	expect(pixels).toEqual({ width: 180, height: 180, corner: [46, 52, 64, 255], transparent: 0 });
+	// The phone interface is the page that people add to the home screen.
+	await loginTerminalTest(page);
+	await page.goto('/mobile');
+	await expect(touchIcon).toHaveAttribute('href', /^(https?:\/\/[^/]+)?\/apple-touch-icon\.png$/);
+	await expect(page.locator('meta[name="apple-mobile-web-app-capable"]')).toHaveAttribute(
+		'content',
+		'yes'
+	);
+});
+
 test('dashboard branding preserves saved preferences in both themes', async ({ page }) => {
 	await page.addInitScript(() => {
 		localStorage.setItem('devcontainer-dashboard-theme', 'light');

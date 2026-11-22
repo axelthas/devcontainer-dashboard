@@ -7,6 +7,9 @@
 
 <svelte:head>
 	<link rel="icon" href={favicon} />
+	<!-- iOS ignores SVG icons on the home screen; scripts/generate-app-icons.mjs renders this PNG. -->
+	<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+	<meta name="apple-mobile-web-app-title" content="DevHarbour" />
 	<title>DevHarbour</title>
 	<meta
 		name="description"
