@@ -19,9 +19,11 @@
 	const dashboard = useMobileDashboard();
 </script>
 
+<!-- Keep the navigation opaque: content must not bleed through near the iOS status bar. -->
 <header
-	class="sticky top-0 z-20 bg-m-screen/92 backdrop-blur-xl"
-	style:padding-top="env(safe-area-inset-top)"
+	class="sticky top-0 z-20 bg-m-screen"
+	style:padding-top="var(--mobile-safe-area-top, env(safe-area-inset-top, 0px))"
+	data-testid="mobile-nav-bar"
 >
 	{#if back}
 		<div class="flex min-h-11 items-center justify-between gap-2 px-1">

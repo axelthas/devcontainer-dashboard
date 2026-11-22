@@ -74,6 +74,18 @@
 	class="mobile-app min-h-dvh bg-m-screen text-m-ink {dashboard.light ? 'mobile-light' : 'dark'}"
 	data-testid="mobile-app"
 >
+	<!--
+		Paint the status-bar strip independently of scrolling headers. It stays opaque when
+		iOS composites the top edge and while a page scrolls. Native modal sheets stay above
+		it in the top layer. The custom property lets browser tests supply a nonzero inset;
+		on a phone, env() remains the source. This strip adds no second layout inset.
+	-->
+	<div
+		class="pointer-events-none fixed inset-x-0 top-0 z-30 bg-m-screen"
+		style:height="var(--mobile-safe-area-top, env(safe-area-inset-top, 0px))"
+		aria-hidden="true"
+		data-testid="mobile-top-safe-area"
+	></div>
 	<div
 		class={fullscreen ? '' : 'pb-[calc(76px+env(safe-area-inset-bottom))]'}
 		style:padding-left="env(safe-area-inset-left)"
@@ -88,7 +100,7 @@
 	{#if dashboard.toastMessage}
 		<div
 			role="status"
-			class="pointer-events-none fixed inset-x-4 z-50 mx-auto w-fit max-w-[calc(100vw-32px)] animate-[m-fade-up_200ms_ease-out] rounded-full bg-m-ink px-4 py-2 text-center text-[15px] font-medium text-m-screen shadow-lg"
+			class="pointer-events-none fixed inset-x-4 z-50 mx-auto w-fit max-w-[calc(100vw-32px)] animate-[m-fade-up_200ms_ease-out] rounded-full bg-m-ink px-4 py-2 text-[15px] font-medium text-m-screen shadow-lg"
 			style:top="calc(env(safe-area-inset-top) + 56px)"
 			data-testid="mobile-toast"
 		>
