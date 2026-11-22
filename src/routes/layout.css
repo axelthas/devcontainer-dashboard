@@ -57,6 +57,24 @@
 	--color-m-term: var(--m-term);
 }
 
+/*
+ * WebKit can sample the document canvas as well as the fixed status-bar paint strip.
+ * Match the mobile screen before and after client navigation, including short pages.
+ * :has() follows the rendered shell and theme without a route-change script. These
+ * rules stop matching when the mobile shell unmounts, so desktop styles are unchanged.
+ */
+html:has(.mobile-app) {
+	background-color: #2e3440;
+}
+
+html:has(.mobile-app.mobile-light) {
+	background-color: #eceff4;
+}
+
+html:has(.mobile-app) body {
+	background-color: inherit;
+}
+
 .mobile-app {
 	--m-screen: #2e3440;
 	--m-surface: #3b4252;

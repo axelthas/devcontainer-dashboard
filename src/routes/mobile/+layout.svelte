@@ -73,14 +73,15 @@
 	data-testid="mobile-app"
 >
 	<!--
-		Paint the status-bar strip independently of scrolling headers. It stays opaque when
-		iOS composites the top edge and while a page scrolls. Native modal sheets stay above
-		it in the top layer. The custom property lets browser tests supply a nonzero inset;
-		on a phone, env() remains the source. This strip adds no second layout inset.
+		WebKit can sample a fixed top surface to tint the native status bar after navigation.
+		A zero-height safe area leaves no surface, so retain at least 6px of opaque paint.
+		This is a paint floor, not a device inset: header padding still uses the actual inset.
+		The strip adds no layout space or touch interception; native modal sheets stay above it.
+		Browser tests can override the inset with --mobile-safe-area-top; phones use env().
 	-->
 	<div
 		class="pointer-events-none fixed inset-x-0 top-0 z-30 bg-m-screen"
-		style:height="var(--mobile-safe-area-top, env(safe-area-inset-top, 0px))"
+		style:height="max(6px, var(--mobile-safe-area-top, env(safe-area-inset-top, 0px)))"
 		aria-hidden="true"
 		data-testid="mobile-top-safe-area"
 	></div>
