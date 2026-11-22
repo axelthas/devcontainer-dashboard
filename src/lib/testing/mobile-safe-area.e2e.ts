@@ -115,7 +115,9 @@ for (const device of DEVICES) {
 	});
 }
 
-test('mobile document paint follows theme changes and does not leak into desktop', async ({ page }) => {
+test('mobile document paint follows theme changes and does not leak into desktop', async ({
+	page
+}) => {
 	await page.addInitScript(() => {
 		localStorage.setItem('devcontainer-dashboard-theme', 'dark');
 	});
