@@ -111,7 +111,13 @@ test.describe('interface choice', () => {
 		await expect(page).toHaveURL(/127\.0\.0\.1:4173\/$/);
 		await page.goto('/');
 		await expect(page).toHaveURL(/127\.0\.0\.1:4173\/$/);
-		await page.getByRole('link', { name: 'Phone layout' }).click();
+		// The desktop layout is wider than the phone, so the phone zooms out. Chromium
+		// emulation misplaces clicks in a zoomed-out page; follow the link target instead.
+		const phoneLayout = page.getByRole('link', { name: 'Phone layout' });
+		await expect(phoneLayout).toHaveAttribute('href', '/interface?use=mobile');
+		await page.goto((await phoneLayout.getAttribute('href')) ?? '');
+		await expect(page).toHaveURL(/\/mobile\/containers$/);
+		await page.goto('/');
 		await expect(page).toHaveURL(/\/mobile\/containers$/);
 	});
 
@@ -219,6 +225,126 @@ test.describe('screens fit a phone', () => {
 	});
 });
 
+/** A real touch drag through the Chromium input pipeline, so touch handlers run. */
+async function touchDrag(page: Page, x: number, y: number, distance: number): Promise<void> {
+	const cdp = await page.context().newCDPSession(page);
+	await cdp.send('Input.synthesizeScrollGesture', {
+		x,
+		y,
+		yDistance: distance,
+		gestureSourceType: 'touch',
+		speed: 1200
+	});
+	await cdp.detach();
+}
+
+/** Make the current screen taller than the phone and scroll it to `y`. */
+async function scrollableAt(page: Page, y: number): Promise<void> {
+	await page.evaluate((top) => {
+		const spacer = document.createElement('div');
+		spacer.style.height = '2400px';
+		spacer.dataset.testSpacer = '';
+		// Outside the app root, so a render or hydration cannot remove it.
+		document.body.append(spacer);
+		window.scrollTo(0, top);
+	}, y);
+	await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(y);
+}
+
+/**
+ * Where keyboard focus is: `sheet` inside the element with `testid`, `browser` when no
+ * page element has it (Tab past the last control of a modal dialog goes to the browser
+ * toolbar), or the outside element that has it.
+ */
+async function focusPlace(page: Page, testid: string): Promise<string> {
+	return page.evaluate((id) => {
+		const active = document.activeElement;
+		if (!active || active === document.body) return 'browser';
+		if (document.querySelector(`[data-testid="${id}"]`)?.contains(active)) return 'sheet';
+		return `outside: ${active.outerHTML.slice(0, 80)}`;
+	}, testid);
+}
+
+test.describe('sheets isolate the page behind them', () => {
+	test.beforeEach(async ({ page }) => login(page));
+
+	test('the host sheet keeps scrolling and focus away from the page', async ({ page }) => {
+		await page.goto('/mobile/containers');
+		await page.waitForLoadState('networkidle');
+		await scrollableAt(page, 300);
+		await page.getByTestId('host-button').focus();
+		await page.getByTestId('host-button').press('Enter');
+		const sheet = page.getByTestId('host-sheet');
+		await expect(sheet).toBeVisible();
+		await expect(page.locator('html')).toHaveAttribute('data-sheet-open', '');
+
+		// Focus starts on the title, not on the SSH host field: no keyboard pops up.
+		await expect(sheet.locator('[data-sheet-title]')).toBeFocused();
+
+		// Drags on the backdrop and on the sheet header do not move the page.
+		await touchDrag(page, 196, 50, -400);
+		await touchDrag(page, 196, 50, 400);
+		const box = await sheet.boundingBox();
+		await touchDrag(page, 196, (box?.y ?? 0) + 20, 300);
+		await page.mouse.move(196, 50);
+		await page.mouse.wheel(0, 600);
+		await page.waitForTimeout(150);
+		expect(await page.evaluate(() => window.scrollY)).toBe(300);
+
+		// Tab never reaches the page behind the sheet, and it comes back to the sheet.
+		const places: string[] = [];
+		for (let step = 0; step < 14; step++) {
+			await page.keyboard.press('Tab');
+			places.push(await focusPlace(page, 'host-sheet'));
+		}
+		expect(places.filter((place) => place.startsWith('outside'))).toEqual([]);
+		expect(places.filter((place) => place === 'sheet').length).toBeGreaterThan(places.length / 2);
+
+		// Closing restores the page: same position, focus back on the opener.
+		await sheet.getByRole('button', { name: 'Done' }).click();
+		await expect(sheet).toBeHidden();
+		await expect(page.locator('html')).not.toHaveAttribute('data-sheet-open');
+		expect(await page.evaluate(() => window.scrollY)).toBe(300);
+		await expect(page.getByTestId('host-button')).toBeFocused();
+
+		// Escape closes it the same way.
+		await page.getByTestId('host-button').press('Enter');
+		await expect(sheet).toBeVisible();
+		await page.keyboard.press('Escape');
+		await expect(sheet).toBeHidden();
+		await expect(page.locator('html')).not.toHaveAttribute('data-sheet-open');
+	});
+
+	test('+ on Workspaces opens the New workspace sheet', async ({ page }) => {
+		await page.goto('/mobile/workspaces');
+		await page.getByTestId('new-workspace').click();
+		const sheet = page.getByTestId('new-workspace-sheet');
+		await expect(sheet).toBeVisible();
+		await expect(page).toHaveURL(/\/mobile\/workspaces$/);
+		await expect(sheet.getByRole('heading', { name: 'New workspace' })).toBeVisible();
+		await expect(sheet.getByText('Reading presets')).toBeHidden({ timeout: 15_000 });
+		await expectPhoneFit(page);
+
+		// A preset opens its form in the same sheet; Back returns to the list.
+		const preset = sheet.getByTestId('bootstrap-preset').first();
+		if (await preset.count()) {
+			const name = (await preset.locator('span').first().textContent())?.trim() ?? '';
+			await preset.click();
+			await expect(sheet.getByTestId('preset-run')).toBeVisible();
+			if (name) await expect(sheet.locator('[data-sheet-title]')).toContainText(name);
+			await expectPhoneFit(page);
+			await sheet.getByTestId('sheet-back').click();
+			await expect(sheet.getByTestId('bootstrap-preset').first()).toBeVisible();
+		}
+
+		// Dev Bootstrap management is one step away and closes the sheet.
+		await sheet.getByTestId('manage-bootstrap').click();
+		await expect(page).toHaveURL(/\/mobile\/workspaces\/bootstrap$/);
+		await expect(sheet).toBeHidden();
+		await expect(page.locator('html')).not.toHaveAttribute('data-sheet-open');
+	});
+});
+
 declare global {
 	interface Window {
 		/** Test hook: simulate an on-screen keyboard of `inset` px; 0 closes it. */
@@ -288,10 +414,13 @@ test.describe('terminal', () => {
 				Number((await page.getByTestId('terminal-grid').textContent())?.split('×')[0])
 			)
 			.toBeLessThan(before);
+		// The A+ buttons took the focus; give it back to the terminal before typing.
+		await page.locator('[data-testid="terminal-host"] textarea').focus();
 		await page.keyboard.type('stty size');
 		await page.keyboard.press('Enter');
 		const cols = Number((await page.getByTestId('terminal-grid').textContent())?.split('×')[0]);
-		await expect(rows).toContainText(new RegExp(`\\b\\d+ ${cols}\\b`));
+		// `stty size` prints rows and columns; xterm rows have no line breaks in the text.
+		await expect(rows).toContainText(new RegExp(`stty size\\d+ ${cols}(?!\\d)`));
 
 		// The size belongs to this phone: a reload keeps it.
 		await page.reload();

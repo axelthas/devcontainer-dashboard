@@ -20,11 +20,11 @@
 	import { useMobileDashboard } from '$lib/mobile/dashboard.svelte';
 	import type { BootstrapPreset, BootstrapProvider, BootstrapToolInfo } from '$lib/types';
 	import MBanner from '$lib/components/mobile/MBanner.svelte';
-	import MButton from '$lib/components/mobile/MButton.svelte';
 	import MChip from '$lib/components/mobile/MChip.svelte';
 	import MGroup from '$lib/components/mobile/MGroup.svelte';
 	import MNavBar from '$lib/components/mobile/MNavBar.svelte';
 	import MRow from '$lib/components/mobile/MRow.svelte';
+	import MNewWorkspaceSheet from '$lib/components/mobile/MNewWorkspaceSheet.svelte';
 	import MSheet from '$lib/components/mobile/MSheet.svelte';
 
 	const dashboard = useMobileDashboard();
@@ -33,19 +33,15 @@
 	let presets = $state<BootstrapPreset[]>([]);
 	let loading = $state(true);
 	let error = $state('');
-	let busy = $state<'pull' | 'checkout' | 'run' | null>(null);
+	let busy = $state<'pull' | 'checkout' | null>(null);
 	let message = $state('');
-	let sheet = $state<'branch' | 'preset' | null>(null);
+	let sheet = $state<'branch' | null>(null);
+	/** The preset whose form is open in the New workspace sheet. */
 	let preset = $state<BootstrapPreset | null>(null);
-	let command = $state('');
-	let destDir = $state('');
-	let runError = $state('');
 
 	const branches = $derived([
 		...new Set([...(info?.availableBranches ?? []), ...(info?.remoteBranches ?? [])])
 	]);
-	const showCommand = $derived(!preset?.fields || preset.fields.includes('command'));
-	const showDestDir = $derived(!preset?.fields || preset.fields.includes('destDir'));
 
 	async function load() {
 		loading = true;
@@ -116,43 +112,6 @@
 			kind: 'bootstrap'
 		});
 		void goto(resolve('/mobile/terminals/[id]', { id: id }));
-	}
-
-	function choose(next: BootstrapPreset) {
-		preset = next;
-		command = next.command;
-		destDir = '';
-		runError = '';
-		sheet = 'preset';
-	}
-
-	/** Start the run on the server, then attach to its terminal session. */
-	async function run() {
-		if (!preset || busy) return;
-		if ((showCommand && !command.trim()) || (showDestDir && !destDir.trim())) return;
-		busy = 'run';
-		runError = '';
-		try {
-			const { id } = await requestJson<{ id: string; workspacePath: string }>(
-				'/api/bootstrap/run',
-				{
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({
-						command: command.trim().replaceAll('{destDir}', destDir.trim()),
-						name: preset.name,
-						destDir: showDestDir ? destDir.trim() : ''
-					})
-				}
-			);
-			sheet = null;
-			void dashboard.refreshWorkspaces().catch(() => {});
-			await goto(resolve('/mobile/terminals/[id]', { id: id }));
-		} catch (cause) {
-			runError = errorMessage(cause);
-		} finally {
-			busy = null;
-		}
 	}
 </script>
 
@@ -240,7 +199,7 @@
 			<MRow
 				title={item.name}
 				subtitle={item.command}
-				onclick={() => choose(item)}
+				onclick={() => (preset = item)}
 				chevron
 				testid="bootstrap-preset"
 			>
@@ -274,53 +233,9 @@
 	</MGroup>
 </MSheet>
 
-<MSheet
-	open={sheet === 'preset'}
-	title={preset?.name ?? 'New workspace'}
-	onClose={() => (sheet = null)}
-	testid="preset-sheet"
->
-	{#if showDestDir}
-		<MGroup
-			title="Destination folder"
-			footer={'Created under the workspace root. {destDir} in the command is replaced with it.'}
-		>
-			<input
-				type="text"
-				bind:value={destDir}
-				placeholder="git.my-solution.1.0.0"
-				aria-label="Destination folder"
-				autocapitalize="off"
-				spellcheck="false"
-				class="block min-h-[52px] w-full border-none bg-transparent px-4 font-mono text-[16px] text-m-ink placeholder:text-m-dim focus:ring-0"
-			/>
-		</MGroup>
-	{/if}
-	{#if showCommand}
-		<MGroup title="Command">
-			<textarea
-				bind:value={command}
-				rows="3"
-				aria-label="Command"
-				autocapitalize="off"
-				spellcheck="false"
-				class="block w-full resize-none border-none bg-transparent px-4 py-3 font-mono text-[15px] text-m-ink focus:ring-0"
-			></textarea>
-		</MGroup>
-	{/if}
-	{#if runError}<p role="alert" class="mx-5 mb-3 text-[15px] text-m-stop">{runError}</p>{/if}
-	<div class="px-4">
-		<MButton
-			onclick={() => void run()}
-			disabled={busy !== null ||
-				(showCommand && !command.trim()) ||
-				(showDestDir && !destDir.trim())}
-			testid="preset-run"
-		>
-			{#if busy === 'run'}<Loader2 size={18} class="animate-spin" />{:else}<Play
-					size={18}
-					class="fill-current"
-				/>{/if}Run in a terminal
-		</MButton>
-	</div>
-</MSheet>
+<MNewWorkspaceSheet
+	open={preset !== null}
+	onClose={() => (preset = null)}
+	{presets}
+	initial={preset}
+/>

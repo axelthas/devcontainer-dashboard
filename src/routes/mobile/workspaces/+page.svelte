@@ -1,7 +1,6 @@
 <script lang="ts">
 	/** Workspaces on this host, and Dev Bootstrap, which creates new ones. */
 	import { Package, Plus } from 'lucide-svelte';
-	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { useMobileDashboard, workspaceKey } from '$lib/mobile/dashboard.svelte';
 	import MBanner from '$lib/components/mobile/MBanner.svelte';
@@ -9,11 +8,13 @@
 	import MGroup from '$lib/components/mobile/MGroup.svelte';
 	import MIconButton from '$lib/components/mobile/MIconButton.svelte';
 	import MNavBar from '$lib/components/mobile/MNavBar.svelte';
+	import MNewWorkspaceSheet from '$lib/components/mobile/MNewWorkspaceSheet.svelte';
 	import MRow from '$lib/components/mobile/MRow.svelte';
 	import MSearch from '$lib/components/mobile/MSearch.svelte';
 	import { TriangleAlert } from 'lucide-svelte';
 
 	const dashboard = useMobileDashboard();
+	let creating = $state(false);
 	let query = $state(dashboard.ui.workspaceQuery ?? '');
 	$effect(() => {
 		dashboard.ui.workspaceQuery = query;
@@ -42,7 +43,8 @@
 		<MIconButton
 			icon={Plus}
 			label="New workspace"
-			onclick={() => void goto(resolve('/mobile/workspaces/bootstrap'))}
+			onclick={() => (creating = true)}
+			testid="new-workspace"
 		/>
 	{/snippet}
 </MNavBar>
@@ -99,3 +101,5 @@
 		{/each}
 	</MGroup>
 {/if}
+
+<MNewWorkspaceSheet open={creating} onClose={() => (creating = false)} manageLink />
