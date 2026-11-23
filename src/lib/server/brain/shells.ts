@@ -101,6 +101,8 @@ function zshRc(nonce: string): string {
 		'unset DDB_BRAIN_RC DDB_BRAIN_DIR DDB_BRAIN_ZDOTDIR_SET DDB_BRAIN_USER_ZDOTDIR',
 		'unset HISTFILE',
 		'unsetopt BANG_HIST',
+		// Staged commands include a trailing summary comment, as they do in bash and sh.
+		'setopt INTERACTIVE_COMMENTS',
 		// Zsh's PROMPT_SP draws a '%' and padding before precmd; that would enter Brain's output.
 		'unsetopt PROMPT_SP',
 		'__ddb_brain_prompt() {',

@@ -15,6 +15,10 @@ The puffin uses the dashboard's Nord palette for now: Polar Night `#2e3440`,
 Snow Storm `#eceff4`, Frost `#88c0d0`, and Aurora orange `#d08770` and yellow `#ebcb8b`.
 The [app icon](src/lib/assets/favicon.svg) and [wordmark](static/devharbour-logo.svg)
 are self-contained SVGs with no external fonts or raster images.
+The iPhone home-screen icon [static/apple-touch-icon.png](static/apple-touch-icon.png)
+is a PNG, because iOS ignores SVG icons there. It is generated from the app icon.
+After you change the app icon, run `node scripts/generate-app-icons.mjs` and commit
+the new PNG.
 
 ## Run the dashboard
 

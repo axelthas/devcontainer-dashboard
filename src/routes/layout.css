@@ -33,3 +33,109 @@
 .highlight-flash {
 	animation: highlight-flash-anim 1.5s ease-out;
 }
+
+/*
+ * Mobile interface tokens (src/routes/mobile). The Nord palette as named jobs: screen,
+ * surface and raised are the three depths, frost is the action colour, and the aurora
+ * colours mark state only. `.mobile-light` re-points the same tokens.
+ */
+@theme inline {
+	--color-m-screen: var(--m-screen);
+	--color-m-surface: var(--m-surface);
+	--color-m-raised: var(--m-raised);
+	--color-m-edge: var(--m-edge);
+	--color-m-ink: var(--m-ink);
+	--color-m-dim: var(--m-dim);
+	--color-m-frost: var(--m-frost);
+	--color-m-on-frost: var(--m-on-frost);
+	--color-m-glacier: var(--m-glacier);
+	--color-m-run: var(--m-run);
+	--color-m-stop: var(--m-stop);
+	--color-m-warn: var(--m-warn);
+	--color-m-brain: var(--m-brain);
+	--color-m-beak: var(--m-beak);
+	--color-m-term: var(--m-term);
+}
+
+/*
+ * WebKit can sample the document canvas as well as the fixed status-bar paint strip.
+ * Match the mobile screen before and after client navigation, including short pages.
+ * :has() follows the rendered shell and theme without a route-change script. These
+ * rules stop matching when the mobile shell unmounts, so desktop styles are unchanged.
+ */
+html:has(.mobile-app) {
+	background-color: #2e3440;
+}
+
+html:has(.mobile-app.mobile-light) {
+	background-color: #eceff4;
+}
+
+html:has(.mobile-app) body {
+	background-color: inherit;
+}
+
+.mobile-app {
+	--m-screen: #2e3440;
+	--m-surface: #3b4252;
+	--m-raised: #434c5e;
+	--m-edge: #4c566a;
+	--m-ink: #eceff4;
+	--m-dim: #c5ccd8;
+	--m-frost: #88c0d0;
+	--m-on-frost: #2e3440;
+	--m-glacier: #81a1c1;
+	--m-run: #a3be8c;
+	--m-stop: #d57780;
+	--m-warn: #ebcb8b;
+	--m-brain: #b48ead;
+	--m-beak: #d08770;
+	--m-term: #2e3440;
+	font-family:
+		-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Segoe UI', Roboto, sans-serif;
+	-webkit-tap-highlight-color: transparent;
+	-webkit-text-size-adjust: 100%;
+}
+
+.mobile-app.mobile-light {
+	--m-screen: #eceff4;
+	--m-surface: #ffffff;
+	--m-raised: #e5e9f0;
+	--m-edge: #d8dee9;
+	--m-ink: #2e3440;
+	--m-dim: #4c566a;
+	--m-frost: #5e81ac;
+	--m-on-frost: #ffffff;
+	--m-glacier: #5e81ac;
+	--m-run: #4f7d3f;
+	--m-stop: #b2434e;
+	--m-warn: #9a6b00;
+	--m-brain: #86587f;
+	--m-beak: #a9512c;
+}
+
+@keyframes m-sheet-up {
+	from {
+		transform: translateY(100%);
+	}
+	to {
+		transform: none;
+	}
+}
+
+@keyframes m-fade-up {
+	from {
+		opacity: 0;
+		transform: translateY(6px);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.mobile-app * {
+		animation-duration: 1ms !important;
+	}
+}

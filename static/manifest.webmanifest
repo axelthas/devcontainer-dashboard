@@ -1,0 +1,18 @@
+{
+	"id": "/",
+	"name": "DevHarbour",
+	"short_name": "DevHarbour",
+	"start_url": "/mobile/containers",
+	"scope": "/",
+	"display": "standalone",
+	"background_color": "#2e3440",
+	"theme_color": "#2e3440",
+	"icons": [
+		{
+			"src": "/apple-touch-icon.png",
+			"sizes": "180x180",
+			"type": "image/png",
+			"purpose": "any"
+		}
+	]
+}

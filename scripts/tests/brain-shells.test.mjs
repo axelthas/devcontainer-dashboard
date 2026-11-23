@@ -212,8 +212,7 @@ function installReal(path, extraEnv = {}) {
 
 /** A restricted PATH exercises fallback order without installing or removing system shells. */
 async function shellPath(homeDir, names) {
-	const bin = join(homeDir, `bin-${names.join('-')}`);
-	await mkdir(bin);
+	const bin = await mkdtemp(join(homeDir, `bin-${names.join('-')}-`));
 	for (const name of [...names, 'sh', 'cat', 'mktemp', 'rm', 'rmdir']) {
 		const destination =
 			name === 'zsh' && process.env.DDB_TEST_ZSH
@@ -268,6 +267,10 @@ for (const shell of ['zsh', 'bash', 'sh']) {
 				const multiline = await run('echo first\necho second');
 				assert.equal(multiline.exit_code, 0);
 				assert.equal(multiline.output, 'first\nsecond\n');
+				const loop = await run('for i in 1 2 3; do\n  echo "n$i"\ndone\ncd /');
+				assert.equal(loop.exit_code, 0);
+				assert.equal(loop.output, 'n1\nn2\nn3\n');
+				assert.equal(loop.cwd, '/');
 			} finally {
 				real.kill();
 			}
@@ -310,7 +313,9 @@ test(
 	'a real shell keeps directory and variables, reports exit codes and keeps the user prompt hook',
 	{ skip: !realShells && 'bash and python3 are required' },
 	async () => {
-		const real = installReal();
+		const existingTemporaryFiles = new Set(await readdir('/tmp'));
+		// These lifecycle regressions use Bash; the shell-selection matrix above covers zsh and sh.
+		const real = installReal(await shellPath(home, ['bash', 'sleep']));
 		try {
 			const opened = await call('open_shell', { target_id: real.grant.id, wait_seconds: 10 });
 			assert.equal(opened.ready, true);
@@ -339,7 +344,10 @@ test(
 			const script = await run('for i in 1 2 3; do\n  echo "n$i"\ndone\ncd /');
 			assert.equal(script.output, 'n1\nn2\nn3\n');
 			assert.equal(script.cwd, '/');
-			const leftovers = (await readdir('/tmp')).filter((name) => name.startsWith('.ddb-brain-'));
+			// Other sessions and earlier interrupted runs can own files in the shared /tmp.
+			const leftovers = (await readdir('/tmp')).filter(
+				(name) => name.startsWith('.ddb-brain-') && !existingTemporaryFiles.has(name)
+			);
 			assert.deepEqual(leftovers, []);
 
 			const targets = await call('list_targets', {});
@@ -357,7 +365,8 @@ test(
 	'a busy real shell refuses a second command, Ctrl+C interrupts it, and a stop ends every job',
 	{ skip: !realShells && 'bash and python3 are required' },
 	async () => {
-		const real = installReal();
+		// These lifecycle regressions use Bash; the shell-selection matrix above covers zsh and sh.
+		const real = installReal(await shellPath(home, ['bash', 'sleep']));
 		try {
 			const { shell_id } = await call('open_shell', { target_id: real.grant.id, wait_seconds: 10 });
 			const run = (command, wait_seconds = 10) =>
@@ -365,8 +374,15 @@ test(
 			const background = await run('sleep 300 & echo "pid=$!"');
 			const pid = Number(/pid=(\d+)/.exec(background.output)[1]);
 
-			const slow = await run('sleep 30', 0);
+			const slow = await run('printf "foreground-ready\\n"; sleep 30', 0);
 			assert.equal(slow.status, 'running');
+			// A zero-wait execute returns before the shell necessarily starts the job.
+			await eventually(() => {
+				const execution = brain.state.brainState.executions.get(shell_id);
+				return brain.shells
+					.commandOutput(execution, execution.shell.current)
+					.text.includes('foreground-ready');
+			});
 			await assert.rejects(run('echo no'), /busy with command/);
 			await call('write_stdin', { execution_id: shell_id, input: '\u0003' });
 			const read = await call('read_output', {

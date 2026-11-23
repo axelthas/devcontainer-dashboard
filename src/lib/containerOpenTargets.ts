@@ -66,3 +66,17 @@ export function containerOpenCodeCommand(container: CommandTarget): string | nul
 	if (containerOpenCodeBlocker(container)) return null;
 	return [...execPrefix(container), 'sh', '-lc', shellQuote(OPENCODE_LAUNCH_SCRIPT)].join(' ');
 }
+
+/**
+ * Shell in a plain Docker container, as the desktop Open with menu runs it: bash, else sh,
+ * as the image user. Docker container names contain only `[a-zA-Z0-9_.-]`.
+ */
+export function serviceShellCommand(container: Pick<ContainerData, 'name'>): string {
+	const name = bareContainerName(container);
+	return `docker exec -it ${name} bash || docker exec -it ${name} sh`;
+}
+
+/** Follow the output of a plain Docker container, starting with its last 200 lines. */
+export function serviceLogsCommand(container: Pick<ContainerData, 'name'>): string {
+	return `docker logs --follow --tail 200 ${shellQuote(bareContainerName(container))}`;
+}

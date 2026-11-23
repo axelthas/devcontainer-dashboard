@@ -25,6 +25,8 @@ export interface ContainerData {
 	composeProject?: string;
 	/** `com.docker.compose.service` label */
 	composeService?: string;
+	/** `com.docker.compose.project.working_dir` label: the Compose project folder on the host */
+	composeWorkingDir?: string;
 	/** Sandbox tag from the `devcontainer-dashboard.sandbox.tag` label that DevHarbour writes */
 	sandboxTag?: string;
 	/** Docker networks of the container, sorted by name. Empty or missing when unknown. */

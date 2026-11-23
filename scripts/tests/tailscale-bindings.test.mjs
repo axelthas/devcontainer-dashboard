@@ -40,7 +40,13 @@ test('stopped bindings preserve configured addresses and do not invent allocated
 });
 
 test('SSR and polling share the binding mapper and both row types show the metadata', async () => {
-	for (const path of ['src/routes/+page.server.ts', 'src/routes/api/containers/+server.ts']) {
+	// Desktop and mobile SSR delegate to the same loader after the mobile extraction.
+	for (const path of ['src/routes/+page.server.ts', 'src/routes/mobile/+layout.server.ts']) {
+		const source = await readFile(new URL(`../../${path}`, import.meta.url), 'utf8');
+		assert.match(source, /import \{ loadDashboardData \} from '\$lib\/server\/dashboardData';/);
+		assert.match(source, /\bloadDashboardData\(\)/);
+	}
+	for (const path of ['src/lib/server/dashboardData.ts', 'src/routes/api/containers/+server.ts']) {
 		const source = await readFile(new URL(`../../${path}`, import.meta.url), 'utf8');
 		assert.match(
 			source,
