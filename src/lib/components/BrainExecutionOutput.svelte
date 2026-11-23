@@ -6,9 +6,11 @@
 		executionId: string;
 		/** One command of a shell: show only that command's output */
 		commandId?: string;
+		/** Taller box for a screen that shows only this output */
+		tall?: boolean;
 	}
 
-	let { executionId, commandId }: Props = $props();
+	let { executionId, commandId, tall = false }: Props = $props();
 
 	/** Characters kept in the browser; the server retains more. */
 	const MAX_SHOWN = 200_000;
@@ -58,13 +60,15 @@
 	});
 </script>
 
-<div class="grid gap-1">
+<div class="grid min-w-0 grid-cols-1 gap-1">
 	{#if truncated}
 		<p class="text-xs text-[#4c566a] dark:text-[#d8dee9]/60">Earlier output was dropped.</p>
 	{/if}
 	<pre
 		aria-label="Command output"
-		class="max-h-64 overflow-auto rounded-lg bg-[#2e3440] p-3 font-mono text-xs whitespace-pre-wrap text-[#d8dee9]">{text ||
+		class="{tall
+			? 'max-h-[55dvh] text-[13px]'
+			: 'max-h-[min(16rem,40dvh)] text-xs'} min-w-0 overflow-auto rounded-lg bg-[#2e3440] p-3 font-mono [overflow-wrap:anywhere] whitespace-pre-wrap text-[#d8dee9]">{text ||
 			'No output yet.'}</pre>
 	{#if failure}
 		<p role="alert" class="text-xs text-[#bf616a]">{failure}</p>

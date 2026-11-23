@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildActivity, headline } from './brainActivity';
+import { buildActivity, findStep, headline, stepOutcome, stepResult } from './brainActivity';
 import type {
 	BrainAuditEntry,
 	BrainExecutionView,
@@ -144,5 +144,28 @@ describe('headline', () => {
 	it('skips shell option preambles', () => {
 		expect(headline('set -euo pipefail\ncpack --config x')).toBe('cpack --config x');
 		expect(headline('git status')).toBe('git status');
+	});
+});
+
+describe('step helpers', () => {
+	it('name the result and outcome of each status', () => {
+		const base = { controller: 'brain' as const, exitCode: undefined };
+		expect(stepResult({ ...base, status: 'running' })).toBe('running');
+		expect(stepResult({ ...base, status: 'running', controller: 'operator' })).toBe(
+			'you have control'
+		);
+		expect(stepResult({ ...base, status: 'exited', exitCode: 7 })).toBe('exit 7');
+		expect(stepOutcome({ status: 'running' })).toBe('running');
+		expect(stepOutcome({ status: 'exited', exitCode: 0 })).toBe('ok');
+		expect(stepOutcome({ status: 'exited', exitCode: 7 })).toBe('failed');
+		expect(stepOutcome({ status: 'stopped' })).toBe('ended');
+	});
+
+	it('find a one-off command and reject an unknown shell command', () => {
+		const activity = buildActivity(status({ executions: [execution({ id: 'x1' })] }));
+		expect(findStep(activity, 'x1')?.step.executionId).toBe('x1');
+		expect(findStep(activity, 'x1', null)?.group.containerName).toBe(grant.containerName);
+		expect(findStep(activity, 'x1', 'c9')).toBeUndefined();
+		expect(findStep(activity, 'missing')).toBeUndefined();
 	});
 });

@@ -114,7 +114,7 @@
 	];
 </script>
 
-<div class="grid content-start gap-4">
+<div class="grid min-w-0 grid-cols-1 content-start gap-4">
 	<div class="flex flex-wrap items-center gap-1" role="group" aria-label="Show commands">
 		{#each FILTERS as [id, label] (id)}
 			<button
@@ -151,7 +151,7 @@
 			onpointerenter={() => onHoverGrant?.(group.grant?.containerId ?? null)}
 			onpointerleave={() => onHoverGrant?.(null)}
 			aria-label={`Brain in ${group.containerName}`}
-			class="scroll-mt-3 rounded-xl border bg-white shadow-sm transition-[border-color,box-shadow] dark:bg-[#3b4252] {focused ===
+			class="min-w-0 scroll-mt-3 rounded-xl border bg-white shadow-sm transition-[border-color,box-shadow] dark:bg-[#3b4252] {focused ===
 			group.grantId
 				? 'border-[#b48ead] ring-2 ring-[#b48ead]/25'
 				: 'border-[#d8dee9] dark:border-[#4c566a]'} {group.grant ? '' : 'opacity-70'}"
@@ -249,7 +249,7 @@
 				{@const steps = stepsShown(group)}
 				{#if steps.length}
 					<ol
-						class="relative px-4 pt-4 before:absolute before:top-6 before:bottom-8 before:left-[21.5px] before:w-px before:bg-[#d8dee9] dark:before:bg-[#4c566a]"
+						class="relative min-w-0 px-4 pt-4 before:absolute before:top-6 before:bottom-8 before:left-[21.5px] before:w-px before:bg-[#d8dee9] dark:before:bg-[#4c566a]"
 					>
 						{#each steps as step (step.key)}
 							<BrainCommandStep
@@ -266,9 +266,11 @@
 					</p>
 				{/if}
 				{#if group.refused.length}
-					<ul class="grid gap-1.5 border-t border-[#d8dee9] px-4 py-3 dark:border-[#4c566a]">
+					<ul
+						class="grid min-w-0 grid-cols-1 gap-1.5 border-t border-[#d8dee9] px-4 py-3 dark:border-[#4c566a]"
+					>
 						{#each group.refused as entry (`${entry.at}-${entry.tool}`)}
-							<li class="flex gap-2 text-xs">
+							<li class="flex min-w-0 gap-2 text-xs">
 								<TriangleAlert size={13} class="mt-0.5 shrink-0 text-[#bf616a]" />
 								<span class="min-w-0 flex-1">
 									{#if entry.goal}<span class="block text-[#2e3440] dark:text-[#eceff4]"
@@ -297,15 +299,15 @@
 
 	{#if filter !== 'running' && activity.outside.length}
 		<section
-			class="rounded-xl border border-dashed border-[#bf616a]/50 px-4 py-3"
+			class="min-w-0 rounded-xl border border-dashed border-[#bf616a]/50 px-4 py-3"
 			aria-label="Refused outside granted containers"
 		>
 			<h3 class="flex items-center gap-2 text-sm font-semibold text-[#bf616a]">
 				<ShieldAlert size={15} />Refused outside granted containers
 			</h3>
-			<ul class="mt-2 grid gap-2">
+			<ul class="mt-2 grid min-w-0 grid-cols-1 gap-2">
 				{#each activity.outside.slice(0, 20) as entry (`${entry.at}-${entry.tool}`)}
-					<li class="grid gap-0.5 text-xs">
+					<li class="grid min-w-0 grid-cols-1 gap-0.5 text-xs">
 						<span class="flex gap-2">
 							<span class="min-w-0 flex-1 text-[#2e3440] dark:text-[#eceff4]"
 								>{entry.goal ?? entry.tool}</span

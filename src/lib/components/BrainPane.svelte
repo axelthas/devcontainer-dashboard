@@ -57,7 +57,7 @@
 
 <section
 	aria-labelledby={`${uid}-title`}
-	class="flex h-full min-h-0 flex-col bg-[#eceff4] text-[#2e3440] dark:bg-[#2e3440] dark:text-[#d8dee9]"
+	class="flex h-full min-h-0 min-w-0 flex-col bg-[#eceff4] text-[#2e3440] dark:bg-[#2e3440] dark:text-[#d8dee9]"
 >
 	<div
 		class="flex flex-wrap items-center gap-2 border-b border-[#d8dee9] bg-[#e5e9f0] px-5 py-3 dark:border-[#434c5e] dark:bg-[#3b4252]"
@@ -82,7 +82,7 @@
 						<Globe size={14} class="text-[#5e81ac] dark:text-[#88c0d0]" />Endpoint
 					</summary>
 					<div
-						class="absolute right-0 z-20 mt-1 grid w-80 gap-2 rounded-lg border border-[#d8dee9] bg-white p-3 text-xs shadow-xl dark:border-[#4c566a] dark:bg-[#3b4252]"
+						class="absolute right-0 z-20 mt-1 grid w-[min(20rem,calc(100vw-2rem))] gap-2 rounded-lg border border-[#d8dee9] bg-white p-3 text-xs shadow-xl dark:border-[#4c566a] dark:bg-[#3b4252]"
 					>
 						{#if status.publicUrl}
 							<p class="font-mono break-all">{status.publicUrl}</p>
@@ -148,7 +148,10 @@
 		</div>
 	</div>
 
-	<div class="min-h-0 flex-1 overflow-y-auto px-5 pt-4 pb-24 text-sm">
+	<div
+		class="min-h-0 min-w-0 flex-1 overflow-y-auto px-5 pt-4 pb-24 text-sm"
+		data-testid="brain-pane-scroll"
+	>
 		{#if failure}
 			<p role="alert" class="mb-3 text-xs text-[#bf616a]">{failure}</p>
 		{/if}

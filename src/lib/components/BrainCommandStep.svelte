@@ -13,7 +13,7 @@
 		SquareTerminal,
 		TriangleAlert
 	} from 'lucide-svelte';
-	import { headline, isRunningStep, type BrainStep } from '$lib/brainActivity';
+	import { headline, isRunningStep, stepResult, type BrainStep } from '$lib/brainActivity';
 	import BrainExecutionOutput from './BrainExecutionOutput.svelte';
 
 	interface Props {
@@ -38,15 +38,6 @@
 	const time = $derived(
 		new Date(step.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 	);
-
-	/** Exit code, live state or stop result. */
-	function result(): string {
-		if (step.status === 'running')
-			return step.controller === 'operator' ? 'you have control' : 'running';
-		if (step.status === 'exited') return `exit ${step.exitCode ?? '?'}`;
-		if (step.status === 'stop_unconfirmed') return 'stop not confirmed';
-		return step.status;
-	}
 
 	const dotClass = $derived(
 		running
@@ -87,10 +78,12 @@
 			aria-expanded={open}
 			aria-controls={`${uid}-detail`}
 			onclick={() => (expanded = !open)}
-			class="group grid w-full gap-1 text-left"
+			class="group grid w-full min-w-0 grid-cols-1 gap-1 text-left"
 		>
-			<span class="flex items-start gap-2">
-				<span class="flex-1 text-sm leading-snug text-[#2e3440] dark:text-[#eceff4]">
+			<span class="flex min-w-0 items-start gap-2">
+				<span
+					class="min-w-0 flex-1 text-sm leading-snug [overflow-wrap:anywhere] text-[#2e3440] dark:text-[#eceff4]"
+				>
 					{#if step.goal}{step.goal}{:else}<span
 							class="text-[#4c566a] italic dark:text-[#d8dee9]/60"
 							>Brain gave no goal for this command.</span
@@ -115,7 +108,7 @@
 				>
 			</span>
 			<span class="flex flex-wrap items-center gap-x-3 gap-y-1 pl-5 text-xs">
-				<span class="font-mono {resultClass}">{result()}</span>
+				<span class="font-mono {resultClass}">{stepResult(step)}</span>
 				{#if step.shellName}
 					<span class="text-[#4c566a] dark:text-[#d8dee9]/60"
 						>in shell <span class="font-mono">{step.shellName}</span></span
@@ -144,14 +137,17 @@
 				{/if}
 			</span>
 			{#if step.note}
-				<span class="pl-5 text-xs text-[#4c566a] italic dark:text-[#d8dee9]/60">{step.note}</span>
+				<span
+					class="pl-5 text-xs [overflow-wrap:anywhere] text-[#4c566a] italic dark:text-[#d8dee9]/60"
+					>{step.note}</span
+				>
 			{/if}
 		</button>
 
 		{#if open}
-			<div id={`${uid}-detail`} class="mt-2 ml-5 grid gap-2">
+			<div id={`${uid}-detail`} class="mt-2 ml-5 grid min-w-0 grid-cols-1 gap-2">
 				<pre
-					class="max-h-40 overflow-auto rounded-lg bg-[#2e3440] px-3 py-2 font-mono text-xs whitespace-pre-wrap text-[#d8dee9] dark:bg-[#242933]"><span
+					class="max-h-40 overflow-auto rounded-lg bg-[#2e3440] px-3 py-2 font-mono text-xs [overflow-wrap:anywhere] whitespace-pre-wrap text-[#d8dee9] dark:bg-[#242933]"><span
 						class="text-[#d8dee9]/40 select-none"
 						>$ </span>{step.command}</pre>
 				<BrainExecutionOutput executionId={step.executionId} commandId={step.commandId} />

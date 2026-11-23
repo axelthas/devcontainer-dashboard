@@ -71,6 +71,37 @@ export function isRunningStep(step: Pick<BrainStep, 'status'>): boolean {
 	return step.status === 'running' || step.status === 'stopping';
 }
 
+/** Exit code, live state or stop result of a step, in operator words. */
+export function stepResult(step: Pick<BrainStep, 'status' | 'controller' | 'exitCode'>): string {
+	if (step.status === 'running')
+		return step.controller === 'operator' ? 'you have control' : 'running';
+	if (step.status === 'exited') return `exit ${step.exitCode ?? '?'}`;
+	if (step.status === 'stop_unconfirmed') return 'stop not confirmed';
+	return step.status;
+}
+
+/** Outcome class of a step, for its status colour. */
+export function stepOutcome(
+	step: Pick<BrainStep, 'status' | 'exitCode'>
+): 'running' | 'ok' | 'failed' | 'ended' {
+	if (isRunningStep(step)) return 'running';
+	if (step.status === 'exited') return step.exitCode === 0 ? 'ok' : 'failed';
+	return step.status === 'failed' ? 'failed' : 'ended';
+}
+
+/** The step of one execution, or of one shell command when `commandId` is set. */
+export function findStep(
+	activity: BrainActivity,
+	executionId: string,
+	commandId?: string | null
+): { group: BrainActivityGroup; step: BrainStep } | undefined {
+	for (const group of activity.groups)
+		for (const step of group.steps)
+			if (step.executionId === executionId && (step.commandId ?? null) === (commandId || null))
+				return { group, step };
+	return undefined;
+}
+
 /** The first line that does real work: skips `set -euo pipefail` style preambles. */
 export function headline(command: string): string {
 	const lines = command

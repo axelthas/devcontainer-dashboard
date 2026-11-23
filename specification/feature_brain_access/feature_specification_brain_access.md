@@ -42,8 +42,9 @@ Operator browser
 | `src/lib/components/BrainAccessButton.svelte` | Grant control on devcontainer rows, cards and service rows             |
 | `src/lib/brainActivity.ts`                    | Group retained commands and calls by container                         |
 | `src/lib/components/BrainPane.svelte`         | Desktop split pane: endpoint, grants and Brain activity                |
-| `src/lib/components/BrainActivity.svelte`     | Container groups and their command timelines, desktop and mobile       |
-| `src/routes/mobile/brain/+page.svelte`        | Mobile Brain tab and activity view                                     |
+| `src/lib/components/BrainActivity.svelte`     | Container groups and their command timelines in the desktop pane       |
+| `src/routes/mobile/brain/+page.svelte`        | Mobile Brain tab: native grouped list of commands, newest first        |
+| `src/routes/mobile/brain/[id]/+page.svelte`   | Mobile command screen: goal, command, output, Open in terminal         |
 | `src/lib/components/BrainTerminalTab.svelte`  | Terminal view of one command or shell, with Take over and Stop         |
 | `src/lib/components/TerminalManager.svelte`   | Drawer: one Brain tab per container, with a list of its shells         |
 
@@ -231,7 +232,7 @@ Known limits: processes that leave the group or session (for example with `setsi
 
 ## Brain activity view
 
-On desktop, **Brain** opens a non-modal split pane. The dashboard remains usable beside it. The operator can drag or use the arrow keys to resize the pane, or choose a preset. On small screens the pane fills the screen. On mobile, **Brain** is a tab and a live strip on other tabs links to a running command.
+On desktop, **Brain** opens a non-modal split pane. The dashboard remains usable beside it. The operator can drag or use the arrow keys to resize the pane, or choose a preset. On small screens the pane fills the screen. Cards, command lines and output boxes stay inside the pane at every width: long lines wrap or truncate, and output scrolls inside its box. On mobile, **Brain** is a tab and a live strip on other tabs links to a running command. The tab uses the native phone list: one group per container, with its commands newest first. A tap opens the command screen with the goal, the command, its output and **Open in terminal**.
 
 The pane groups commands by granted container and leads each command with its goal. The optional grant intent appears as **Working on**. Expanding a command shows its retained output. Each shell retains its newest 50 commands; the operator output endpoint can read one shell command using `?command=<command_id>`. An idle shell does not count as a running command in this view. On-demand terminal viewers and command processes have separate lifecycles: closing a viewer does not stop a command.
 
