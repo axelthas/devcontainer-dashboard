@@ -159,6 +159,28 @@ test('without a start marker, the echoed command line is not part of the output'
 	);
 });
 
+test('a shell command updates intent only after the shell accepts it', async () => {
+	const fake = installFake();
+	const shell = await brain.shells.openShell(fake.grant);
+	const args = {
+		target_id: fake.grant.id,
+		shell_id: shell.id,
+		command: 'pwd',
+		goal: 'Show directory.',
+		intent: 'Inspect the workspace',
+		wait_seconds: 0
+	};
+	const before = await brain.tools.callTool('execute', args);
+	assert.equal(before.isError, true);
+	assert.equal(brain.access.grantView(fake.grant).intent, undefined);
+	fake.main.push(Buffer.from(`${PGID}user$ ${prompt(shell.shell.nonce, 0, '/w')}`));
+	await eventually(() => shell.shell.ready);
+	const accepted = await brain.tools.callTool('execute', args);
+	assert.equal(accepted.isError, undefined);
+	assert.equal(brain.access.grantView(fake.grant).intent, 'Inspect the workspace');
+	assert.equal(brain.executions.executionView(shell).shell.commands[0].goal, 'Show directory.');
+});
+
 test('a shell refuses commands before its prompt, in the foreground and under operator control', async () => {
 	const fake = installFake({ foreground: 1 });
 	const shell = await brain.shells.openShell(fake.grant, { name: 'build' });

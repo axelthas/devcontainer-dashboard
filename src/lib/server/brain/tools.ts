@@ -106,6 +106,12 @@ export const BRAIN_TOOLS: ToolDefinition[] = [
 					description:
 						'One short sentence for the operator: what this command should accomplish, not how. Example: "Confirm the branch is clean before the refactor."'
 				},
+				intent: {
+					type: 'string',
+					maxLength: GOAL_LIMIT,
+					description:
+						'Optional broader task for this container, displayed as Working on. Supply when the task changes; an empty string clears it.'
+				},
 				shell_id: {
 					...id,
 					description: 'shell_id from open_shell. Not combined with workdir or interactive.'
@@ -378,6 +384,7 @@ async function runTool(
 				...(view.composeService ? { compose_service: view.composeService } : {}),
 				...(view.localFolder ? { workspace: view.localFolder } : {}),
 				user: view.user,
+				...(view.intent ? { intent: view.intent } : {}),
 				...(view.workdir ? { workdir: view.workdir } : {}),
 				expires_at: view.expiresAt,
 				running_executions: view.runningExecutions,
@@ -418,6 +425,7 @@ async function runTool(
 			'target_id',
 			'command',
 			'goal',
+			'intent',
 			'shell_id',
 			'workdir',
 			'interactive',
@@ -426,6 +434,7 @@ async function runTool(
 		const targetId = text(args, 'target_id', true, 64);
 		const command = text(args, 'command', true, EXECUTION_LIMITS.command);
 		if (typeof args.goal === 'string') links.goal = args.goal.trim().slice(0, GOAL_LIMIT);
+		const intent = text(args, 'intent', false, GOAL_LIMIT)?.trim();
 		const shellId = text(args, 'shell_id', false, 64);
 		const workdir = text(args, 'workdir', false);
 		const interactive = flag(args, 'interactive');
@@ -446,6 +455,11 @@ async function runTool(
 				throw new ToolInputError('shell_id belongs to another target_id');
 			links.executionId = execution.id;
 			const current = await runInShell(execution, command, goal);
+			// Only an accepted command may update the intent of its live grant.
+			if (intent !== undefined) {
+				const grant = brainState.grants.get(execution.grantId);
+				if (grant) grant.intent = intent || undefined;
+			}
 			links.commandId = current.id;
 			await waitForCommand(execution, current, wait * 1000);
 			const page = commandOutput(execution, current);
@@ -475,6 +489,7 @@ async function runTool(
 			workdir,
 			interactive: interactive ?? false
 		});
+		if (intent !== undefined) grant.intent = intent || undefined;
 		links.executionId = execution.id;
 		await waitUntilSettled(execution, wait * 1000);
 		return success(outputResult(execution, 0));

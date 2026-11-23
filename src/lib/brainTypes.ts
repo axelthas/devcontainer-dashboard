@@ -50,6 +50,8 @@ export interface BrainGrantRequest {
 
 export interface BrainGrantView extends BrainTargetPreview {
 	id: string;
+	/** The broader task Brain last supplied for this grant. */
+	intent?: string;
 	createdAt: string;
 	expiresAt: string;
 	runningExecutions: number;

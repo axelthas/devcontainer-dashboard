@@ -809,11 +809,13 @@
 				</section>
 			</main>
 			{#if brainPaneOpen}
-				<!-- A focusable separator is the WAI-ARIA window splitter: drag, arrow keys or Home. -->
+				<!-- The WAI-ARIA window splitter is a focusable separator controlled by arrows and Home. -->
+				<!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
 				<div
 					role="separator"
 					aria-orientation="vertical"
 					aria-label="Resize the Brain pane"
+					aria-controls="brain-split-pane"
 					aria-valuemin={25}
 					aria-valuemax={75}
 					aria-valuenow={Math.round(brainWidth * 100)}
@@ -828,6 +830,7 @@
 					></span>
 				</div>
 				<aside
+					id="brain-split-pane"
 					aria-label="Brain"
 					class="fixed inset-0 z-40 lg:sticky lg:inset-auto lg:top-[var(--brain-top)] lg:z-0 lg:h-[calc(100dvh-var(--brain-top))] lg:w-[var(--brain-width)] lg:shrink-0"
 					style:--brain-width={`${brainWidth * 100}%`}

@@ -126,6 +126,7 @@ export async function reconcileGrants(now = Date.now()): Promise<void> {
 export function grantView(grant: BrainGrant): BrainGrantView {
 	return {
 		id: grant.id,
+		intent: grant.intent,
 		containerId: grant.containerId.slice(0, 12),
 		containerName: grant.containerName,
 		kind: grant.kind,

@@ -180,6 +180,12 @@
 							</span>
 						{/if}
 					</div>
+					{#if group.grant?.intent}
+						<p class="mt-1 text-sm text-[#86587f] dark:text-[#b48ead]" data-testid="brain-intent">
+							<span class="text-[#4c566a] dark:text-[#d8dee9]/60">Working on&nbsp;</span>{group
+								.grant.intent}
+						</p>
+					{/if}
 					<div
 						class="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-[#4c566a] dark:text-[#d8dee9]/60"
 					>

@@ -51,6 +51,7 @@ export class BrainAccess {
 	 */
 	readonly #opened = new SvelteSet<string>();
 	#focusTimer: ReturnType<typeof setTimeout> | undefined;
+	#focusVersion = 0;
 
 	get enabled(): boolean {
 		return this.status?.enabled ?? false;
@@ -88,10 +89,10 @@ export class BrainAccess {
 	focus(grantId: string): void {
 		this.focusHandler?.();
 		clearTimeout(this.#focusTimer);
-		const request = { grantId, at: Date.now() };
-		this.focusRequest = request;
+		const version = ++this.#focusVersion;
+		this.focusRequest = { grantId, at: Date.now() };
 		this.#focusTimer = setTimeout(() => {
-			if (this.focusRequest === request) this.focusRequest = null;
+			if (this.#focusVersion === version) this.focusRequest = null;
 		}, 2000);
 	}
 

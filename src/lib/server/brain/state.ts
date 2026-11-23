@@ -36,6 +36,8 @@ export interface BrainGrant {
 	exposure: BrainExposure[];
 	createdAt: number;
 	expiresAt: number;
+	/** The broader task Brain last supplied for this grant. */
+	intent?: string;
 }
 
 /** One command that Brain typed into a shell. Cursors are absolute output offsets. */

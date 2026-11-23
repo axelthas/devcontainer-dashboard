@@ -126,6 +126,39 @@ test('execute requires a goal and starts nothing without one', async () => {
 	assert.equal(brain.state.brainState.audit.at(-1).outcome, 'error');
 });
 
+test('intent follows an accepted command, stays per grant, and can be cleared', async () => {
+	install(
+		new Map([
+			[ID, runningContainer(ID)],
+			[OTHER, runningContainer(OTHER)]
+		])
+	);
+	const grant = brain.access.createGrant(target(ID), 60);
+	const other = brain.access.createGrant(target(OTHER, { containerName: 'other' }), 60);
+	const args = { target_id: grant.id, command: 'id', goal: 'Check the user.', wait_seconds: 1 };
+	let result = await call('execute', { ...args, intent: '  Review the dashboard  ' });
+	assert.equal(result.result.isError, undefined);
+	assert.equal(brain.access.grantView(grant).intent, 'Review the dashboard');
+	const targets = (await call('list_targets', {})).data.targets;
+	assert.equal(targets.find((item) => item.target_id === grant.id).intent, 'Review the dashboard');
+	assert.equal(brain.access.grantView(other).intent, undefined);
+	result = await call('execute', args);
+	assert.equal(result.result.isError, undefined);
+	assert.equal(
+		brain.access.brainStatus().grants.find((g) => g.id === grant.id).intent,
+		'Review the dashboard'
+	);
+	result = await call('execute', { ...args, goal: ' ', intent: 'Must not replace' });
+	assert.equal(result.result.isError, true);
+	assert.equal(brain.access.grantView(grant).intent, 'Review the dashboard');
+	result = await call('execute', { ...args, intent: 'x'.repeat(201) });
+	assert.equal(result.result.isError, true);
+	assert.equal(brain.access.grantView(grant).intent, 'Review the dashboard');
+	result = await call('execute', { ...args, intent: ' ' });
+	assert.equal(result.result.isError, undefined);
+	assert.equal(brain.access.grantView(grant).intent, undefined);
+});
+
 test('revocation removes access to earlier executions as well', async () => {
 	install(new Map([[ID, runningContainer(ID)]]));
 	const grant = brain.access.createGrant(target(ID), 60);
