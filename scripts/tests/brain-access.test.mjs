@@ -84,6 +84,7 @@ test('Brain lists only granted targets and runs commands only in them', async ()
 	const ran = await call('execute', {
 		target_id: grant.id,
 		command: 'echo greeting',
+		goal: 'Greet the operator.',
 		wait_seconds: 1
 	});
 	assert.equal(ran.data.status, 'exited');
@@ -91,14 +92,38 @@ test('Brain lists only granted targets and runs commands only in them', async ()
 	assert.equal(ran.data.output, 'hello\n');
 	const read = await call('read_output', { execution_id: ran.data.execution_id, cursor: 2 });
 	assert.equal(read.data.output, 'llo\n');
-	const refused = await call('execute', { target_id: OTHER, command: 'id' });
+	const refused = await call('execute', {
+		target_id: OTHER,
+		command: 'id',
+		goal: 'Show the user.'
+	});
 	assert.equal(refused.result.isError, true);
 	assert.match(refused.result.content[0].text, /Call list_targets/);
 	const audit = brain.state.brainState.audit;
 	assert.deepEqual(audit.at(-1).outcome, 'denied');
 	// Commands are audited; their output is not.
 	assert.equal(audit.at(-3).detail, 'echo greeting');
+	// Each call links to its command, so the dashboard shows it there.
+	assert.equal(audit.at(-3).goal, 'Greet the operator.');
+	assert.equal(audit.at(-3).executionId, ran.data.execution_id);
+	assert.equal(audit.at(-2).executionId, ran.data.execution_id);
+	assert.equal(audit.at(-1).goal, 'Show the user.');
+	assert.equal(audit.at(-1).executionId, undefined);
+	const view = brain.access.brainStatus().executions.find((e) => e.id === ran.data.execution_id);
+	assert.equal(view.goal, 'Greet the operator.');
 	assert.ok(audit.every((entry) => !JSON.stringify(entry).includes('hello')));
+});
+
+test('execute requires a goal and starts nothing without one', async () => {
+	install(new Map([[ID, runningContainer(ID)]]));
+	const grant = brain.access.createGrant(target(ID), 60);
+	for (const goal of [undefined, '   ']) {
+		const refused = await call('execute', { target_id: grant.id, command: 'id', goal });
+		assert.equal(refused.result.isError, true);
+		assert.match(refused.result.content[0].text, /goal is required/);
+	}
+	assert.equal(brain.state.brainState.executions.size, 0);
+	assert.equal(brain.state.brainState.audit.at(-1).outcome, 'error');
 });
 
 test('revocation removes access to earlier executions as well', async () => {
@@ -107,6 +132,7 @@ test('revocation removes access to earlier executions as well', async () => {
 	const ran = await call('execute', {
 		target_id: grant.id,
 		command: 'echo hello',
+		goal: 'Print a greeting.',
 		wait_seconds: 1
 	});
 	brain.access.revokeGrant(grant.id, 'Revoked by the operator');

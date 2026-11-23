@@ -12,7 +12,7 @@ export const SERVER_INFO = {
 	version: '0.1.0'
 };
 const INSTRUCTIONS =
-	'This server runs shell commands in containers that the operator granted to you in DevHarbour. Call list_targets first. Use only the listed target_id values, choose the target that matches the task, and ask the user when more than one target could match. Never assume that access to one container implies access to another. For multi-step work, call open_shell once and pass its shell_id to execute, so the operator watches one ordinary shell and the working directory carries over.';
+	'This server runs shell commands in containers that the operator granted to you in DevHarbour. Call list_targets first. Use only the listed target_id values, choose the target that matches the task, and ask the user when more than one target could match. Never assume that access to one container implies access to another. For multi-step work, call open_shell once and pass its shell_id to execute, so the operator watches one ordinary shell and the working directory carries over. Give every execute call a goal: one short sentence that tells the operator what the command should accomplish. The operator reads the goals to follow your work.';
 
 type JsonRpcId = string | number | null;
 

@@ -12,7 +12,7 @@
 import { randomBytes } from 'node:crypto';
 import type { BrainShellView } from '../../brainTypes.js';
 import type { BrainExecution, BrainGrant, BrainShell, BrainShellCommand } from './state.js';
-import { brainState, notify } from './state.js';
+import { SHELL_HISTORY_LIMIT, brainState, notify } from './state.js';
 import {
 	assertBrainControl,
 	BrainExecutionError,
@@ -21,6 +21,7 @@ import {
 	isActive,
 	readOutput,
 	runControl,
+	shellCommandView,
 	startExecution,
 	waitForChange,
 	writeInput
@@ -276,7 +277,8 @@ export function shellView(shell: BrainShell): BrainShellView {
 		busy: shell.current?.status === 'running',
 		cwd: shell.cwd,
 		command: shell.current?.command,
-		exitCode: shell.exitCode
+		exitCode: shell.exitCode,
+		commands: shell.history.map(shellCommandView)
 	};
 }
 
@@ -309,7 +311,8 @@ export async function openShell(
 		name: shellName(grant.id, request.name),
 		nonce: randomBytes(9).toString('hex'),
 		ready: false,
-		commands: 0
+		commands: 0,
+		history: []
 	};
 	return startExecution(grant, {
 		command: shellStartScript(shell.nonce),
@@ -394,7 +397,8 @@ function assertReady(execution: BrainExecution, shell: BrainShell): void {
 /** Type one command into a shell. Returns immediately; the prompt marker ends the command. */
 export async function runInShell(
 	execution: BrainExecution,
-	command: string
+	command: string,
+	goal?: string
 ): Promise<BrainShellCommand> {
 	const shell = shellOf(execution);
 	if (!command.trim() || command.length > EXECUTION_LIMITS.command || command.includes('\0'))
@@ -414,6 +418,7 @@ export async function runInShell(
 	const current: BrainShellCommand = {
 		id: `c_${randomBytes(9).toString('base64url')}`,
 		command,
+		...(goal === undefined ? {} : { goal }),
 		status: 'running',
 		startCursor: execution.outputStart + execution.output.length,
 		startedAt: Date.now()
@@ -426,6 +431,10 @@ export async function runInShell(
 		throw cause;
 	}
 	shell.commands++;
+	// The activity view lists each typed command; keep only the newest ones.
+	shell.history.push(current);
+	if (shell.history.length > SHELL_HISTORY_LIMIT)
+		shell.history.splice(0, shell.history.length - SHELL_HISTORY_LIMIT);
 	notify(execution);
 	return current;
 }

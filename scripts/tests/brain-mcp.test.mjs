@@ -31,6 +31,9 @@ test('the tool set is fixed and offers no grant, Docker or host tools', async ()
 		['list_targets', 'open_shell', 'execute', 'read_output', 'write_stdin', 'cancel_execution']
 	);
 	for (const tool of reply.result.tools) assert.equal(tool.inputSchema.type, 'object');
+	// The dashboard shows each command under the goal that Brain gives for it.
+	const execute = reply.result.tools.find((tool) => tool.name === 'execute');
+	assert.ok(execute.inputSchema.required.includes('goal'));
 });
 
 test('notifications and client responses are acknowledged without a reply', async () => {
