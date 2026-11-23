@@ -147,7 +147,15 @@ test('without a start marker, the echoed command line is not part of the output'
 				status,
 				exitCode
 			})),
-		[{ id: command.id, command: 'ls --color', goal: 'List the files.', status: 'exited', exitCode: 0 }]
+		[
+			{
+				id: command.id,
+				command: 'ls --color',
+				goal: 'List the files.',
+				status: 'exited',
+				exitCode: 0
+			}
+		]
 	);
 });
 

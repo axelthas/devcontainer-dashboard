@@ -4,9 +4,11 @@
 
 	interface Props {
 		executionId: string;
+		/** One command of a shell: show only that command's output */
+		commandId?: string;
 	}
 
-	let { executionId }: Props = $props();
+	let { executionId, commandId }: Props = $props();
 
 	/** Characters kept in the browser; the server retains more. */
 	const MAX_SHOWN = 200_000;
@@ -18,14 +20,20 @@
 	// The panel mounts one viewer per execution, so the ID never changes for an instance.
 	$effect(() => {
 		const id = executionId;
+		const command = commandId;
 		let stopped = false;
 		let cursor: number | undefined;
 		let timer: ReturnType<typeof setTimeout> | undefined;
 		async function poll() {
 			try {
-				const query = cursor === undefined ? '' : `?cursor=${cursor}`;
+				const query = [
+					command ? `command=${encodeURIComponent(command)}` : '',
+					cursor === undefined ? '' : `cursor=${cursor}`
+				]
+					.filter(Boolean)
+					.join('&');
 				const view = await requestJson<BrainOutputView>(
-					`/api/brain/executions/${encodeURIComponent(id)}${query}`
+					`/api/brain/executions/${encodeURIComponent(id)}${query ? `?${query}` : ''}`
 				);
 				if (stopped) return;
 				const combined = text + view.text;

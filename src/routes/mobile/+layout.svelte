@@ -10,6 +10,8 @@
 	import { provideMobileDashboard, type MobileInitialData } from '$lib/mobile/dashboard.svelte';
 	import MHostSheet from '$lib/components/mobile/MHostSheet.svelte';
 	import MTabBar from '$lib/components/mobile/MTabBar.svelte';
+	import MBrainStrip from '$lib/components/mobile/MBrainStrip.svelte';
+	import { buildActivity } from '$lib/brainActivity';
 	import { untrack, type Snippet } from 'svelte';
 
 	interface Props {
@@ -54,10 +56,11 @@
 	const section = $derived.by(() => {
 		const id = page.route.id ?? '';
 		if (FULL_SCREEN.some((prefix) => id.startsWith(prefix))) return null;
-		for (const tab of ['containers', 'workspaces', 'services', 'terminals'] as const)
+		for (const tab of ['containers', 'workspaces', 'services', 'terminals', 'brain'] as const)
 			if (id.startsWith(`/mobile/${tab}`)) return tab;
 		return null;
 	});
+	const brainRunning = $derived(buildActivity(brain.status).running > 0);
 	const fullscreen = $derived(
 		FULL_SCREEN.some((prefix) => (page.route.id ?? '').startsWith(prefix))
 	);
@@ -86,14 +89,24 @@
 		data-testid="mobile-top-safe-area"
 	></div>
 	<div
-		class={fullscreen ? '' : 'pb-[calc(76px+env(safe-area-inset-bottom))]'}
+		class={fullscreen
+			? ''
+			: brainRunning && section !== 'brain'
+				? 'pb-[calc(156px+env(safe-area-inset-bottom))]'
+				: 'pb-[calc(76px+env(safe-area-inset-bottom))]'}
 		style:padding-left="env(safe-area-inset-left)"
 		style:padding-right="env(safe-area-inset-right)"
 	>
 		{@render children()}
 	</div>
 	{#if !fullscreen}
-		<MTabBar current={section} terminalCount={dashboard.sessions.length} />
+		{#if section !== 'brain'}<MBrainStrip />{/if}
+		<MTabBar
+			current={section}
+			terminalCount={dashboard.sessions.length}
+			brainEnabled={Boolean(brain.status?.enabled)}
+			{brainRunning}
+		/>
 	{/if}
 	<MHostSheet />
 	{#if dashboard.toastMessage}

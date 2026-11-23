@@ -30,6 +30,12 @@
 	}
 }
 
+/* A container row whose Brain group the pointer is over, in the Brain split view. */
+.brain-hover {
+	box-shadow: inset 3px 0 0 #b48ead;
+	background-color: rgb(180 142 173 / 0.12);
+}
+
 .highlight-flash {
 	animation: highlight-flash-anim 1.5s ease-out;
 }

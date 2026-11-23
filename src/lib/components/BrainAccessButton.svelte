@@ -17,14 +17,20 @@
 		Boolean(access?.enabled) && (container.state === 'running' || Boolean(grant))
 	);
 	let open = $state(false);
+
+	/** On the dashboard, show this container's group in the Brain pane; else the dialog. */
+	function showGrant() {
+		if (grant && access?.focusHandler) access.focus(grant.id);
+		else open = true;
+	}
 </script>
 
 {#if access && visible}
 	{#if grant}
 		<button
 			type="button"
-			onclick={() => (open = true)}
-			title={`Brain has shell access as ${grant.user}`}
+			onclick={showGrant}
+			title={`Brain has shell access as ${grant.user}. Show its work.`}
 			class="flex items-center gap-1.5 rounded-lg bg-[#b48ead] px-2 py-1 text-xs font-medium whitespace-nowrap text-[#2e3440] transition-opacity hover:opacity-90"
 		>
 			<BrainCircuit size={12} />
