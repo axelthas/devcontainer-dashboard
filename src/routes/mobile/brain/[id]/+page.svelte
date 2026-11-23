@@ -107,7 +107,10 @@
 		{#if failure}<p role="alert" class="text-[15px] text-m-stop">{failure}</p>{/if}
 		<MButton
 			tone="brain"
-			onclick={() => void goto(resolve('/mobile/terminals/brain/[id]', { id: step.executionId }))}
+			onclick={() => {
+				brain.openTab(step.executionId);
+				void goto(resolve('/mobile/terminals/brain/[id]', { id: step.executionId }));
+			}}
 			testid="brain-open-terminal"
 		>
 			{outcome === 'running' ? 'Open terminal to take over' : 'Open in terminal'}

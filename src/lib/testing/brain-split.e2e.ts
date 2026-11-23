@@ -179,3 +179,88 @@ test('mobile: the Brain strip opens the grouped command view', async ({ page }) 
 	await expect(page.getByTestId('brain-step')).toHaveCount(2);
 	await expectNoPageOverflow(page);
 });
+
+test('mobile: Brain terminals appear only when opened and closing does not stop a command', async ({
+	page
+}) => {
+	await page.setViewportSize({ width: 393, height: 852 });
+	await login(page);
+	await mockBrain(page);
+	await page.route('**/api/terminal/sessions', async (route) => {
+		if (route.request().method() === 'GET') {
+			await route.fulfill({
+				json: [{ id: 'ordinary-shell', name: 'Ordinary shell', cwd: '/tmp' }]
+			});
+		} else await route.continue();
+	});
+	const mutations: string[] = [];
+	page.on('request', (request) => {
+		if (
+			['DELETE', 'PATCH', 'POST'].includes(request.method()) &&
+			request.url().includes('/api/brain/')
+		)
+			mutations.push(`${request.method()} ${new URL(request.url()).pathname}`);
+	});
+	await page.goto('/mobile/terminals');
+	await expect(
+		page.getByTestId('terminal-row').filter({ hasText: 'Ordinary shell' })
+	).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Brain', exact: true })).toHaveCount(0);
+	await expect(page.locator('a[href^="/mobile/terminals/brain/"]')).toHaveCount(0);
+
+	// Viewing the command and output does not add a terminal.
+	await page.locator('nav[aria-label="Sections"] a[href="/mobile/brain"]').click();
+	await page.getByTestId('brain-step').filter({ hasText: 'Wait for the fixture command.' }).click();
+	await expect(page.getByLabel('Command output')).toHaveText('fixture output');
+	await page.locator('nav[aria-label="Sections"] a[href="/mobile/terminals"]').click();
+	await expect(page.locator('a[href^="/mobile/terminals/brain/"]')).toHaveCount(0);
+
+	// Opening one viewer adds just that execution. Back returns to the selected list.
+	await page.locator('nav[aria-label="Sections"] a[href="/mobile/brain"]').click();
+	await page.getByTestId('brain-step').filter({ hasText: 'Wait for the fixture command.' }).click();
+	await page.getByTestId('brain-open-terminal').click();
+	await expect(page).toHaveURL(/\/mobile\/terminals\/brain\/x_fixture$/);
+	await page.getByTestId('mobile-back').click();
+	await expect(page).toHaveURL(/\/mobile\/terminals$/);
+	await expect(page.locator('a[href^="/mobile/terminals/brain/"]')).toHaveCount(1);
+	await expect(page.locator('a[href="/mobile/terminals/brain/x_fixture"]')).toBeVisible();
+	await expect(page.locator('a[href="/mobile/terminals/brain/x_done"]')).toHaveCount(0);
+	await expect(
+		page.getByTestId('terminal-row').filter({ hasText: 'Ordinary shell' })
+	).toBeVisible();
+
+	await page
+		.getByRole('button', { name: 'Close Brain terminal: Wait for the fixture command.' })
+		.click();
+	await expect(page.locator('a[href^="/mobile/terminals/brain/"]')).toHaveCount(0);
+	expect(mutations).toEqual([]);
+	await page.locator('nav[aria-label="Sections"] a[href="/mobile/brain"]').click();
+	await expect(
+		page.getByTestId('brain-step').filter({ hasText: 'Wait for the fixture command.' })
+	).toContainText('running');
+	await page.getByTestId('brain-step').filter({ hasText: 'Show the completed result.' }).click();
+	await page.getByTestId('brain-open-terminal').click();
+	await expect(page).toHaveURL(/\/mobile\/terminals\/brain\/x_done$/);
+	await page.getByTestId('mobile-back').click();
+	await expect(page.locator('a[href^="/mobile/terminals/brain/"]')).toHaveCount(1);
+	await expect(page.locator('a[href="/mobile/terminals/brain/x_done"]')).toBeVisible();
+	// Viewer selections live in this phone's current browser session, like desktop tabs.
+	await page.reload();
+	await expect(
+		page.getByTestId('terminal-row').filter({ hasText: 'Ordinary shell' })
+	).toBeVisible();
+	await expect(page.locator('a[href^="/mobile/terminals/brain/"]')).toHaveCount(0);
+	expect(mutations).toEqual([]);
+});
+
+test('mobile: unopened Brain commands do not replace the empty terminal state', async ({
+	page
+}) => {
+	await page.setViewportSize({ width: 393, height: 852 });
+	await login(page);
+	await mockBrain(page);
+	await page.route('**/api/terminal/sessions', (route) => route.fulfill({ json: [] }));
+	await page.goto('/mobile/terminals');
+	await expect(page.getByTestId('terminals-empty')).toBeVisible();
+	await expect(page.locator('a[href^="/mobile/terminals/brain/"]')).toHaveCount(0);
+});
