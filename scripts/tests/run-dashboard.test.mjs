@@ -28,7 +28,7 @@ import { test } from 'node:test';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 
-// Identity flags used by most unattended cases; passwd-fallback cases omit them.
+// Every successful launch supplies all identity values explicitly.
 const identityFlags = [
 	'--host-user',
 	'operator',
@@ -39,6 +39,7 @@ const identityFlags = [
 	'--host-home',
 	'/home/operator'
 ];
+const agentFlags = ['--ssh-agent-socket', '/run/user/2345/agent'];
 
 // Create mock Git/passwd/Docker commands and an isolated environment for launcher tests.
 // Record exact argv, identity and a password length marker (never the value); register cleanup.
@@ -90,18 +91,19 @@ if(args[0]==='inspect') console.log(args[2].includes('Health') ? (process.env.HE
 		PATH: `${bin}:${process.env.PATH}`,
 		FIXTURE_ROOT: dir,
 		CALL_LOG: log,
-		// Socket existence and agent protocol are checked in the real entrypoint,
-		// not by this mocked Docker launcher fixture.
-		SSH_AUTH_SOCK: '/run/user/2345/agent',
-		SUDO_USER: ''
+		// These values are deliberately unrelated to the explicit launcher flags.
+		SSH_AUTH_SOCK: '/ignored/environment-agent',
+		SUDO_USER: 'ignored-sudo-user',
+		HOSTNAME: 'ignored-environment-host'
 	};
 	return {
 		dir,
 		passwordFile: join(dir, 'password-file'),
 		env,
-		// Execute the launcher with per-test overrides; return captured output/status and only
-		// the calls recorded by this run, so several runs can share one fixture.
-		run(args = [], overrides = {}, interactive = false, input = '\n') {
+		// Supply an explicit fixture agent by default. The final parameter permits
+		// missing-argument regressions without relying on an environment fallback.
+		run(args = [], overrides = {}, interactive = false, input = '\n', includeAgent = true) {
+			if (includeAgent) args = [...agentFlags, ...args];
 			const path = join(root, 'scripts', 'run-dashboard.sh');
 			const offset = readFileSync(log, 'utf8').length;
 			// Interactive cases emulate curl | bash: the script arrives on stdin and flags
@@ -129,6 +131,7 @@ if(args[0]==='inspect') console.log(args[2].includes('Health') ? (process.env.HE
 		// Drive the curl-piped launcher through a disposable PTY, writing each input only
 		// after its prompt text appears, so hidden-input prompts run with echo disabled.
 		interactive(args = [], inputs = [], overrides = {}) {
+			args = [...agentFlags, ...args];
 			const path = join(root, 'scripts', 'run-dashboard.sh');
 			const quote = (value) => `'${String(value).replaceAll(`'`, `'\\''`)}'`;
 			const command = `cat '${path}' | bash -s -- ${args.map(quote).join(' ')}`;
@@ -220,6 +223,7 @@ test('registry mode: pulls the default image and runs attached with stable volum
 	assert.equal(run.args.at(-1), 'ghcr.io/axelthas/devcontainer-dashboard:latest');
 	// adapter-node rejects an empty ORIGIN at startup, so a blank origin is not forwarded.
 	assert.ok(!run.args.includes('ORIGIN'));
+	assert.ok(run.args.includes('HOST_HOSTNAME='));
 });
 
 test('registry mode: image, port, bind address, hook and known_hosts-only flags', (t) => {
@@ -243,30 +247,41 @@ test('registry mode: image, port, bind address, hook and known_hosts-only flags'
 	assert.ok(run.args.includes('example.test/dashboard:dev'));
 	assert.equal(run.args.at(-1), 'dev-bootstrap');
 	assert.ok(
-		run.args.includes('type=bind,source=/home/operator/.ssh/known_hosts,target=/etc/ssh/ssh_known_hosts,readonly')
+		run.args.includes(
+			'type=bind,source=/home/operator/.ssh/known_hosts,target=/etc/ssh/ssh_known_hosts,readonly'
+		)
 	);
 	assert.match(r.stdout, /dev-bootstrap: 1/);
 });
 
-test('registry mode: forwards the required SSH agent socket read-only at its host path', (t) => {
+test('registry mode: forwards only the explicitly selected agent and host name', (t) => {
 	const f = fixture(t);
-	const r = registry(f, [], { SSH_AUTH_SOCK: '/run/user/2345/agent' });
+	const r = registry(f, ['--ssh-agent-socket', '/run/user/2345/selected-agent', '--host-name', 'build-host']);
 	assert.equal(r.status, 0, r.stderr);
 	assert.ok(
 		runCall(r).args.includes(
-			'type=bind,source=/run/user/2345/agent,target=/run/user/2345/agent,readonly'
+			'type=bind,source=/run/user/2345/selected-agent,target=/run/user/2345/selected-agent,readonly'
 		)
 	);
-	assert.ok(runCall(r).args.includes('SSH_AUTH_SOCK=/run/user/2345/agent'));
+	assert.ok(runCall(r).args.includes('SSH_AUTH_SOCK=/run/user/2345/selected-agent'));
+	assert.ok(runCall(r).args.includes('HOST_HOSTNAME=build-host'));
+	assert.ok(!runCall(r).args.some((arg) => arg.includes('ignored-environment')));
 });
 
-test('missing host agent and removed directory flags fail before Docker calls', (t) => {
+test('missing socket argument cannot fall back to host SSH_AUTH_SOCK', (t) => {
 	const f = fixture(t);
-	const missing = registry(f, [], { SSH_AUTH_SOCK: '' });
+	const missing = f.run(
+		[...identityFlags, '--non-interactive', '--no-create-workspace', '--password-file', f.passwordFile],
+		{ SSH_AUTH_SOCK: '/run/user/2345/environment-agent' }, false, '\n', false
+	);
 	assert.notEqual(missing.status, 0);
-	assert.match(missing.stderr, /Export SSH_AUTH_SOCK/);
+	assert.match(missing.stderr, /--ssh-agent-socket is required/);
 	assert.equal(missing.calls.length, 0);
-	for (const flag of ['--ssh-dir', '--no-ssh-dir']) {
+});
+
+test('removed directory and negative bootstrap flags fail before Docker calls', (t) => {
+	const f = fixture(t);
+	for (const flag of ['--ssh-dir', '--no-ssh-dir', '--no-bootstrap']) {
 		const result = registry(f, [flag]);
 		assert.notEqual(result.status, 0);
 		assert.match(result.stderr, /removed/);
@@ -301,22 +316,21 @@ test('registry mode: password prompt through a curl-piped PTY, secret never echo
 	assert.equal(r.code, 0, r.output);
 	assert.match(r.output, /Dashboard password/);
 	assert.equal(runCall(r).passwordChars, 'typed-secret'.length);
-	// The value is written only after read -s disabled terminal echo, so the
-	// typescript must not contain it even though script records every keystroke.
 	assert.doesNotMatch(r.output, /typed-secret/);
 });
 
-test('captures the original sudo operator from passwd', (t) => {
+test('host identity is required even when sudo and identity environment variables are set', (t) => {
 	const f = fixture(t);
 	const r = f.run(
 		['--non-interactive', '--no-create-workspace', '--password-file', f.passwordFile],
-		{ SUDO_USER: 'original' }
+		{ SUDO_USER: 'original', HOST_USER: 'original', HOST_UID: '4567', HOST_GID: '5678', HOST_HOME: '/home/original' }
 	);
-	assert.equal(r.status, 0, r.stderr);
-	assert.deepEqual(
-		[runCall(r).user, runCall(r).uid, runCall(r).gid, runCall(r).home],
-		['original', '4567', '5678', '/home/original']
-	);
+	assert.notEqual(r.status, 0);
+	assert.match(r.stderr, /Set all four/);
+	assert.equal(r.calls.length, 0);
+	const explicit = registry(f, [], { SUDO_USER: 'original' });
+	assert.equal(explicit.status, 0, explicit.stderr);
+	assert.equal(runCall(explicit).user, 'operator');
 });
 
 test('help needs no identity, password or daemon and ignores the environment', (t) => {
@@ -325,13 +339,14 @@ test('help needs no identity, password or daemon and ignores the environment', (
 		DASHBOARD_PASSWORD: 'ignored',
 		WORKSPACE_ROOT: '/ignored',
 		DDASH_DEV_BOOTSTRAP: '1'
-	});
+	}, false, '\n', false);
 	assert.equal(r.status, 0);
 	assert.equal(r.calls.length, 0);
 	assert.match(r.stdout, /--password-file/);
 	assert.match(r.stdout, /--env-file/);
+	assert.match(r.stdout, /--ssh-agent-socket/);
 	assert.match(r.stdout, /process lists/);
-	const short = fixture(t).run(['-h']);
+	const short = fixture(t).run(['-h'], {}, false, '\n', false);
 	assert.equal(short.status, 0);
 	assert.equal(short.calls.length, 0);
 });
@@ -382,6 +397,8 @@ for (const [mode, launch] of [
 			'DASHBOARD_PASSWORD=not-the-launcher-password',
 			'HOST_UID=9999',
 			'WORKSPACE_ROOT=/not-the-launcher-workspace',
+			'SSH_AUTH_SOCK=/not-the-selected-agent',
+			'HOST_HOSTNAME=not-the-selected-host',
 			''
 		].join('\n');
 		writeFileSync(first, content);
@@ -398,18 +415,18 @@ for (const [mode, launch] of [
 		assert.ok(args.includes('DASHBOARD_PASSWORD'));
 		assert.ok(args.includes('HOST_UID'));
 		assert.ok(args.some((value) => value.startsWith('WORKSPACE_ROOT=')));
+		assert.ok(args.includes('SSH_AUTH_SOCK=/run/user/2345/agent'));
+		assert.ok(args.includes('HOST_HOSTNAME='));
 		assert.equal(runCall(r).passwordChars, 14);
 		assert.equal(runCall(r).uid, '2345');
 		assert.equal(readFileSync(first, 'utf8'), content);
 		assert.ok(!existsSync(marker));
 		assert.doesNotMatch(r.stdout + r.stderr + JSON.stringify(r.calls), /never-print-env-secret/);
-		// Env files are container runtime inputs, never image build arguments.
 		assert.ok(!buildCall(r)?.args.includes('--env-file'));
 	});
 
 	test(`${mode} mode: resolves relative env files before checkout directory changes`, (t) => {
 		const f = fixture(t);
-		// The mock Git checkout root differs from the test runner's working directory.
 		const file = join(f.dir, 'relative.env');
 		writeFileSync(file, 'LOCAL_ENV_TEST=value\n');
 		const r = launch(f, ['--env-file', relative(process.cwd(), file)]);
@@ -619,6 +636,8 @@ for (const [label, extra] of [
 	['double-slash home', ['--host-home', '/home//operator']],
 	['reserved home', ['--host-home', '/dashboard-history/operator']],
 	['relative socket', ['--socket', 'relative']],
+	['relative agent socket', ['--ssh-agent-socket', 'relative']],
+	['invalid host name', ['--host-name', 'host;id']],
 	['port 65536', ['--port', '65536']],
 	['port 0', ['--port', '0']],
 	['non-numeric port', ['--port', 'abc']],
@@ -637,7 +656,8 @@ for (const [label, extra] of [
 	['name in registry mode', ['--name', 'ddash-x']],
 	['health timeout in registry mode', ['--health-timeout', '5']],
 	['unknown option', ['--replace']],
-	['missing option value', ['--socket']]
+	['missing option value', ['--socket']],
+	['missing agent option value', ['--ssh-agent-socket']]
 ]) {
 	test(`rejects ${label}`, (t) => {
 		const f = fixture(t);
