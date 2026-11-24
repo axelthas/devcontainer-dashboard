@@ -454,70 +454,6 @@ test('a held configuration lock refuses a concurrent update', async (t) => {
 	child.kill();
 });
 
-// Use a disposable PTY so hidden-password and cancellation paths exercise /dev/tty.
-async function interactive(f, responses) {
-	const quote = (value) => "'" + value.replaceAll("'", "'\\''") + "'";
-	const command = ['python3', cli, '--config', f.config].map(quote).join(' ');
-	const child = spawn('script', ['-q', '-e', '-c', command, '/dev/null'], { env: f.env });
-	let output = '';
-	let pending = '';
-	let index = 0;
-	const timer = setTimeout(() => child.kill('SIGKILL'), 15000);
-	const receive = (chunk) => {
-		const text = chunk.toString();
-		output += text;
-		pending += text;
-		if (index < responses.length && pending.includes(responses[index][0])) {
-			const [, answer] = responses[index++];
-			pending = '';
-			child.stdin.write(answer + '\n');
-		}
-	};
-	child.stdout.on('data', receive);
-	child.stderr.on('data', receive);
-	return await new Promise((resolve, reject) => {
-		child.once('error', (error) => {
-			clearTimeout(timer);
-			reject(error);
-		});
-		child.once('close', (code) => {
-			clearTimeout(timer);
-			resolve({ status: code, stdout: output, stderr: '' });
-		});
-	});
-}
-const wizardAnswers = [
-	['Is the Docker host this machine?', 'no'],
-	['Docker-host host-user', 'operator'],
-	['Docker-host host-uid', '2345'],
-	['Docker-host host-gid', '3456'],
-	['Docker-host host-home', '/home/operator'],
-	['Docker-host ssh-agent-socket', '/run/user/2345/agent'],
-	['Workspace directory', '/home/operator/workspaces'],
-	['New dashboard password', secret],
-	['Repeat dashboard password', secret],
-	['Configure advanced settings?', 'no']
-];
-test('interactive first run saves private credentials and reaches ready state without echoing passwords', async (t) => {
-	const f = fixture(t);
-	const r = await interactive(f, [...wizardAnswers, ['Save these settings', 'yes']]);
-	ok(r);
-	assert.match(r.stdout, /Ready:/);
-	assert.equal(r.stdout.includes(secret), false);
-	assert.equal(statSync(f.read().settings['password-file']).mode & 0o777, 0o600);
-	assert.equal(JSON.stringify(f.read()).includes(secret), false);
-});
-test('cancelled guided setup writes neither configuration nor password file', async (t) => {
-	const f = fixture(t);
-	const r = await interactive(f, [...wizardAnswers, ['Save these settings', 'no']]);
-	fails(r, /Not approved/);
-	assert.equal(existsSync(f.config), false);
-	assert.equal(
-		f.calls().some((a) => a[0] === 'run'),
-		false
-	);
-});
-
 test('clearing Brain removes options that would implicitly enable it again', (t) => {
 	const f = fixture(t);
 	base(f);
@@ -546,7 +482,7 @@ test('download installation resolves one immutable revision and reads only allow
 	const f = fixture(t);
 	const bin = join(f.dir, 'download-bin');
 	const data = join(f.dir, 'download-data');
-	const program = `import io,json,sys,tarfile,urllib.request\nfrom pathlib import Path\nroot=Path(sys.argv[1]); revision='a'*40; archive=io.BytesIO()\nwith tarfile.open(fileobj=archive,mode='w:gz') as t:\n for name in ['devharbour.py','run-dashboard.sh']:\n  body=(root/'scripts'/name).read_bytes();info=tarfile.TarInfo('devcontainer-dashboard-'+revision+'/scripts/'+name); info.size=len(body);t.addfile(info,io.BytesIO(body))\n defbody=b'not extracted'; info=tarfile.TarInfo('../../escape');info.size=len(defbody);t.addfile(info,io.BytesIO(defbody))\ncalls=[]\ndef fetch(request,**kwargs):\n url=request.full_url if hasattr(request,'full_url') else request;calls.append(url)\n return io.BytesIO(json.dumps({'sha':revision}).encode() if '/commits/' in url else archive.getvalue())\nurllib.request.urlopen=fetch\nsource=(root/'scripts/install-devharbour.sh').read_text().split("<<'PY'\\n",1)[1].rsplit('\\nPY',1)[0]\nsys.argv=['installer','--bin-dir',sys.argv[2],'--data-dir',sys.argv[3],'--ref','feature/test']\nexec(compile(source,'installer','exec'),{'__name__':'__main__'})\nassert len(calls)==2 and calls[0].endswith('feature%2Ftest') and calls[1].endswith(revision)\n`;
+	const program = `import io,json,sys,tarfile,urllib.request\nfrom pathlib import Path\nroot=Path(sys.argv[1]); revision='a'*40; archive=io.BytesIO()\nwith tarfile.open(fileobj=archive,mode='w:gz') as t:\n for name in ['devharbour.py','devharbour_ui.py','devharbour_source.py','requirements-cli.txt','run-dashboard.sh']:\n  body=(root/'scripts'/name).read_bytes();info=tarfile.TarInfo('devcontainer-dashboard-'+revision+'/scripts/'+name); info.size=len(body);t.addfile(info,io.BytesIO(body))\n defbody=b'not extracted'; info=tarfile.TarInfo('../../escape');info.size=len(defbody);t.addfile(info,io.BytesIO(defbody))\ncalls=[]\ndef fetch(request,**kwargs):\n url=request.full_url if hasattr(request,'full_url') else request;calls.append(url)\n return io.BytesIO(json.dumps({'sha':revision}).encode() if '/commits/' in url else archive.getvalue())\nurllib.request.urlopen=fetch\nsource=(root/'scripts/install-devharbour.sh').read_text().split("<<'PY'\\n",1)[1].rsplit('\\nPY',1)[0]\nsys.argv=['installer','--no-checkout','--bin-dir',sys.argv[2],'--data-dir',sys.argv[3],'--ref','feature/test']\nexec(compile(source,'installer','exec'),{'__name__':'__main__'})\nassert len(calls)==2 and calls[0].endswith('feature%2Ftest') and calls[1].endswith(revision)\n`;
 	ok(spawnSync('python3', ['-c', program, root, bin, data], { env: f.env, encoding: 'utf8' }));
 	const r = spawnSync(join(bin, 'devharbour'), ['--version'], { env: f.env, encoding: 'utf8' });
 	ok(r);
@@ -606,99 +542,6 @@ function wizardProbe(f, body) {
 	});
 }
 
-test('Docker host question defaults to yes and persists the default AI volume', (t) => {
-	const f = fixture(t);
-	base(f);
-	ok(
-		wizardProbe(
-			f,
-			`args.ssh_agent_socket=config['settings']['ssh-agent-socket']\nconfig['settings'].pop('ai-state-volume',None)\nc.wizard(config,args)\nassert next(default for message,default in prompts if 'Is the Docker host' in message)=='yes'\nassert config['settings']['ai-state-volume']=='dashboard_ai'\n`
-		)
-	);
-});
-test('named instances save their own AI volume default', (t) => {
-	const f = fixture(t);
-	base(f);
-	ok(
-		wizardProbe(
-			f,
-			`config['instanceName']='review-instance'\nconfig['settings'].pop('ai-state-volume',None)\nargs.non_interactive=True\nc.wizard(config,args)\nassert config['settings']['ai-state-volume']=='review-instance-ai'\n`
-		)
-	);
-});
-test('advanced defaults explain switches and do not implicitly enable Brain or Funnel', (t) => {
-	const f = fixture(t);
-	base(f);
-	const r = wizardProbe(
-		f,
-		`c.advanced_settings(config,args)\ns=config['settings']\nassert s['bootstrap'] is False and s['brain'] is False\nassert 'brain-port' not in s and 'brain-funnel-port' not in s\nassert not any('Brain MCP local port' in message or 'Brain Funnel public HTTPS port' in message for message,_ in prompts)\nassert next(default for message,default in prompts if message.startswith('AI state volume'))=='dashboard_ai'\n`
-	);
-	ok(r);
-	assert.match(r.stdout, /yes\/no switch, not a script path/);
-	assert.match(r.stdout, /explicitly grant/);
-});
-test('enabling Brain shows and saves local port 3100 while Funnel stays off without Tailscale', (t) => {
-	const f = fixture(t);
-	base(f);
-	ok(
-		wizardProbe(
-			f,
-			`def answers(message,default=None,secret=False):\n prompts.append((message,default));return 'yes' if message.startswith('Enable ClickUp Brain access') else default\nc.ask=answers\nc.advanced_settings(config,args)\ns=config['settings']\nassert s['brain'] is True and s['brain-port']==3100\nassert 'brain-funnel-port' not in s\nassert next(default for message,default in prompts if message.startswith('Brain MCP local port'))==3100\nassert not any(message.startswith('Enable public Brain Funnel') for message,_ in prompts)\n`
-		)
-	);
-});
-test('Tailscale and public Brain Funnel show safe defaults and validate against the launcher', (t) => {
-	const f = fixture(t);
-	base(f);
-	const r = wizardProbe(
-		f,
-		`def answers(message,default=None,secret=False):\n prompts.append((message,default))\n if message.startswith(('Enable Tailscale HTTPS access','Enable ClickUp Brain access','Enable public Brain Funnel')): return 'yes'\n if message.startswith('External dashboard origin'): return 'https://node.example.ts.net'\n return default\nc.ask=answers\nc.advanced_settings(config,args)\ns=config['settings']\nassert s['brain-port']==3100 and s['brain-funnel-port']==10000\nassert s['tailscale-ports']=='8400-8499' and s['tailscale-gateway-port']==3003\nassert next(default for message,default in prompts if message.startswith('Brain Funnel public HTTPS port'))==10000\nresolved=c.normalized(config,path.parent);resolved.pop('health-timeout',None)\nc.run(c.launch_argv(config,resolved,'0'*64,'0'*64)+['--validate-only'])\n`
-	);
-	ok(r);
-	assert.match(r.stdout, /public internet/);
-	assert.match(r.stdout, /not the dashboard/);
-});
-test('invalid bootstrap yes/no input is explained and retried', (t) => {
-	const f = fixture(t);
-	base(f);
-	const r = wizardProbe(
-		f,
-		`answers=iter(['/some/bootstrap.sh','no'])\nc.ask=lambda *a,**k: next(answers)\nassert c.prompt_field(config['settings'],args,'bootstrap',default=False) is False\n`
-	);
-	ok(r);
-	assert.match(r.stdout, /Enter yes or no/);
-});
-test('Funnel port offers 10000, rejects unsupported ports and accepts Enter', (t) => {
-	const f = fixture(t);
-	base(f);
-	const r = wizardProbe(
-		f,
-		`answers=iter(['9999','10000'])\nc.ask=lambda *a,**k: next(answers)\nassert c.prompt_field(config['settings'],args,'brain-funnel-port',choices=[443,8443,10000])==10000\n`
-	);
-	ok(r);
-	assert.match(r.stdout, /Choose 443, 8443, 10000/);
-});
-test('guided defaults never overwrite explicit Brain flags or port values', (t) => {
-	const f = fixture(t);
-	base(f);
-	ok(
-		wizardProbe(
-			f,
-			`args=c.parser().parse_args(['configure','--config',str(path),'--brain','--brain-port','3200'])\n_,config=c.merge_config(path,args)\nc.advanced_settings(config,args)\nassert config['settings']['brain-port']==3200\nassert not any(message.startswith(('Enable ClickUp Brain access','Brain MCP local port')) for message,_ in prompts)\n`
-		)
-	);
-});
-test('turning Brain off removes saved enabling ports and skips their questions', (t) => {
-	const f = fixture(t);
-	base(f);
-	ok(
-		wizardProbe(
-			f,
-			`config['settings'].update({'brain':True,'brain-port':3200,'brain-token-file':'/host/token'})\ndef answers(message,default=None,secret=False):\n prompts.append((message,default));return 'no' if message.startswith('Enable ClickUp Brain access') else default\nc.ask=answers\nc.advanced_settings(config,args)\nassert config['settings']['brain'] is False\nassert 'brain-port' not in config['settings'] and 'brain-token-file' not in config['settings']\nassert not any(message.startswith('Brain MCP local port') for message,_ in prompts)\n`
-		)
-	);
-});
-
 test('host discovery ignores forwarded SSH_AUTH_SOCK and deduplicates /var/run-style aliases', (t) => {
 	const f = fixture(t);
 	base(f);
@@ -749,36 +592,6 @@ test('malformed agent protocol is rejected even for a recognized peer', (t) => {
 		)
 	);
 });
-test('multiple discovered host agents require a choice rather than selecting one silently', (t) => {
-	const f = fixture(t);
-	base(f);
-	ok(
-		wizardProbe(
-			f,
-			`config['settings'].pop('ssh-agent-socket')\nc.discover_host_agents=lambda *a: ([{'path':'/run/user/2345/gcr/ssh','provider':'gcr-ssh-agent','identities':1},{'path':'/run/user/2345/ssh-agent.socket','provider':'ssh-agent','identities':2}],None)\ndef answer(message,default=None,secret=False):\n assert default is None; return '2'\nc.ask=answer\nc.choose_agent(config['settings'],args,True)\nassert config['settings']['ssh-agent-socket']=='/run/user/2345/ssh-agent.socket'\n`
-		)
-	);
-});
-test('one verified host agent is offered as the default, not the saved session socket', (t) => {
-	const f = fixture(t);
-	base(f);
-	ok(
-		wizardProbe(
-			f,
-			`config['settings']['ssh-agent-socket']='/tmp/ssh-forwarded/agent.123'\nc.discover_host_agents=lambda *a: ([{'path':'/run/user/2345/gcr/ssh','provider':'gcr-ssh-agent','identities':0}],None)\ndef answer(message,default=None,secret=False):\n assert default=='/run/user/2345/gcr/ssh';return default\nc.ask=answer\nc.choose_agent(config['settings'],args,True)\nassert config['settings']['ssh-agent-socket']=='/run/user/2345/gcr/ssh'\n`
-		)
-	);
-});
-test('remote-host setup and explicit socket arguments never probe the local host agent', (t) => {
-	const f = fixture(t);
-	base(f);
-	ok(
-		wizardProbe(
-			f,
-			`def forbidden(*a): raise AssertionError('local discovery is forbidden')\nc.discover_host_agents=forbidden\nc.ask=lambda *a,**k: '/run/user/2345/gcr/ssh'\nc.choose_agent(config['settings'],args,False)\nargs.ssh_agent_socket='/explicit/host/socket'\nc.choose_agent(config['settings'],args,True)\n`
-		)
-	);
-});
 
 test('a disposable real OpenSSH agent is discoverable even with protected process metadata', (t) => {
 	const f = fixture(t);
@@ -789,4 +602,54 @@ test('a disposable real OpenSSH agent is discoverable even with protected proces
 			`import os,socket,subprocess,tempfile,time\nwith tempfile.TemporaryDirectory(prefix='dh-agent-fixture-') as directory:\n root=Path(directory); agent=root/'ssh-agent.socket'\n process=subprocess.Popen(['ssh-agent','-D','-a',str(agent)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)\n try:\n  for _ in range(100):\n   if agent.exists(): break\n   time.sleep(0.02)\n  found,reason=c.probe_host_agent(agent,os.getuid(),[root])\n  assert found is not None,reason\n  assert found['provider']=='ssh-agent' and found['identities']==0\n finally:\n  process.terminate();process.wait(timeout=5)\n`
 		)
 	);
+});
+
+test('schema 1 accepts additive source metadata and preserves existing settings', (t) => {
+	const f = fixture(t);
+	base(f);
+	ok(f.exec(['configure', '--image-source', 'build', '--source-ref', 'main']));
+	assert.equal(f.read().source.mode, 'build');
+	assert.equal(f.read().source.ref, 'main');
+	assert.equal(f.read().settings['host-user'], 'operator');
+	assert.deepEqual(f.calls(), []);
+});
+test('managed build options cannot silently override an explicit image argument', (t) => {
+	const f = fixture(t);
+	fails(
+		f.exec(['configure', ...f.identity, '--image-source', 'build', '--image', 'custom:tag']),
+		/cannot be combined/
+	);
+	assert.equal(existsSync(f.config), false);
+});
+test('save-only managed build never clones source or touches Docker', (t) => {
+	const f = fixture(t);
+	ok(f.exec(['configure', ...f.identity, '--image-source', 'build', '--source-ref', 'main']));
+	assert.equal(f.read().source.ref, 'main');
+	assert.deepEqual(f.calls(), []);
+});
+test('source image preparation occurs before instance replacement', (t) => {
+	const f = fixture(t);
+	base(f);
+	const program = `import importlib.util,sys\nfrom pathlib import Path\nspec=importlib.util.spec_from_file_location('cli',sys.argv[1]);c=importlib.util.module_from_spec(spec);sys.modules['cli']=c;spec.loader.exec_module(c)\nimport devharbour_source as source\ncalls=[]\ndef build(*args,**kwargs):\n calls.append('build');raise source.SourceError('fixture build failed')\nsource.prepare_image=build\nc.ensure_instance=lambda *a: calls.append('container-lifecycle')\nsys.argv=['devharbour','--config',sys.argv[2],'--non-interactive','--image-source','build','--source-ref','main']\ntry:c.main();raise AssertionError('failure expected')\nexcept source.SourceError:pass\nassert calls==['build']\n`;
+	ok(spawnSync('python3', ['-c', program, cli, f.config], { env: f.env, encoding: 'utf8' }));
+	assert.equal(
+		f.calls().some((a) => a[0] === 'stop' || a[0] === 'rm'),
+		false
+	);
+});
+
+test('rebuild requires local build mode instead of silently doing nothing', (t) => {
+	const f = fixture(t);
+	base(f);
+	fails(f.exec(['configure', '--rebuild']), /requires managed local build/);
+});
+test('switching local build back to published mode restores the registry image default', (t) => {
+	const f = fixture(t);
+	base(f);
+	const c = f.read();
+	c.source = { mode: 'build', ref: 'main' };
+	c.settings.image = 'sha256:' + 'a'.repeat(64);
+	f.save(c);
+	ok(f.exec(['configure', '--image-source', 'published']));
+	assert.equal(f.read().settings.image, 'ghcr.io/axelthas/devcontainer-dashboard:latest');
 });

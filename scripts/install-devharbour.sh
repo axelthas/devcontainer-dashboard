@@ -1,5 +1,5 @@
 #!/bin/bash
-# Install a versioned user-local DevHarbour CLI without a checkout or host Node.
+# Install the user-local DevHarbour CLI, private Python environment and pinned source.
 # Python 3.9+ provides JSON, HTTPS downloads and safe archive member reads.
 set -euo pipefail
 command -v python3 >/dev/null || { echo 'Python 3.9+ is required; install it using your host package manager.' >&2; exit 1; }
@@ -20,8 +20,10 @@ import tarfile
 import tempfile
 import urllib.parse
 import urllib.request
+import subprocess
+import venv
 
-FILES = ('devharbour.py', 'run-dashboard.sh')
+FILES = ('devharbour.py', 'devharbour_ui.py', 'devharbour_source.py', 'requirements-cli.txt', 'run-dashboard.sh')
 MARKER = '# devharbour-managed-command-v1'
 
 
@@ -29,6 +31,7 @@ def arguments():
     """Accept a local source or an explicit GitHub ref, plus user-local directories."""
     p = argparse.ArgumentParser(description='Install the DevHarbour command (Python 3.9+, Bash; Linux).')
     p.add_argument('--source', type=Path, help='Install from a local checkout, including intentional uncommitted CLI edits')
+    p.add_argument('--no-checkout', action='store_true', help='Install CLI only; source is cloned later if a local build is selected')
     p.add_argument('--ref', default='main', help='GitHub commit/tag/branch; pin a full commit for reproducibility')
     p.add_argument('--bin-dir', type=Path, default=Path.home() / '.local/bin')
     p.add_argument('--data-dir', type=Path, default=Path(os.environ.get('XDG_DATA_HOME', str(Path.home() / '.local/share'))) / 'devharbour')
@@ -56,6 +59,42 @@ def payloads(args):
                 raise ValueError('Invalid runtime archive member')
             content[name] = bundle.extractfile(member).read()
     return content, revision
+
+
+def source_checkout(args, identity, runtime):
+    """Retain a clean pinned remote checkout, never reset an existing working copy."""
+    if args.source:
+        result = subprocess.run(['git', '-C', str(args.source), 'rev-parse', 'HEAD'], text=True, capture_output=True)
+        return {'repository': 'https://github.com/axelthas/devcontainer-dashboard.git', 'revision': result.stdout.strip() if result.returncode == 0 else 'main', 'ref': args.ref}
+    metadata = {'repository': 'https://github.com/axelthas/devcontainer-dashboard.git', 'revision': identity, 'ref': args.ref}
+    if not args.no_checkout:
+        sys.path.insert(0, str(runtime))
+        from devharbour_source import acquire
+        checkout, revision = acquire({'mode': 'build', 'ref': identity}, args.data_dir / 'source')
+        metadata.update({'checkout': str(checkout), 'revision': revision})
+    return metadata
+
+
+def python_environment(args, runtime):
+    """Install pinned terminal libraries in our own versioned virtual environment only."""
+    identity = hashlib.sha256((runtime / 'requirements-cli.txt').read_bytes()).hexdigest()[:16] + '-' + sys.implementation.cache_tag
+    destination = args.data_dir / ('venv-' + identity)
+    if destination.is_symlink():
+        raise ValueError('Refusing symlink Python environment')
+    python = destination / 'bin/python'
+    if not python.exists():
+        try:
+            venv.EnvBuilder(with_pip=True).create(destination)
+            destination.chmod(0o700)
+        except (OSError, subprocess.SubprocessError) as error:
+            raise ValueError('Python venv/pip is required; install your distro python3-venv package and retry.') from error
+    check = subprocess.run([str(python), '-c', 'import questionary,prompt_toolkit,wcwidth'], capture_output=True)
+    marker = destination / '.devharbour-requirements'
+    if check.returncode or not marker.exists() or marker.read_text() != identity:
+        print('Installing menu dependencies in a private Python environment...', flush=True)
+        subprocess.run([str(python), '-m', 'pip', 'install', '--require-virtualenv', '--disable-pip-version-check', '-r', str(runtime / 'requirements-cli.txt')], check=True)
+        marker.write_text(identity)
+    return python
 
 
 def install(args):
@@ -91,10 +130,18 @@ def install(args):
             finally:
                 if staging.exists():
                     shutil.rmtree(staging)
+        metadata = source_checkout(args, identity, runtime)
+        if (runtime / 'SOURCE.json').is_symlink():
+            raise ValueError('Refusing source metadata symlink')
+        fd_metadata, temp_metadata = tempfile.mkstemp(prefix='.source-', dir=runtime)
+        with os.fdopen(fd_metadata, 'w') as output:
+            output.write(json.dumps(metadata, indent=2) + '\n')
+        os.replace(temp_metadata, runtime / 'SOURCE.json')
+        python = python_environment(args, runtime)
         fd, temporary = tempfile.mkstemp(prefix='.devharbour-', dir=args.bin_dir)
         try:
             with os.fdopen(fd, 'w') as output:
-                output.write('#!/bin/sh\n' + MARKER + '\nexec python3 ' + shlex.quote(str(runtime / 'devharbour.py')) + ' "$@"\n')
+                output.write('#!/bin/sh\n' + MARKER + '\nexec ' + shlex.quote(str(python)) + ' ' + shlex.quote(str(runtime / 'devharbour.py')) + ' "$@"\n')
                 output.flush()
                 os.fsync(output.fileno())
             os.chmod(temporary, 0o755)
@@ -107,7 +154,8 @@ def install(args):
     if str(args.bin_dir) not in os.environ.get('PATH', '').split(os.pathsep):
         print('Add this directory to PATH: export PATH=' + shlex.quote(str(args.bin_dir)) + ':"$PATH"')
         print('Or run directly:', destination)
-    print('Run devharbour to start guided setup. No config or runtime data was changed.')
+    print('Source checkout:', metadata.get('checkout', 'cloned on demand if a local build is selected'))
+    print('Run devharbour for the menu-based setup. Existing configuration and containers were not changed.')
 
 
 def main():
@@ -119,7 +167,10 @@ def main():
 
 try:
     main()
-except (OSError, ValueError, KeyError, tarfile.TarError):
-    print('Installation failed. Check source/ref, directory ownership, connectivity and existing command; no host packages were installed.', file=sys.stderr)
+except KeyboardInterrupt:
+    print('Installation cancelled. The existing command and configuration were not replaced.', file=sys.stderr)
+    sys.exit(130)
+except (OSError, ValueError, KeyError, tarfile.TarError, subprocess.SubprocessError, RuntimeError):
+    print('Installation failed. Check Git, Python venv/pip, source/ref, directory ownership and connectivity; no host packages were installed.', file=sys.stderr)
     sys.exit(1)
 PY

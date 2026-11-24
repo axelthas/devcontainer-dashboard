@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""DevHarbour operator CLI: Python 3.9+, Linux, standard library only.
+"""DevHarbour operator CLI: Python 3.9+, Linux; menu dependencies use a private venv.
 
 Bash remains authoritative for launch validation and Docker launch arguments.
 Configuration is data, never executable input.
@@ -7,7 +7,6 @@ Configuration is data, never executable input.
 import argparse
 import contextlib
 import fcntl
-import getpass
 import hashlib
 import json
 import os
@@ -25,6 +24,8 @@ import time
 
 VERSION = '0.1.0'
 ROOT = Path(__file__).resolve().parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 STRINGS = {'workspace', 'socket', 'bind-address', 'origin', 'password-file', 'host-user',
            'host-home', 'host-name', 'ssh-agent-socket', 'ssh-known-hosts', 'gateway-host',
            'gateway-ports', 'vscode-ssh-host', 'image', 'ai-state-volume', 'brain-token-file',
@@ -65,6 +66,9 @@ def parser():
     result.add_argument('--replace', action='store_true', help='Authorize replacement of this config\'s container; retain volumes')
     result.add_argument('--adopt', action='store_true', help='Explicitly adopt reviewed legacy resources; container adoption also requires --replace')
     result.add_argument('--allow-exposure', action='store_true', help='Authorize newly enabled remote access, Tailscale or Brain Funnel')
+    result.add_argument('--image-source', choices=['published', 'build'], default=argparse.SUPPRESS, help='Managed instance image source')
+    result.add_argument('--source-ref', default=argparse.SUPPRESS, help='Branch/tag/commit for a managed local build')
+    result.add_argument('--rebuild', action='store_true', help='Rebuild a selected local source image after review')
     result.add_argument('--build', action='store_true', dest='build_mode', help='Run an isolated checkout build')
     result.add_argument('--instance-name', default=argparse.SUPPRESS)
     result.add_argument('--restart-policy', choices=['always', 'unless-stopped', 'on-failure', 'no'], default=argparse.SUPPRESS)
@@ -154,28 +158,12 @@ def run(arguments, *, capture=False, check=True):
     return result
 
 
-def ask(message, default=None, secret=False):
-    """Read operator input only from a terminal; never consume piped secrets."""
-    try:
-        with open('/dev/tty', 'r') as reader, open('/dev/tty', 'w') as tty:
-            prompt = message + (' [' + str(default) + ']' if default is not None else '') + ': '
-            if secret:
-                value = getpass.getpass(prompt, stream=tty)
-            else:
-                tty.write(prompt)
-                tty.flush()
-                value = reader.readline()
-                if not value:
-                    raise CliError('Setup cancelled')
-                value = value.rstrip('\n')
-            return value if value else default
-    except OSError:
-        raise CliError('A terminal is required; supply explicit settings with --non-interactive') from None
-
-
 def confirm(message, args):
     """Require an explicit affirmative answer, never a default yes."""
-    if args.non_interactive or str(ask(message + ' (type yes)')).lower() != 'yes':
+    if args.non_interactive:
+        raise CliError('Not approved; no deployment changes made')
+    from devharbour_ui import approve
+    if not approve(message):
         raise CliError('Not approved; no deployment changes made')
 
 
@@ -196,8 +184,34 @@ def merge_config(path, args):
     if old is None and (path.exists() or path.is_symlink()):
         raise CliError('Unsupported config schema: null is not a configuration')
     config = json.loads(json.dumps(old)) if old is not None else {'schemaVersion': 1, 'instanceName': 'devcontainer-dashboard', 'restartPolicy': 'always', 'settings': {}}
-    if not isinstance(config, dict) or set(config) != {'schemaVersion', 'instanceName', 'restartPolicy', 'settings'} or type(config.get('schemaVersion')) is not int or config['schemaVersion'] != 1 or not isinstance(config['settings'], dict):
+    if not isinstance(config, dict) or not {'schemaVersion', 'instanceName', 'restartPolicy', 'settings'} <= set(config) or set(config) - {'schemaVersion', 'instanceName', 'restartPolicy', 'settings', 'source'} or type(config.get('schemaVersion')) is not int or config['schemaVersion'] != 1 or not isinstance(config['settings'], dict):
         raise CliError('Unsupported config schema; expected schemaVersion 1 with instanceName, restartPolicy and settings')
+    from devharbour_source import validate_source, SourceError
+    if 'source' in config:
+        validate_source(config['source'])
+    if hasattr(args, 'image_source'):
+        if args.image_source == 'published' and config.get('source', {}).get('mode') == 'build' and not hasattr(args, 'image'):
+            config['settings']['image'] = DEFAULTS['image']
+        config.setdefault('source', {})['mode'] = args.image_source
+        if args.image_source == 'build':
+            from devharbour_source import installed_source
+            config['source'].setdefault('ref', installed_source(ROOT).get('revision', 'main'))
+    if hasattr(args, 'source_ref'):
+        if getattr(args, 'image_source', None) == 'published':
+            raise CliError('--source-ref requires local build mode, not --image-source published')
+        config.setdefault('source', {})['mode'] = 'build'
+        config['source']['ref'] = args.source_ref
+        for key in ('checkout', 'revision'):
+            config['source'].pop(key, None)
+    if 'source' in config:
+        validate_source(config['source'])
+        if config['source']['mode'] == 'build' and hasattr(args, 'image'):
+            raise CliError('--image cannot be combined with managed local builds; select --image-source published')
+        if config['source']['mode'] == 'build' and hasattr(args, 'source_checkout'):
+            checkout = Path(args.source_checkout)
+            config['source']['checkout'] = str(checkout if checkout.is_absolute() else path.parent / checkout)
+    if args.rebuild and config.get('source', {}).get('mode') != 'build':
+        raise CliError('--rebuild requires managed local build mode')
     validate_types(config['settings'])
     values = vars(args)
     for key in STRINGS | NUMBERS | BOOLEANS | {'env-file'}:
@@ -330,71 +344,6 @@ def discover_host_agents(uid, home, runtime_roots=None):
     return found, '; '.join(rejected) if rejected and not found else None
 
 
-def yes_no(message, default=False):
-    """Offer yes/no defaults and retry unclear answers instead of treating them as false."""
-    while True:
-        answer = str(ask(message + ' (yes/no)', 'yes' if default else 'no')).lower()
-        if answer in {'yes', 'y', 'true', '1'}:
-            return True
-        if answer in {'no', 'n', 'false', '0'}:
-            return False
-        print('Enter yes or no. Press Enter to accept the displayed default.')
-
-
-def choose_agent(settings, args, local_host):
-    """Offer a verified host socket, or an explicit manual path when discovery is not possible."""
-    if hasattr(args, 'ssh_agent_socket'):
-        return
-    if 'ssh-agent-socket' in settings and args.command != 'configure':
-        return
-    print('SSH agent: shares authentication/signing access, not private-key files.')
-    print('Session SSH_AUTH_SOCK is ignored: an SSH login can point it at a forwarded agent.')
-    default = settings.get('ssh-agent-socket')
-    if local_host:
-        agents, reason = discover_host_agents(settings['host-uid'], settings['host-home'])
-        if reason:
-            print(reason)
-        if agents:
-            if default:
-                try:
-                    default = str(Path(default).resolve())
-                except (OSError, RuntimeError):
-                    default = None
-            print('Verified host agents:')
-            for number, agent in enumerate(agents, 1):
-                print(' ', str(number) + '.', agent['path'], '(' + agent['provider'] + ', ' + str(agent['identities']) + ' loaded identities)')
-            if len(agents) == 1:
-                default = agents[0]['path']
-            elif default not in {agent['path'] for agent in agents}:
-                default = None
-            while True:
-                answer = ask('Docker-host ssh-agent-socket (number or absolute host path)', default)
-                if answer and str(answer).isdigit():
-                    number = int(answer)
-                    if 1 <= number <= len(agents):
-                        settings['ssh-agent-socket'] = agents[number - 1]['path']
-                        return
-                    print('Choose one of the listed numbers, or enter an absolute path.')
-                    continue
-                if answer and str(answer).startswith('/'):
-                    settings['ssh-agent-socket'] = answer
-                    return
-                print('Enter a listed number or an absolute path.')
-        default = None
-        print('No verified host agent was discovered. Enter an explicit host path.')
-        print('Common locations include /run/user/<uid>/gcr/ssh and /run/user/<uid>/ssh-agent.socket.')
-        print('Do not use a temporary /tmp/ssh-*/agent.* forwarded-session socket.')
-    else:
-        print('This is another host: local discovery is disabled; enter its host-owned agent path.')
-    while True:
-        answer = ask('Docker-host ssh-agent-socket (absolute host path)', default)
-        if answer and str(answer).startswith('/'):
-            settings['ssh-agent-socket'] = answer
-            return
-        print('An absolute Docker-host socket path is required.')
-
-
-
 # Only active wizard sections use these defaults. An unconditional Brain port
 # would otherwise implicitly enable Brain in the shared launcher.
 WIZARD_DEFAULTS = {
@@ -447,161 +396,19 @@ def disable_dependents(settings, args, key):
         settings.pop(dependent, None)
 
 
-def prompt_field(settings, args, key, default=None, required=False, choices=None):
-    """Explain one setting, show its effective default and retry invalid typed input."""
-    label, description = FIELD_GUIDANCE[key]
-    print(description)
-    if key.replace('-', '_') in vars(args):
-        print(label + ':', json.dumps(settings[key]), '(supplied by argument)')
-        return settings[key]
-    current = settings.get(key, default if default is not None else WIZARD_DEFAULTS.get(key))
-    if key in BOOLEANS:
-        value = yes_no(label, bool(current))
-        if not value:
-            disable_dependents(settings, args, key)
-        settings[key] = value
-        return value
-    while True:
-        shown = json.dumps(current) if key == 'env-file' else current if current is not None else 'not set'
-        answer = ask(label + (' (required; ? for help)' if required else " (Enter keeps default; '-' unsets; ? for help)"), shown)
-        if answer == '?':
-            print(description)
-            continue
-        if answer == '-' or (current is None and answer == 'not set'):
-            if required:
-                print('This value is required for the selected feature.')
-                continue
-            settings.pop(key, None)
-            return None
-        try:
-            value = int(answer) if key in NUMBERS else json.loads(answer) if key == 'env-file' else answer
-            validate_types({key: value})
-            if key in NUMBERS and not 1 <= value <= (86400 if key == 'health-timeout' else 65535):
-                raise ValueError('Out of range')
-            if choices is not None and value not in choices:
-                raise ValueError('Unsupported choice')
-            if key == 'tailscale-ports':
-                match = re.fullmatch(r'([1-9][0-9]*)-([1-9][0-9]*)', value)
-                if not match or not 1 <= int(match[1]) <= int(match[2]) <= 65535 or int(match[2]) - int(match[1]) >= 256:
-                    raise ValueError('Invalid port range')
-            settings[key] = value
-            return value
-        except (ValueError, TypeError, CliError):
-            print('Invalid value.' + (' Choose ' + ', '.join(map(str, choices)) + '.' if choices else ' ' + description))
-
-
-def advanced_settings(config, args):
-    """Group dependent questions by operator goal instead of alphabetized flags."""
-    settings = config['settings']
-    print('\nDashboard and retained AI state')
-    keys = ['port', 'ai-port', 'bind-address', 'socket', 'host-name', 'vscode-ssh-host', 'env-file', 'no-create-workspace', 'health-timeout']
-    if args.command != 'build':
-        keys.insert(2, 'ai-state-volume')
-        keys.insert(3, 'image')
-    for key in keys:
-        prompt_field(settings, args, key, default=3001 if key == 'port' and args.command == 'build' else None)
-    print('Restart policy: always restarts on Docker start, even after manual stop; unless-stopped respects manual stop; no disables automatic restart; on-failure retries failed exits.')
-    if not hasattr(args, 'restart_policy'):
-        while True:
-            policy = ask('Container restart policy (always/unless-stopped/on-failure/no)', config['restartPolicy'])
-            if policy in {'always', 'unless-stopped', 'on-failure', 'no'}:
-                config['restartPolicy'] = policy
-                break
-            print('Choose always, unless-stopped, on-failure or no.')
-    print('\nDevelopment bootstrap and SSH trust')
-    prompt_field(settings, args, 'bootstrap', default=False)
-    prompt_field(settings, args, 'ssh-known-hosts')
-    print('\nRemote access and service proxy')
-    if hasattr(args, 'tailscale_socket'):
-        tailscale = True
-    else:
-        print('Tailscale HTTPS offers private tailnet access and HTTPS service URLs. It requires existing host tailscaled and grants broad control through its socket.')
-        tailscale = yes_no('Enable Tailscale HTTPS access', bool(settings.get('tailscale-socket')))
-    if tailscale:
-        if settings.get('gateway') or hasattr(args, 'gateway'):
-            if hasattr(args, 'gateway'):
-                raise CliError('Tailscale cannot be combined with explicit --gateway')
-            settings['gateway'] = False
-            disable_dependents(settings, args, 'gateway')
-        for key in ['tailscale-socket', 'origin', 'tailscale-ports', 'tailscale-gateway-port', 'tailscale-allow-wildcard-bindings']:
-            prompt_field(settings, args, key, required=key in {'tailscale-socket', 'origin'})
-    else:
-        disable_dependents(settings, args, 'tailscale-socket')
-        settings.pop('tailscale-socket', None)
-        prompt_field(settings, args, 'origin')
-        if prompt_field(settings, args, 'gateway', default=False):
-            prompt_field(settings, args, 'gateway-host')
-    if tailscale or settings.get('gateway'):
-        prompt_field(settings, args, 'gateway-ports')
-    print('\nClickUp Brain')
-    brain_default = bool(settings.get('brain') or settings.get('brain-funnel') or 'brain-port' in settings or 'brain-token-file' in settings)
-    if prompt_field(settings, args, 'brain', default=brain_default):
-        prompt_field(settings, args, 'brain-port')
-        prompt_field(settings, args, 'brain-token-file')
-        if tailscale:
-            if prompt_field(settings, args, 'brain-funnel', default=False):
-                prompt_field(settings, args, 'brain-funnel-port', choices=[443, 8443, 10000])
-        else:
-            print('Brain Funnel is off: enable Tailscale HTTPS first to make the MCP endpoint public.')
-    else:
-        print('Brain is off. Local-port, token and public-Funnel questions are skipped.')
-
-
 def wizard(config, args):
-    """Guide setup with explained defaults and confirmed host identity/socket inputs."""
-    settings = config['settings']
-    managed = args.command != 'build' and 'source-checkout' not in settings
-    if managed:
-        settings.setdefault('ai-state-volume', resource_names(config)[2])
-    missing = REQUIRED - settings.keys()
-    pending = None
-    if args.non_interactive:
+    """Use the menu wizard interactively and typed required inputs unattended."""
+    if args.non_interactive or args.command == 'build':
+        missing = REQUIRED - config['settings'].keys()
         if missing:
             raise CliError('Missing required settings: ' + ', '.join(sorted(missing)))
-        return pending
-    first = bool(missing)
-    if first:
-        print('DevHarbour grants full Docker and terminal operator access. Use a trusted Linux host.')
-        print('Press Enter to accept a displayed default. Optional integrations default to no.')
-    local_host = False
-    suggestions = {}
-    if first or args.command == 'configure':
-        print('Choose yes when this CLI runs on the actual Linux Docker host. Choose no inside another container or when entering another host\'s paths.')
-        local_host = yes_no('Is the Docker host this machine?', True)
-        if not local_host:
-            settings.setdefault('no-create-workspace', True)
-        else:
-            account = pwd.getpwuid(os.getuid())
-            suggestions = {'host-user': account.pw_name, 'host-uid': account.pw_uid, 'host-gid': account.pw_gid, 'host-home': account.pw_dir}
-    identity_help = {'host-user': 'Non-root account that owns the host workspaces.', 'host-uid': 'Numeric user ID of that account on the Docker host.', 'host-gid': 'Numeric primary group ID of that account on the Docker host.', 'host-home': 'Absolute home directory of that account on the Docker host.'}
-    for key in ['host-user', 'host-uid', 'host-gid', 'host-home']:
-        if key not in settings:
-            print(identity_help[key])
-            while True:
-                answer = ask('Docker-host ' + key, suggestions.get(key))
-                try:
-                    if not answer:
-                        raise ValueError('Required')
-                    value = int(answer) if key in NUMBERS else answer
-                    if key in NUMBERS and not 1 <= value <= 2147483647:
-                        raise ValueError('Invalid ID')
-                    settings[key] = value
-                    break
-                except (ValueError, TypeError):
-                    print('Enter a positive non-root number.' if key in NUMBERS else 'This host identity value is required.')
-    choose_agent(settings, args, local_host)
-    if 'workspace' not in settings:
-        print('Workspace directory on the Docker host: repositories here are writable by DevHarbour.')
-        settings['workspace'] = ask('Workspace directory on Docker host', settings['host-home'] + ('/ddash-production-workspace' if args.command == 'build' else '/ddash-workspace'))
-    if managed:
-        print('AI state volume:', settings['ai-state-volume'], '(retains AI settings/state; a Docker volume name, not a directory)')
-    if 'password-file' not in settings:
-        print('Choose a shared dashboard login password. It is entered without echo and saved in a separate private file, not JSON.')
-        pending = ask('New dashboard password', secret=True)
-        if not pending or pending != ask('Repeat dashboard password', secret=True):
-            raise CliError('Passwords must be nonempty and match')
-    if (first or args.command == 'configure') and yes_no('Configure advanced settings?', False):
-        advanced_settings(config, args)
+        if args.command != 'build':
+            config['settings'].setdefault('ai-state-volume', resource_names(config)[2])
+        return None
+    from devharbour_ui import wizard as menu_wizard
+    updated, pending = menu_wizard(sys.modules[__name__], config, args)
+    config.clear()
+    config.update(updated)
     return pending
 
 
@@ -844,7 +651,7 @@ def main():
         if args.command in {'status', 'logs', 'stop'}:
             if old is None:
                 raise CliError('No saved config; run devharbour first')
-            if config != old or args.replace or args.adopt or args.clear:
+            if config != old or args.replace or args.adopt or args.clear or args.rebuild:
                 raise CliError('Management commands do not update settings; use run or configure')
             resource_names(config)
             manage(args, config, owner)
@@ -874,7 +681,7 @@ def main():
         old_exposure = exposed(normalized(old, path.parent)) if old else {}
         if any(old_exposure.get(key) != value for key, value in exposed(settings).items()) and not args.allow_exposure:
             confirm('Approve the displayed remote-access/host-network settings?', args)
-        if not args.non_interactive and (old is None or args.command == 'configure' or pending is not None):
+        if not args.non_interactive and not getattr(args, 'plan_approved', False) and (old is None or args.command == 'configure' or pending is not None):
             confirm('Save these settings' + (' and start DevHarbour?' if args.command != 'configure' else '?'), args)
         if pending is not None:
             fd = os.open(settings['password-file'], os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
@@ -887,6 +694,17 @@ def main():
         if args.command == 'build':
             run(launch_argv(config, settings, owner, '0' * 64, True))
             return
+        if config.get('source', {}).get('mode') == 'build':
+            from devharbour_source import prepare_image
+            print('[Step 6/6] Prepare source and build the image. Existing containers remain unchanged during the build.')
+            cache = Path(os.environ.get('XDG_DATA_HOME', str(Path.home() / '.local/share'))) / 'devharbour/source'
+            image, checkout, revision = prepare_image(config['source'], cache, settings.get('platform'), args.rebuild)
+            settings['image'] = image
+            config['source'].update({'checkout': str(checkout), 'revision': revision})
+            config['settings']['image'] = image
+            atomic_json(path, config)
+        elif getattr(args, 'plan_approved', False):
+            print('[Step 6/6] Start DevHarbour and check readiness.')
         fingerprint = desired_fingerprint(config, settings)
         state_path = path.with_name(path.name + '.state.json')
         applied = read_json(state_path) if state_path.exists() or state_path.is_symlink() else None
@@ -909,7 +727,7 @@ def main():
 if __name__ == '__main__':
     try:
         main()
-    except (CliError, OSError, ValueError, KeyboardInterrupt) as error:
+    except (CliError, OSError, ValueError, RuntimeError, KeyboardInterrupt, __import__('devharbour_source').SourceError) as error:
         # Only intentional public diagnostics are safe to print verbatim.
         print('ERROR:', str(error) if isinstance(error, CliError) else 'Operation failed or cancelled; check paths, permissions and prerequisites', file=sys.stderr)
         sys.exit(1)

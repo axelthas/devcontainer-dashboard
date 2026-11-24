@@ -142,7 +142,8 @@ and validation status below supersedes that historical statement.
 
 ## Implementation and validation record
 
-The CLI is `scripts/devharbour.py` (Python 3.9+, standard library only).
+The original CLI at `d22fd15` used Python standard-library prompts. The current
+menu-based redesign below supersedes that interaction and installer design.
 `scripts/install-devharbour.sh` installs a pinned runtime plus a user-local wrapper.
 The shared launcher adds validation-only and managed-registry paths without a
 second Docker argument builder. `npm run test:cli` is also part of `npm test`.
@@ -184,3 +185,36 @@ image selection and the inherited SSH acceptance blockers are resolved. The
 existing GitHub workflow targets main only and does not run the dedicated CLI
 suite directly; `npm test` now includes it, but stacked-branch CI coverage still
 needs the separate CI/release follow-up rather than a claim of green CI here.
+
+## Menu-based redesign (current)
+
+The operator rejected the raw questionnaire after testing. The interactive path is
+now a dedicated `devharbour_ui.py` module using Questionary/prompt-toolkit, following
+the installed devbootstrap reference: numbered steps, arrow menus, checkbox
+features, Escape/back navigation, saved-setting reuse, and grouped review with
+jump-to-step edits. The runtime/orchestration stays in `devharbour.py`.
+
+Five editable steps cover source mode, host/workspace/SSH, access/login, optional
+capabilities, and review. Step six applies a reviewed plan. Invalid plans expose
+edit/cancel choices instead of save/start. `configure` is save-only. Explicit flags
+are preserved, secrets stay hidden, and cancellation does not write partial JSON.
+
+The installer keeps pinned menu dependencies in a private versioned Python venv
+and retains a clean commit-pinned source checkout. A local build is now an image
+source for the same managed instance, not the separate isolated build command.
+`devharbour_source.py` verifies origin, cleanliness and revision, never resets a
+modified checkout, builds before any container lifecycle change, checks cached
+image provenance, and returns an immutable image ID. `--rebuild` is explicit.
+Existing schema-1 JSON remains valid; optional source metadata is additive.
+
+Regression coverage includes UI-controller navigation, real Questionary PTYs
+(Enter/save, arrow-key jump, Escape/back and Ctrl+C cancellation), legacy config
+migration, conditional port defaults, source/image provenance, local edits and
+build-before-replacement. The native local-build path was also exercised with a
+disposable scratch-image Git fixture, including revision labels and cached reuse;
+that is not a production DevHarbour image or native-host acceptance test.
+
+The older implementation/check results above are historical. Current exact
+revision and final validation counts are recorded in the PR description. Native
+production-image startup/replacement/reboot and end-to-end host GCR/Tailscale
+acceptance remain separate draft blockers. Operator worktree edits are excluded.

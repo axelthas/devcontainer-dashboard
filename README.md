@@ -24,14 +24,17 @@ the new PNG.
 
 The `devharbour` command adds guided setup, saved JSON settings and management of
 one retained instance. It reuses the existing Bash launcher's deployment logic.
-It requires **Linux, Python 3.9+, Bash and Docker access**. No host Node.js or source
-checkout is needed for published images. Docker and other host packages are never
+It requires **Linux, Python 3.9+ with venv/pip, Bash, Git and Docker access**.
+The installer creates a private Python environment for the menu UI and retains a
+pinned source checkout. No host Node.js or compiler is needed, including for Docker
+image builds. Docker and other host packages are never
 installed automatically. The dashboard grants full Docker and terminal access;
 run it only on a trusted host.
 
 ### One-command installation
 
-No clone or manual script download is needed. While this feature is in draft,
+No manual clone or script download is needed. The installer clones pinned source
+for you and installs its terminal dependencies in a private virtual environment. While this feature is in draft,
 install the current branch with one command:
 
 ```bash
@@ -75,39 +78,79 @@ The installer defaults to `~/.local/bin` and
 `${XDG_DATA_HOME:-$HOME/.local/share}/devharbour`. It reports missing PATH setup,
 resolves remote refs to an immutable commit, and records the installed source in
 `devharbour --version`. Use `--bin-dir`, `--data-dir`, or `--ref COMMIT` to override
-installation inputs. Reinstallation preserves configuration and data and refuses
+installation inputs. Dependencies are pinned in `scripts/requirements-cli.txt`
+and isolated under the install data directory; system Python packages are not
+changed. Remote installs retain source under `source/<commit>`. `--no-checkout`
+opts out of the initial clone; a requested local build acquires source later.
+Reinstallation preserves configuration and data and refuses
 to overwrite unrelated commands. A local-source install includes your current CLI
 and launcher files, so review uncommitted changes first.
 
-On the first run, the Docker-host question defaults to **yes**. Confirm the host
-identity and workspace. For local-host setup, the CLI looks for a host-owned SSH
-agent in known provider locations, including `/run/user/<uid>/gcr/ssh` (also reached
-through `/var/run/user/<uid>/gcr/ssh` on many Linux hosts). It does not trust the
-session's `SSH_AUTH_SOCK`, which may point to SSH forwarding. Verified candidates
-are shown for confirmation; multiple candidates require a choice. Remote-host or
-unrecognized-agent setups require an explicit host socket path.
+### Guided setup
 
-Enter a hidden dashboard password or supply `--password-file`. The short setup
-path shows and saves the AI state volume (`dashboard_ai`, or `<instance>-ai`).
-Advanced setup explains every question and its accepted input, displays effective
-defaults, and asks only about settings for enabled features:
+Run `devharbour` without arguments for a devbootstrap-style wizard. Use arrow keys
+to select, Space to toggle optional features, Enter to accept, Escape to go back,
+and Ctrl+C to cancel. Each numbered step explains why the choice is needed:
 
-- **Development bootstrap:** off by default. A yes/no switch for the bundled
-  development-tooling hook, not a script-path question.
-- **ClickUp Brain access:** off by default. When enabled, the MCP local port
-  defaults to **3100**. You still grant each container separately.
-- **Public Brain Funnel:** off by default and offered only with Brain and Tailscale
-  enabled. Its public HTTPS port defaults to **10000**. It exposes the
-  token-protected MCP endpoint, not the dashboard, and needs existing Tailscale
-  HTTPS, MagicDNS and Funnel permissions.
+1. **How to run:** use a published image (recommended), or build a local image from
+   the installed revision, `main`, or another branch/tag/commit.
+2. **Host and workspace:** confirm the detected account as a group, choose a
+   workspace, and select a verified host SSH agent. Local Docker is the default.
+3. **Access and login:** choose local-only, private Tailscale HTTPS, or a custom
+   network binding; set or keep the shared login password.
+4. **Optional capabilities:** use checkboxes for development bootstrap, ClickUp
+   Brain and public Brain Funnel. Each has a clear explanation and only selected
+   features ask follow-up questions. Ports, volumes and other detailed settings
+   stay behind an advanced-setting menu.
+5. **Review:** see the run mode, host, workspace, SSH agent, access and retained
+   volumes together. Jump directly to an earlier step, save only, or save/start.
+6. **Apply:** prepare source/build or pull the image, start/reuse the retained
+   instance, then check readiness and print its URL.
 
-Press Enter to accept a displayed default. In advanced value questions, `?` repeats
-the help and `-` clears an optional value. Invalid inputs are explained and retried.
-The CLI saves validated settings, starts a detached instance, checks the production
-listener and Docker API, and prints the URL. Later runs reuse settings and the
-container without another pull. To receive CLI fixes, repeat the install command;
-configuration is preserved. Run `devharbour configure` to review the updated wizard
-without starting or replacing an instance.
+Saved configurations open at review first. `devharbour configure` always saves
+only: it never clones build source, builds an image, or starts/replaces a container.
+Cancellation and back navigation do not write partial settings. An invalid plan
+must be corrected before Save/Start is offered. Replacement of an existing
+container still requires a separate exact-container approval.
+
+The default retained AI volume is `dashboard_ai` (or `<instance>-ai`). Brain is off
+by default; when selected, its separate MCP listener defaults to **3100** and still
+requires per-container grants. Public Brain Funnel is off by default; when selected
+with Tailscale configured, its public HTTPS port defaults to **10000**. Funnel
+publishes only the token-protected MCP endpoint, not the dashboard.
+
+Host-agent discovery checks known provider locations, including
+`/run/user/<uid>/gcr/ssh` and `/var/run/user/<uid>/gcr/ssh`. It ignores the session's
+`SSH_AUTH_SOCK`, which may be forwarded. Verified candidates are shown; another
+host or unrecognized provider requires an explicit host socket path. Private keys
+are not copied or mounted.
+
+Repeat the same installer command to get CLI updates; existing JSON, credentials,
+containers and volumes are preserved. Then run `devharbour configure` to review
+settings with the new menu UI.
+
+### Build the managed instance locally
+
+Choose **Build locally** in step 1. The managed source checkout is pinned to a
+commit and is never reset when modified. Docker Buildx builds the image before any
+existing container can be stopped. The resulting immutable image ID feeds the
+same retained-instance lifecycle and volume mapping as published-image mode.
+A failed build leaves the running instance alone. Existing matching local images
+are reused; `--rebuild` explicitly requests rebuilding.
+
+For unattended configuration, source mode is also available through flags:
+
+```bash
+devharbour configure --non-interactive --image-source build --source-ref main
+# This example updates an already-complete config; first-time unattended setup
+# must also supply host identity, workspace, SSH socket and --password-file.
+devharbour --non-interactive
+```
+
+`--source-checkout PATH` can select an existing clean DevHarbour checkout for a
+managed build. Its origin and selected revision must match; no reset or branch
+switch is performed. The separate legacy `devharbour build` command still creates
+an isolated disposable test instance and is not the guided managed-build choice.
 
 ```bash
 devharbour                              # first-run setup, then reuse

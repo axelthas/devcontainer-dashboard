@@ -284,14 +284,16 @@ shell arguments for build paths remain coordinated with issue #11.
 CLI and launcher into a versioned user-local runtime directory. `--ref COMMIT`
 selects a remote GitHub revision instead of `--source`. Without either option, the
 installer resolves `main` to one immutable commit before downloading its archive.
-It reads only the two required regular-file archive members; it does not extract
-arbitrary archive paths or execute downloaded package hooks.
+It reads only allowlisted regular runtime files from the archive rather than
+extracting arbitrary archive paths. The source checkout is a separate verified
+Git operation. Pinned terminal packages install into a private Python environment.
 
-Required host tools: Linux, Python 3.9+ (standard library only), Bash and Docker.
-Use an existing non-root Docker operator. No host Node.js, npm, sudo or checkout is
-needed for the published-image path. Docker Buildx and a source checkout are needed
-only for checkout builds. Optional integrations retain their own prerequisites.
-The installer never provisions Docker/Tailscale or changes host permissions.
+Required host tools: Linux, Python 3.9+ with venv/pip, Bash, Git and Docker. Use an
+existing non-root Docker operator. Host Node.js, npm and sudo are not needed.
+The installer retains a pinned checkout by default; `--no-checkout` defers the
+clone until a local build is requested. Docker Buildx is needed for local builds.
+Optional integrations retain their own prerequisites. The installer never
+provisions Docker/Tailscale or changes host permissions.
 
 `--bin-dir PATH` defaults to `~/.local/bin`. `--data-dir PATH` defaults to
 `${XDG_DATA_HOME:-$HOME/.local/share}/devharbour` and must be private (0700).
@@ -347,45 +349,80 @@ configuration. They reject setting changes. `--help` and `--version` need neithe
 Docker nor configuration. There is no automatic image refresh. A missing selected
 image is pulled on creation; existing image tags are not pulled again implicitly.
 
-### Guided setup and effective defaults
+### Menu-based setup and source builds
 
-The local Docker-host question defaults to **yes**. Choose no inside a container
-or when supplying another host's paths. Identity suggestions are shown for
-confirmation, then passed explicitly to the launcher. The saved AI state volume
-is displayed even on the short setup path: `dashboard_ai` for the default instance,
-or `<instance>-ai` for another managed instance. A checkout build keeps its separate
-per-build volume behavior unless explicitly overridden.
+Interactive setup uses the same Questionary/prompt-toolkit approach as devbootstrap,
+not a sequence of raw flag questions. Arrow keys choose, Space toggles checkboxes,
+Enter accepts, Escape goes back, and Ctrl+C cancels. Saved settings open at grouped
+review. Five editable steps collect run mode, host/workspace/SSH, access/login,
+and optional capabilities before the final review. The sixth step applies an
+approved plan. Review can jump straight to any earlier step.
 
-Advanced questions are grouped by dashboard/AI settings, development bootstrap,
-remote access, and ClickUp Brain. Each question explains its purpose and accepted
-input. Booleans use yes/no with a visible default; invalid values are retried.
-Optional string values display `not set` when there is no meaningful automatic
-value. Enter accepts the shown value, `?` repeats value-question help, and `-`
-clears an optional value. Explicit CLI arguments are displayed rather than
-prompted over. Existing saved values take precedence over default suggestions.
+Each step states its purpose and trust boundary. Host values are confirmed as a
+group with a change option. Access choices are local-only (recommended), Tailscale
+HTTPS, or a custom binding. Optional capabilities are checkboxes with plain-language
+explanations; only selected features show configuration menus. Detailed port/path
+settings are behind a separate advanced-setting menu. Invalid plans show edit
+choices instead of Save/Start. Credentials remain hidden and separate from JSON.
 
-Effective values offered by their active sections:
+`configure` offers save-only, never start. Save-only does not clone build source,
+build images, or touch containers. Cancel/back does not persist partial answers.
+Exact-container replacement/adoption is a separate default-no approval even after
+setup approval. Non-interactive flags remain available and do not import the
+terminal dependencies.
 
-- Dashboard port **3000** (isolated builds **3001**); AI interface port **3002**;
-  bind address **127.0.0.1**; Docker socket **/var/run/docker.sock**.
-- Readiness timeout **180 seconds**; restart policy **always**.
-- Development bootstrap **no**: a yes/no switch for installing/running the bundled
-  development-bootstrap hook. It can require Git access and trusted known_hosts.
-- Tailscale HTTPS **no**; when enabled, daemon socket
-  **/var/run/tailscale/tailscaled.sock**, service range **8400-8499**, and internal
-  gateway port **3003**. An actual HTTPS origin must be entered, not invented.
-- ClickUp Brain access **no**; when enabled, local MCP port **3100**. Leave its token
-  file unset to generate/reuse the private retained-volume token. Container grants
-  remain separate and are never created by the wizard.
-- Public Brain Funnel **no**, offered only when Brain and Tailscale are enabled;
-  public HTTPS port **10000**, with allowed values 443, 8443 or 10000. This publishes
-  only the token-protected MCP endpoint to the public internet. Existing tailnet
-  HTTPS, MagicDNS and Funnel permission are prerequisites.
+The one-command installer creates a versioned private Python virtual environment
+with the pinned `requirements-cli.txt` dependencies. It retains a clean Git source
+checkout at `source/<commit>` and records it in `SOURCE.json`; it does not install
+system packages. Git and Python venv/pip are prerequisites. `--no-checkout` leaves
+source acquisition until a local build is requested. Local `--source` installation
+copies the current CLI files but does not reset or modify that checkout.
 
-A disabled feature does not acquire port/token settings just because defaults
-exist. This matters because the launcher treats an explicit Brain port or token
-file as enablement. Turning off a feature removes its inactive saved controls;
-contradictory explicit CLI inputs fail rather than being silently overwritten.
+Choose published images or **Build locally** in the run-mode step. Local builds
+can use the installed revision, `main`, or an entered branch/tag/commit. New source
+is cloned into a separate revision-pinned directory; existing modified, wrong-origin
+or wrong-revision checkouts are refused, never reset. Buildx uses the selected
+checkout as context. An immutable built image ID is used for the same managed
+instance, retained volumes, replacement review and readiness checks. Cached image
+revision labels are verified before reuse; `--rebuild` opts into a new build. A
+failed build happens before any existing container can be stopped or removed.
+
+CLI equivalents for an already-complete config:
+
+```bash
+devharbour configure --non-interactive --image-source build --source-ref main
+devharbour --non-interactive
+# Explicit rebuild, still requiring exact-container replacement approval if changed:
+devharbour --rebuild
+# Switch back to the published-image mode:
+devharbour configure --non-interactive --image-source published
+```
+
+`--source-checkout PATH` selects an existing clean expected-origin checkout when
+managed build mode is selected; paths are resolved against the config directory.
+The existing isolated `build` command / `--build` option is separate: it still
+needs explicit complete settings and `--source-checkout` and creates an isolated
+test instance rather than replacing the managed one.
+
+Effective defaults: dashboard **3000**, AI **3002**, loopback **127.0.0.1**, Docker
+socket **/var/run/docker.sock**, timeout **180 seconds**, restart policy **always**.
+AI state is **dashboard_ai** (or **<instance>-ai**). Optional capabilities default
+to off. Selected Brain uses local port **3100**. Selected public Brain Funnel uses
+HTTPS port **10000** (allowed: 443, 8443, 10000). Tailscale service ports default to
+**8400-8499**, with internal gateway **3003**. Disabled features do not receive
+port/token values merely because those defaults exist.
+
+To run the terminal regressions, use a private Python environment with the pinned
+CLI requirements and select it for the test process:
+
+```bash
+python3 -m venv /tmp/devharbour-cli-tests
+/tmp/devharbour-cli-tests/bin/python -m pip install -r scripts/requirements-cli.txt
+DEVHARBOUR_TEST_PYTHON=/tmp/devharbour-cli-tests/bin/python npm run test:cli
+```
+
+The tests use disposable PTYs, Unix sockets, empty OpenSSH agents and Git fixtures;
+they do not use operator keys or existing Docker resources.
 
 #### Host SSH-agent discovery
 
@@ -429,7 +466,8 @@ container replacement.
 
 The default path is `${XDG_CONFIG_HOME:-$HOME/.config}/devharbour/config.json`.
 Override it with `--config PATH` on any command. The four top-level fields below are
-required; unknown fields, unknown setting keys and unsupported versions fail.
+required. An optional `source` object selects managed image preparation; unknown
+fields, unknown setting keys and unsupported versions fail.
 
 ```json
 {
@@ -450,6 +488,24 @@ required; unknown fields, unknown setting keys and unsupported versions fail.
 	}
 }
 ```
+
+Optional source metadata (existing schema-1 configs without it remain valid):
+
+```json
+"source": {
+  "mode": "build",
+  "ref": "main",
+  "checkout": "/home/operator/.local/share/devharbour/source/<commit>",
+  "revision": "<full 40-character commit SHA>"
+}
+```
+
+`mode` is `published` or `build`. `ref` is the requested Git ref. Successful source
+preparation records `checkout` and resolved `revision`; future runs stay pinned.
+`--source-ref REF` explicitly clears the old resolution to request another ref.
+All source fields are non-secret metadata. Existing checkout origins/content and
+revisions are verified before building. Managed local images save their immutable
+image ID in `settings.image` after successful build, before the instance lifecycle.
 
 - `schemaVersion` is the integer `1`.
 - `instanceName` is an immutable lowercase container name (letters, digits, dot,

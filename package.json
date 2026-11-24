@@ -26,7 +26,7 @@
 		"test:tailscale": "node --experimental-strip-types --test scripts/tests/tailscale-*.test.mjs",
 		"test": "npm run test:cli && npm run test:deployment && npm run test:ssh && npm run test:ai && npm run test:brain && npm run test:compose && npm run test:terminal-engines && npm run test:unit -- --run && npm run test:e2e",
 		"test:e2e": "playwright install && playwright test",
-		"test:cli": "node --test scripts/tests/devharbour.test.mjs"
+		"test:cli": "node --test scripts/tests/devharbour.test.mjs scripts/tests/devharbour-wizard.test.mjs scripts/tests/devharbour-source.test.mjs"
 	},
 	"devDependencies": {
 		"@eslint/compat": "^2.0.4",
