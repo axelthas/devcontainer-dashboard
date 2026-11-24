@@ -29,26 +29,47 @@ checkout is needed for published images. Docker and other host packages are neve
 installed automatically. The dashboard grants full Docker and terminal access;
 run it only on a trusted host.
 
-From a checkout of this version:
+### One-command installation
+
+No clone or manual script download is needed. While this feature is in draft,
+install the current branch with one command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/axelthas/devcontainer-dashboard/feat/65-devharbour-cli/scripts/install-devharbour.sh | bash -s -- --ref feat/65-devharbour-cli
+```
+
+After this feature is merged into `main`, the standard install command is:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/axelthas/devcontainer-dashboard/main/scripts/install-devharbour.sh | bash
+```
+
+Run either command as your normal user, **without sudo**. `bash -s --` lets you
+pass installer options after `--`, such as `--ref COMMIT` or `--bin-dir PATH`.
+The feature-branch example selects that branch for both the installer and runtime,
+so it does not accidentally install the older `main` runtime. For a pinned install,
+use the same full commit SHA in the installer URL and `--ref`.
+
+The install command installs the CLI only. Then start guided setup:
+
+```bash
+devharbour
+```
+
+If `~/.local/bin` is not on PATH, follow the installer's printed instruction or run
+`~/.local/bin/devharbour` directly. Interactive setup reads from your terminal, not
+from the install pipeline. No dashboard starts until you run `devharbour`.
+Published images may not yet include the parent SSH-agent changes; select a
+compatible image explicitly when testing this draft.
+
+Piping into Bash executes the downloaded installer. Only use a source you trust;
+downloading and inspecting the script before running it remains an alternative.
+
+For installation from an existing checkout instead:
 
 ```bash
 bash scripts/install-devharbour.sh --source "$PWD"
-~/.local/bin/devharbour
 ```
-
-Without a checkout, download and review the installer before running it:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/axelthas/devcontainer-dashboard/main/scripts/install-devharbour.sh \
-  -o install-devharbour.sh
-bash install-devharbour.sh
-~/.local/bin/devharbour
-```
-
-The download example requires this feature to be merged into `main`. To try this
-PR before merge, download its installer from `feat/65-devharbour-cli` instead and
-pass `--ref feat/65-devharbour-cli`. Published images may not yet include the
-parent SSH-agent changes; select a compatible image explicitly when testing.
 
 The installer defaults to `~/.local/bin` and
 `${XDG_DATA_HOME:-$HOME/.local/share}/devharbour`. It reports missing PATH setup,
