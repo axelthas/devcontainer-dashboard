@@ -23,7 +23,7 @@ import urllib.request
 import subprocess
 import venv
 
-FILES = ('devharbour.py', 'devharbour_ui.py', 'devharbour_source.py', 'requirements-cli.txt', 'run-dashboard.sh')
+FILES = ('devharbour.py', 'devharbour_ui.py', 'devharbour_source.py', 'devharbour_env.py', 'devharbour_banner.py', 'requirements-cli.txt', 'run-dashboard.sh')
 MARKER = '# devharbour-managed-command-v1'
 
 
@@ -31,6 +31,8 @@ def arguments():
     """Accept a local source or an explicit GitHub ref, plus user-local directories."""
     p = argparse.ArgumentParser(description='Install the DevHarbour command (Python 3.9+, Bash; Linux).')
     p.add_argument('--source', type=Path, help='Install from a local checkout, including intentional uncommitted CLI edits')
+    p.add_argument('--no-env-file', action='store_true', help='Do not create the default devcontainer environment file')
+    p.add_argument('--config-dir', type=Path, default=Path(os.environ.get('XDG_CONFIG_HOME', str(Path.home() / '.config'))) / 'devharbour', help='Directory of the default DevHarbour configuration')
     p.add_argument('--no-checkout', action='store_true', help='Install CLI only; source is cloned later if a local build is selected')
     p.add_argument('--ref', default='main', help='GitHub commit/tag/branch; pin a full commit for reproducibility')
     p.add_argument('--bin-dir', type=Path, default=Path.home() / '.local/bin')
@@ -97,6 +99,18 @@ def python_environment(args, runtime):
     return python
 
 
+def environment_file(args, runtime):
+    """Create the default devcontainer environment file once; never overwrite it."""
+    if args.no_env_file:
+        return None, False
+    sys.path.insert(0, str(runtime))
+    import devharbour_env
+    directory = args.config_dir.absolute()
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path = directory / devharbour_env.FILENAME
+    return path, devharbour_env.ensure(path)
+
+
 def install(args):
     """Publish immutable runtime files, then atomically replace only our own wrapper."""
     args.bin_dir = args.bin_dir.absolute()
@@ -138,6 +152,7 @@ def install(args):
             output.write(json.dumps(metadata, indent=2) + '\n')
         os.replace(temp_metadata, runtime / 'SOURCE.json')
         python = python_environment(args, runtime)
+        env_path, env_created = environment_file(args, runtime)
         fd, temporary = tempfile.mkstemp(prefix='.devharbour-', dir=args.bin_dir)
         try:
             with os.fdopen(fd, 'w') as output:
@@ -155,6 +170,8 @@ def install(args):
         print('Add this directory to PATH: export PATH=' + shlex.quote(str(args.bin_dir)) + ':"$PATH"')
         print('Or run directly:', destination)
     print('Source checkout:', metadata.get('checkout', 'cloned on demand if a local build is selected'))
+    if env_path:
+        print('Devcontainer environment:', env_path, '(created with defaults and a generated OPENCODE_PASSWORD)' if env_created else '(existing file kept unchanged)')
     print('Run devharbour for the menu-based setup. Existing configuration and containers were not changed.')
 
 

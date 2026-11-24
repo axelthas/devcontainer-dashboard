@@ -344,42 +344,6 @@ def discover_host_agents(uid, home, runtime_roots=None):
     return found, '; '.join(rejected) if rejected and not found else None
 
 
-# Only active wizard sections use these defaults. An unconditional Brain port
-# would otherwise implicitly enable Brain in the shared launcher.
-WIZARD_DEFAULTS = {
-    **DEFAULTS, 'brain-port': 3100, 'brain-funnel-port': 10000,
-    'tailscale-socket': '/var/run/tailscale/tailscaled.sock',
-    'tailscale-ports': '8400-8499', 'tailscale-gateway-port': 3003,
-    'health-timeout': 180, 'env-file': [],
-}
-FIELD_GUIDANCE = {
-    'port': ('Dashboard port', 'Browser port on the Docker host. Enter a number from 1 to 65535; 3000 is the normal default.'),
-    'ai-port': ('AI interface port', 'Host port for the bundled OpenChamber AI interface. It must differ from the dashboard port.'),
-    'ai-state-volume': ('AI state volume', 'Docker named volume for retained AI settings and state. Enter a volume name, not a directory. Keep it to retain state between container replacements.'),
-    'image': ('DevHarbour image', 'Published Docker image reference, optionally with :tag or @digest. A missing image is pulled; an existing tag is not refreshed automatically.'),
-    'bind-address': ('Dashboard bind address', '127.0.0.1 restricts access to this host. 0.0.0.0 exposes all IPv4 interfaces and needs explicit exposure approval. Tailscale mode requires 127.0.0.1.'),
-    'socket': ('Docker socket path', 'Existing Unix socket path on the Docker host. The dashboard receives full Docker operator access through it.'),
-    'host-name': ('Host display name', 'Optional label shown in DevHarbour, for example workstation. Leave unset for the application default.'),
-    'vscode-ssh-host': ('VS Code SSH host', 'Optional SSH configuration alias or hostname for VS Code Remote SSH, for example my-workstation.'),
-    'env-file': ('Additional environment files', 'Enter a JSON list of client-local Docker env-file paths, for example ["development.env"]. [] means none. Values are not shell expressions; protect files containing secrets.'),
-    'health-timeout': ('Readiness timeout', 'Maximum seconds to wait for application readiness. Enter an integer from 1 to 86400.'),
-    'no-create-workspace': ('Skip local workspace creation', 'Choose yes when the CLI cannot create paths on the actual Docker host, such as inside another container. The workspace must already exist on the host.'),
-    'bootstrap': ('Enable development bootstrap', 'Installs/runs the bundled dev-bootstrap startup hook to prepare development tooling inside DevHarbour. This is a yes/no switch, not a script path. It can need Git access and trusted host keys. Leave off unless you use this integration.'),
-    'ssh-known-hosts': ('Trusted SSH known_hosts file', 'Optional absolute Docker-host path to a trusted known_hosts file. Only this file is mounted read-only, never private keys. Needed if bootstrap Git hosts are not otherwise trusted.'),
-    'tailscale-socket': ('Tailscale daemon socket', 'Existing host tailscaled socket. Access grants broad control of host Tailscale settings. Tailscale must already be installed and configured.'),
-    'origin': ('External dashboard origin', 'Exact external HTTP(S) origin without a path, for example https://node.tailnet.ts.net. Tailscale requires an https:// node name ending in .ts.net. Leave unset for local HTTP.'),
-    'tailscale-ports': ('Tailscale service HTTPS port range', 'Write FIRST-LAST. Default 8400-8499, at most 256 ports. Must not overlap dashboard, gateway, Brain or Funnel ports.'),
-    'tailscale-gateway-port': ('Tailscale internal gateway port', 'Host-loopback proxy port for the service gateway. It must differ from dashboard and allocated service ports.'),
-    'tailscale-allow-wildcard-bindings': ('Proxy services bound to all interfaces', 'Opt in to HTTPS proxying for services already bound to 0.0.0.0 or ::. Their original exposed ports stay open. Usually leave off.'),
-    'gateway': ('Enable authenticated service gateway', 'Optional authenticated path-based proxy for container web services. Tailscale HTTPS uses its own gateway mode; do not enable both.'),
-    'gateway-host': ('Service gateway upstream host', 'Optional upstream host override for the path-based service gateway. Usually leave unset for the application default.'),
-    'gateway-ports': ('Service protocol overrides', 'Optional comma-separated policy, for example 8080:http,8443:https,9000:off. Omit for the existing service defaults.'),
-    'brain': ('Enable ClickUp Brain access', 'Starts a separate token-protected MCP endpoint. Brain can run shell commands only in containers you explicitly grant in DevHarbour. This does not grant access by itself. Enter yes or no; leave off if you do not use Brain.'),
-    'brain-port': ('Brain MCP local port', 'Local token-protected MCP listener, separate from dashboard and AI. Default 3100. Public ClickUp access normally also needs Brain Funnel.'),
-    'brain-token-file': ('Existing Brain token file', 'Optional absolute Docker-host file with a 32 to 512 character token, mounted read-only. Leave unset to generate/reuse a private token in the retained data volume.'),
-    'brain-funnel': ('Enable public Brain Funnel', 'Publishes ONLY the token-protected Brain MCP endpoint to the public internet with Tailscale Funnel, not the dashboard. Requires Tailscale HTTPS, MagicDNS and Funnel permission already configured. Usually leave off unless connecting cloud-hosted ClickUp Brain.'),
-    'brain-funnel-port': ('Brain Funnel public HTTPS port', 'Choose 443, 8443 or 10000. Default 10000 avoids dashboard HTTPS port 443 and service range 8400-8499. Separate from local Brain port 3100.'),
-}
 DEPENDENT_SETTINGS = {
     'brain': ['brain-port', 'brain-token-file', 'brain-funnel', 'brain-funnel-port'],
     'brain-funnel': ['brain-funnel-port'],
@@ -656,9 +620,19 @@ def main():
             resource_names(config)
             manage(args, config, owner)
             return
+        import devharbour_env
+        env_default = devharbour_env.default_path(path)
+        if old is None and 'env-file' not in config['settings'] and args.command != 'build' and env_default.is_file():
+            # New setups pass the installer-created devcontainer environment by default.
+            config['settings']['env-file'] = [str(env_default)]
         if args.command != 'configure':
             run(['docker', 'info'], capture=True)
         pending = wizard(config, args)
+        plan = getattr(args, 'env_plan', None)
+        if plan:
+            plan_path = Path(plan['path'])
+            if plan['updates'] or not plan_path.exists():
+                devharbour_env.write(plan_path, plan['updates'], plan['lines'])
         if pending is not None:
             config['settings']['password-file'] = str(path.parent / ('password-' + secrets.token_hex(8)))
         validate_types(config['settings'])
@@ -696,7 +670,7 @@ def main():
             return
         if config.get('source', {}).get('mode') == 'build':
             from devharbour_source import prepare_image
-            print('[Step 6/6] Prepare source and build the image. Existing containers remain unchanged during the build.')
+            print('\nStep 7 of 7: building the DevHarbour image. Your current DevHarbour keeps running during the build.')
             cache = Path(os.environ.get('XDG_DATA_HOME', str(Path.home() / '.local/share'))) / 'devharbour/source'
             image, checkout, revision = prepare_image(config['source'], cache, settings.get('platform'), args.rebuild)
             settings['image'] = image
@@ -704,7 +678,7 @@ def main():
             config['settings']['image'] = image
             atomic_json(path, config)
         elif getattr(args, 'plan_approved', False):
-            print('[Step 6/6] Start DevHarbour and check readiness.')
+            print('\nStep 7 of 7: starting DevHarbour and checking that it is ready.')
         fingerprint = desired_fingerprint(config, settings)
         state_path = path.with_name(path.name + '.state.json')
         applied = read_json(state_path) if state_path.exists() or state_path.is_symlink() else None
@@ -727,7 +701,12 @@ def main():
 if __name__ == '__main__':
     try:
         main()
-    except (CliError, OSError, ValueError, RuntimeError, KeyboardInterrupt, __import__('devharbour_source').SourceError) as error:
-        # Only intentional public diagnostics are safe to print verbatim.
-        print('ERROR:', str(error) if isinstance(error, CliError) else 'Operation failed or cancelled; check paths, permissions and prerequisites', file=sys.stderr)
+    except (CliError, OSError, ValueError, RuntimeError, KeyboardInterrupt, __import__('devharbour_source').SourceError, __import__('devharbour_env').EnvError) as error:
+        # DevHarbour's own errors carry operator guidance without credentials.
+        # Other errors may quote system details, so print a generic line.
+        if isinstance(error, KeyboardInterrupt):
+            print('\nSetup cancelled. Nothing was saved.', file=sys.stderr)
+            sys.exit(130)
+        own = (CliError, RuntimeError, __import__('devharbour_env').EnvError)
+        print('ERROR:', str(error) if isinstance(error, own) and str(error) else 'Operation failed; check paths, permissions and prerequisites', file=sys.stderr)
         sys.exit(1)

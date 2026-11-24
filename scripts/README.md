@@ -295,6 +295,15 @@ clone until a local build is requested. Docker Buildx is needed for local builds
 Optional integrations retain their own prerequisites. The installer never
 provisions Docker/Tailscale or changes host permissions.
 
+The installer creates `devcontainer.env` (mode 0600) in the configuration
+directory once, with `TERN_USE_CCACHE=1`, a random `OPENCODE_PASSWORD`,
+`OPENCODE_SKIP_START=true` and `OPENCODE_PORT=4096`. It never overwrites an
+existing file. `--config-dir PATH` defaults to
+`${XDG_CONFIG_HOME:-$HOME/.config}/devharbour`; `--no-env-file` skips the file.
+A new configuration lists the file in `env-file` automatically when it exists
+next to the configuration. Current dev-bootstrap templates forward only
+`OPENCODE_PASSWORD` and `TERN_USE_CCACHE` through `${localEnv:NAME}`.
+
 `--bin-dir PATH` defaults to `~/.local/bin`. `--data-dir PATH` defaults to
 `${XDG_DATA_HOME:-$HOME/.local/share}/devharbour` and must be private (0700).
 The installer refuses to overwrite unrelated commands or symlinks. It installs
@@ -353,17 +362,34 @@ image is pulled on creation; existing image tags are not pulled again implicitly
 
 Interactive setup uses the same Questionary/prompt-toolkit approach as devbootstrap,
 not a sequence of raw flag questions. Arrow keys choose, Space toggles checkboxes,
-Enter accepts, Escape goes back, and Ctrl+C cancels. Saved settings open at grouped
+Enter accepts, Escape goes back, and Ctrl+C cancels. The wizard starts with a
+coloured puffin banner (`devharbour_banner.py`), with a plain fallback for
+`NO_COLOR`, `TERM=dumb` and non-terminal output. Saved settings open at grouped
 review. Five editable steps collect run mode, host/workspace/SSH, access/login,
-and optional capabilities before the final review. The sixth step applies an
-approved plan. Review can jump straight to any earlier step.
+devcontainer environment and optional features. Step 6 is the review and step 7
+applies an approved plan. Review can jump straight to any earlier step.
 
-Each step states its purpose and trust boundary. Host values are confirmed as a
-group with a change option. Access choices are local-only (recommended), Tailscale
-HTTPS, or a custom binding. Optional capabilities are checkboxes with plain-language
-explanations; only selected features show configuration menus. Detailed port/path
-settings are behind a separate advanced-setting menu. Invalid plans show edit
-choices instead of Save/Start. Credentials remain hidden and separate from JSON.
+Each step states its purpose and trust boundary. Each question is a full sentence,
+separated from the previous answer by a blank line, and each answer has a short
+description. Value questions offer `Keep <saved value>`, `Use the default: <value>`,
+fixed choices, `None: <result>` (only for settings without a default) and
+`Enter a different value`. Host values are confirmed as a group with a change
+option. On the local host, known_hosts is set to `<host-home>/.ssh/known_hosts`
+when that file exists; otherwise it is reported and not mounted. Access choices
+are local-only (recommended), Tailscale HTTPS, or a custom binding. Optional
+features are checkboxes with plain-language explanations; only selected features
+ask follow-up questions. Invalid plans show edit choices instead of Save/Start.
+Credentials remain hidden and separate from JSON.
+
+The MCP server option (`brain` settings and `--brain*` flags, names kept for
+compatibility) starts a separate MCP listener so AI agents can run commands in
+containers that the operator grants one by one. With public MCP access, DevHarbour
+adds a Tailscale Funnel route for only that listener after it binds, and removes
+the exact route that it added when it stops. The CLI never runs Funnel commands.
+
+The devcontainer environment step shows `devcontainer.env` values with the
+password masked. The operator can use the file, edit values, or skip it. Edits are
+written only after approval and keep other lines and comments.
 
 `configure` offers save-only, never start. Save-only does not clone build source,
 build images, or touch containers. Cancel/back does not persist partial answers.
@@ -404,10 +430,10 @@ The existing isolated `build` command / `--build` option is separate: it still
 needs explicit complete settings and `--source-checkout` and creates an isolated
 test instance rather than replacing the managed one.
 
-Effective defaults: dashboard **3000**, AI **3002**, loopback **127.0.0.1**, Docker
+Effective defaults: DevHarbour **3000**, AI **3002**, loopback **127.0.0.1**, Docker
 socket **/var/run/docker.sock**, timeout **180 seconds**, restart policy **always**.
 AI state is **dashboard_ai** (or **<instance>-ai**). Optional capabilities default
-to off. Selected Brain uses local port **3100**. Selected public Brain Funnel uses
+to off. A selected MCP server uses local port **3100**. Selected public MCP access uses
 HTTPS port **10000** (allowed: 443, 8443, 10000). Tailscale service ports default to
 **8400-8499**, with internal gateway **3003**. Disabled features do not receive
 port/token values merely because those defaults exist.

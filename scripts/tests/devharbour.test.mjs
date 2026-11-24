@@ -384,7 +384,17 @@ test('installer supports paths with spaces, repeated installation and command in
 	const f = fixture(t);
 	const bin = join(f.dir, 'local bin');
 	const data = join(f.dir, 'runtime data');
-	const args = [installer, '--source', root, '--bin-dir', bin, '--data-dir', data];
+	const args = [
+		installer,
+		'--source',
+		root,
+		'--bin-dir',
+		bin,
+		'--data-dir',
+		data,
+		'--config-dir',
+		join(f.dir, 'config')
+	];
 	ok(spawnSync('bash', args, { env: f.env, encoding: 'utf8' }));
 	ok(spawnSync('bash', args, { env: f.env, encoding: 'utf8' }));
 	const command = join(bin, 'devharbour');
@@ -397,7 +407,17 @@ test('installer refuses unrelated executables and symlinks', (t) => {
 	const data = join(f.dir, 'installed');
 	const destination = join(f.bin, 'devharbour');
 	writeFileSync(destination, '#!/bin/sh\necho unrelated\n', { mode: 0o755 });
-	const args = [installer, '--source', root, '--bin-dir', f.bin, '--data-dir', data];
+	const args = [
+		installer,
+		'--source',
+		root,
+		'--bin-dir',
+		f.bin,
+		'--data-dir',
+		data,
+		'--config-dir',
+		join(f.dir, 'config')
+	];
 	assert.notEqual(spawnSync('bash', args, { env: f.env }).status, 0);
 	assert.match(readFileSync(destination, 'utf8'), /unrelated/);
 	rmSync(destination);
@@ -482,7 +502,7 @@ test('download installation resolves one immutable revision and reads only allow
 	const f = fixture(t);
 	const bin = join(f.dir, 'download-bin');
 	const data = join(f.dir, 'download-data');
-	const program = `import io,json,sys,tarfile,urllib.request\nfrom pathlib import Path\nroot=Path(sys.argv[1]); revision='a'*40; archive=io.BytesIO()\nwith tarfile.open(fileobj=archive,mode='w:gz') as t:\n for name in ['devharbour.py','devharbour_ui.py','devharbour_source.py','requirements-cli.txt','run-dashboard.sh']:\n  body=(root/'scripts'/name).read_bytes();info=tarfile.TarInfo('devcontainer-dashboard-'+revision+'/scripts/'+name); info.size=len(body);t.addfile(info,io.BytesIO(body))\n defbody=b'not extracted'; info=tarfile.TarInfo('../../escape');info.size=len(defbody);t.addfile(info,io.BytesIO(defbody))\ncalls=[]\ndef fetch(request,**kwargs):\n url=request.full_url if hasattr(request,'full_url') else request;calls.append(url)\n return io.BytesIO(json.dumps({'sha':revision}).encode() if '/commits/' in url else archive.getvalue())\nurllib.request.urlopen=fetch\nsource=(root/'scripts/install-devharbour.sh').read_text().split("<<'PY'\\n",1)[1].rsplit('\\nPY',1)[0]\nsys.argv=['installer','--no-checkout','--bin-dir',sys.argv[2],'--data-dir',sys.argv[3],'--ref','feature/test']\nexec(compile(source,'installer','exec'),{'__name__':'__main__'})\nassert len(calls)==2 and calls[0].endswith('feature%2Ftest') and calls[1].endswith(revision)\n`;
+	const program = `import io,json,sys,tarfile,urllib.request\nfrom pathlib import Path\nroot=Path(sys.argv[1]); revision='a'*40; archive=io.BytesIO()\nwith tarfile.open(fileobj=archive,mode='w:gz') as t:\n for name in ['devharbour.py','devharbour_ui.py','devharbour_source.py','devharbour_env.py','devharbour_banner.py','requirements-cli.txt','run-dashboard.sh']:\n  body=(root/'scripts'/name).read_bytes();info=tarfile.TarInfo('devcontainer-dashboard-'+revision+'/scripts/'+name); info.size=len(body);t.addfile(info,io.BytesIO(body))\n defbody=b'not extracted'; info=tarfile.TarInfo('../../escape');info.size=len(defbody);t.addfile(info,io.BytesIO(defbody))\ncalls=[]\ndef fetch(request,**kwargs):\n url=request.full_url if hasattr(request,'full_url') else request;calls.append(url)\n return io.BytesIO(json.dumps({'sha':revision}).encode() if '/commits/' in url else archive.getvalue())\nurllib.request.urlopen=fetch\nsource=(root/'scripts/install-devharbour.sh').read_text().split("<<'PY'\\n",1)[1].rsplit('\\nPY',1)[0]\nsys.argv=['installer','--no-checkout','--no-env-file','--bin-dir',sys.argv[2],'--data-dir',sys.argv[3],'--ref','feature/test']\nexec(compile(source,'installer','exec'),{'__name__':'__main__'})\nassert len(calls)==2 and calls[0].endswith('feature%2Ftest') and calls[1].endswith(revision)\n`;
 	ok(spawnSync('python3', ['-c', program, root, bin, data], { env: f.env, encoding: 'utf8' }));
 	const r = spawnSync(join(bin, 'devharbour'), ['--version'], { env: f.env, encoding: 'utf8' });
 	ok(r);
@@ -652,4 +672,41 @@ test('switching local build back to published mode restores the registry image d
 	f.save(c);
 	ok(f.exec(['configure', '--image-source', 'published']));
 	assert.equal(f.read().settings.image, 'ghcr.io/axelthas/devcontainer-dashboard:latest');
+});
+
+test('installer creates a private devcontainer env file once and never overwrites it', (t) => {
+	const f = fixture(t);
+	const config = join(f.dir, 'config');
+	const args = [
+		installer,
+		'--source',
+		root,
+		'--bin-dir',
+		join(f.dir, 'bin2'),
+		'--data-dir',
+		join(f.dir, 'data2'),
+		'--config-dir',
+		config
+	];
+	const first = spawnSync('bash', args, { env: f.env, encoding: 'utf8' });
+	ok(first);
+	assert.match(first.stdout, /created with defaults/);
+	const path = join(config, 'devcontainer.env');
+	const text = readFileSync(path, 'utf8');
+	for (const line of ['TERN_USE_CCACHE=1', 'OPENCODE_SKIP_START=true', 'OPENCODE_PORT=4096'])
+		assert.ok(text.includes(line), line);
+	assert.match(text, /OPENCODE_PASSWORD=\S{24,}/);
+	assert.equal(statSync(path).mode & 0o777, 0o600);
+	assert.equal(first.stdout.includes(text.match(/OPENCODE_PASSWORD=(\S+)/)[1]), false);
+	writeFileSync(path, 'CUSTOM=1\n', { mode: 0o600 });
+	const again = spawnSync('bash', args, { env: f.env, encoding: 'utf8' });
+	ok(again);
+	assert.equal(readFileSync(path, 'utf8'), 'CUSTOM=1\n');
+	assert.match(again.stdout, /existing file kept/);
+});
+test('new unattended setups pass the default env file when it exists next to the config', (t) => {
+	const f = fixture(t);
+	writeFileSync(join(f.dir, 'devcontainer.env'), 'TERN_USE_CCACHE=1\n', { mode: 0o600 });
+	ok(f.exec(['configure', ...f.identity]));
+	assert.deepEqual(f.read().settings['env-file'], [join(f.dir, 'devcontainer.env')]);
 });

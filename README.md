@@ -28,7 +28,7 @@ It requires **Linux, Python 3.9+ with venv/pip, Bash, Git and Docker access**.
 The installer creates a private Python environment for the menu UI and retains a
 pinned source checkout. No host Node.js or compiler is needed, including for Docker
 image builds. Docker and other host packages are never
-installed automatically. The dashboard grants full Docker and terminal access;
+installed automatically. DevHarbour grants full Docker and terminal access;
 run it only on a trusted host.
 
 ### One-command installation
@@ -61,7 +61,7 @@ devharbour
 
 If `~/.local/bin` is not on PATH, follow the installer's printed instruction or run
 `~/.local/bin/devharbour` directly. Interactive setup reads from your terminal, not
-from the install pipeline. No dashboard starts until you run `devharbour`.
+from the install pipeline. DevHarbour does not start until you run `devharbour`.
 Published images may not yet include the parent SSH-agent changes; select a
 compatible image explicitly when testing this draft.
 
@@ -82,33 +82,44 @@ installation inputs. Dependencies are pinned in `scripts/requirements-cli.txt`
 and isolated under the install data directory; system Python packages are not
 changed. Remote installs retain source under `source/<commit>`. `--no-checkout`
 opts out of the initial clone; a requested local build acquires source later.
+The installer also creates the [devcontainer environment file](#devcontainer-environment-file)
+once. `--no-env-file` skips it, and `--config-dir PATH` selects its directory.
 Reinstallation preserves configuration and data and refuses
 to overwrite unrelated commands. A local-source install includes your current CLI
 and launcher files, so review uncommitted changes first.
 
 ### Guided setup
 
-Run `devharbour` without arguments for a devbootstrap-style wizard. Use arrow keys
-to select, Space to toggle optional features, Enter to accept, Escape to go back,
-and Ctrl+C to cancel. Each numbered step explains why the choice is needed:
+Run `devharbour` without arguments for a devbootstrap-style wizard. It starts
+with the DevHarbour puffin banner (plain text when `NO_COLOR` is set or the
+terminal has no colour). Use arrow keys to select, Space to toggle optional
+features, Enter to accept, Escape to go back, and Ctrl+C to cancel.
 
-1. **How to run:** use a published image (recommended), or build a local image from
-   the installed revision, `main`, or another branch/tag/commit.
-2. **Host and workspace:** confirm the detected account as a group, choose a
+Each step starts with a header and a short explanation. Each question is a
+complete sentence on its own line, followed by its answers. Answers that have a
+default show it, for example `Use the default: 3100`. `None: <result>` appears
+only for settings without a default and says what happens without a value.
+
+1. **How DevHarbour runs:** use a published image (recommended), or build a local
+   image from the installed revision, `main`, or another branch/tag/commit.
+2. **Host, workspace and SSH:** confirm the detected account as a group, choose a
    workspace, and select a verified host SSH agent. Local Docker is the default.
+   DevHarbour sets the known_hosts file to `<host home>/.ssh/known_hosts`
+   automatically when that file exists.
 3. **Access and login:** choose local-only, private Tailscale HTTPS, or a custom
    network binding; set or keep the shared login password. For local Tailscale
    access, the wizard reads `tailscale whoami --json` through the selected daemon
    socket and offers the device's detected `https://<MagicDNS-name>` origin.
    Older clients fall back to `tailscale status --json --peers=false`. Existing
    origins, custom ports and explicit `--origin` values are preserved.
-4. **Optional capabilities:** use checkboxes for development bootstrap, ClickUp
-   Brain and public Brain Funnel. Each has a clear explanation and only selected
-   features ask follow-up questions. Ports, volumes and other detailed settings
-   stay behind an advanced-setting menu.
-5. **Review:** see the run mode, host, workspace, SSH agent, access and retained
-   volumes together. Jump directly to an earlier step, save only, or save/start.
-6. **Apply:** prepare source/build or pull the image, start/reuse the retained
+4. **Devcontainer environment:** review the variables that DevHarbour passes to
+   devcontainers (see below). Use the file, edit values, or skip it.
+5. **Optional features:** use checkboxes for development bootstrap, the MCP server
+   for AI agents, and public MCP access through Tailscale Funnel. Only selected
+   features ask follow-up questions.
+6. **Review:** see all settings together. Jump directly to an earlier step, save
+   only, or save and start.
+7. **Apply:** prepare source/build or pull the image, start/reuse the retained
    instance, then check readiness and print its URL.
 
 Saved configurations open at review first. `devharbour configure` always saves
@@ -122,13 +133,55 @@ Docker host. The detected hostname suggests HTTPS port 443; it does not prove a
 certificate or Serve route is configured there. Confirm the suggestion or enter
 your existing custom HTTPS port. Missing CLI/daemon access, disabled MagicDNS or
 another-host setup falls back to manual origin entry. The wizard does not run
-Tailscale login/up/serve/funnel commands during discovery.
+Tailscale login/up/serve/funnel commands.
 
-The default retained AI volume is `dashboard_ai` (or `<instance>-ai`). Brain is off
-by default; when selected, its separate MCP listener defaults to **3100** and still
-requires per-container grants. Public Brain Funnel is off by default; when selected
-with Tailscale configured, its public HTTPS port defaults to **10000**. Funnel
-publishes only the token-protected MCP endpoint, not the dashboard.
+The default retained AI volume is `dashboard_ai` (or `<instance>-ai`).
+
+### MCP server and Tailscale Funnel
+
+The MCP server lets AI agents (MCP clients) run shell commands in containers.
+It is off by default. It has its own listener, separate from the DevHarbour web
+interface, on local port **3100** by default. Starting the server grants nothing:
+an agent reaches only the containers that you grant to it in DevHarbour, one by
+one. Clients authenticate with an access token.
+
+Public MCP access is for AI agents hosted on the internet that cannot reach your
+tailnet. It is off by default and needs Tailscale access. DevHarbour itself
+manages the Funnel route; the wizard does not run Tailscale commands:
+
+1. DevHarbour starts the MCP listener.
+2. DevHarbour adds a Tailscale Funnel route for the MCP server on public HTTPS
+   port **10000** by default (443, 8443 and 10000 are allowed).
+3. The route publishes only the token-protected `/mcp` endpoint. The DevHarbour
+   web interface stays private.
+4. When DevHarbour stops, it removes the route that it added.
+
+Funnel requires HTTPS certificates, MagicDNS and Funnel permission in your
+tailnet policy. The CLI flags and JSON keys keep their compatible names:
+`--brain`, `--brain-port`, `--brain-funnel` and `--brain-funnel-port`.
+
+### Devcontainer environment file
+
+The installer creates `${XDG_CONFIG_HOME:-$HOME/.config}/devharbour/devcontainer.env`
+with mode 0600. DevHarbour loads it into its own container. The devcontainer tools
+that DevHarbour runs inherit it, so `${localEnv:NAME}` entries in
+`devcontainer.json` resolve to these values:
+
+| Variable              | Default          | Purpose                                                                      |
+| --------------------- | ---------------- | ---------------------------------------------------------------------------- |
+| `TERN_USE_CCACHE`     | `1`              | Tern CMake builds use ccache for faster rebuilds. `0` disables it.           |
+| `OPENCODE_PASSWORD`   | random, 32 chars | OpenCode/OpenChamber password. DevHarbour also uses it for its AI interface. |
+| `OPENCODE_SKIP_START` | `true`           | OpenChamber connects to the running OpenCode service.                        |
+| `OPENCODE_PORT`       | `4096`           | Port of the OpenCode service inside a devcontainer.                          |
+
+The installer never overwrites an existing file. Wizard edits keep other lines and
+comments. A new configuration includes the file automatically when it exists next
+to the configuration. Add other variables freely.
+
+Current dev-bootstrap templates forward only `OPENCODE_PASSWORD` and
+`TERN_USE_CCACHE`. `OPENCODE_SKIP_START` and `OPENCODE_PORT` reach a devcontainer
+only if its `devcontainer.json` forwards them, for example
+`"OPENCODE_PORT": "${localEnv:OPENCODE_PORT}"` in `containerEnv`.
 
 Host-agent discovery checks known provider locations, including
 `/run/user/<uid>/gcr/ssh` and `/var/run/user/<uid>/gcr/ssh`. It ignores the session's
