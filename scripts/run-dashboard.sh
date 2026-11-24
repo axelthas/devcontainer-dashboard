@@ -489,7 +489,7 @@ run_build() {
   docker run --detach "${ARGS[@]}" "${PUBLICATION[@]}" \
     --volume "$TEST_NAME-data:/data" --volume "$TEST_NAME-zsh:/dashboard-history" \
     --name "$TEST_NAME" "$IMAGE" "${HOOK[@]}" || fail 'Container creation failed; check daemon-host paths and port availability'
-  printf 'Retained volumes: %s-data %s-zsh %s\n' "$TEST_NAME" "$TEST_NAME" "$TEST_NAME" "$AI_STATE_VOLUME"
+  printf 'Retained volumes: %s-data %s-zsh %s\n' "$TEST_NAME" "$TEST_NAME" "$AI_STATE_VOLUME"
   printf 'Logs: docker logs -f %s\nStop: docker stop %s\nResume: docker start %s\n' "$TEST_NAME" "$TEST_NAME" "$TEST_NAME"
   wait_for_readiness
 }
