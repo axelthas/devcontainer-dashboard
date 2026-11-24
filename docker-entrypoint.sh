@@ -109,6 +109,25 @@ exec runuser -u "$HOST_USER" -- /bin/sh -c '
             exit 1
         }
     fi
+    # Validate the actual agent protocol after privilege dropping, before any hook.
+    # ssh-add exits 1 for an empty agent and 2 when it cannot contact the agent.
+    test -n "${SSH_AUTH_SOCK:-}" && test -S "$SSH_AUTH_SOCK" || {
+        echo "[entrypoint] ERROR: SSH_AUTH_SOCK must name the mounted Docker-host SSH agent socket" >&2
+        exit 1
+    }
+    agent_status=0
+    timeout 5 ssh-add -l >/dev/null 2>&1 || agent_status=$?
+    case "$agent_status" in
+        0) ;;
+        1) echo "[entrypoint] SSH agent connected, but no identities are loaded" ;;
+        *) echo "[entrypoint] ERROR: Host SSH agent is unreachable by $USER. Check --ssh-agent-socket and operator UID/socket permissions. No private-key fallback is available." >&2; exit 1 ;;
+    esac
+    if [ "${DEVHARBOUR_KNOWN_HOSTS:-}" = 1 ]; then
+        test -f /etc/ssh/ssh_known_hosts && test -r /etc/ssh/ssh_known_hosts || {
+            echo "[entrypoint] ERROR: --ssh-known-hosts must mount a readable regular file" >&2
+            exit 1
+        }
+    fi
     test -w "$HOME" || { echo "[entrypoint] ERROR: HOME is not writable" >&2; exit 1; }
     for name in .zshrc .bashrc; do
         if [ ! -e "$HOME/$name" ] && [ ! -L "$HOME/$name" ]; then

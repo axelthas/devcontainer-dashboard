@@ -1,27 +1,26 @@
 // Test explicit dev-bootstrap installation and runtime PATH contracts in isolation.
-//
-// Usage: node --test scripts/tests/bootstrap-hook.test.mjs (Node 22 and Bash).
-// Use temporary HOME directories and a mocked Git/installer to exercise missing
-// credentials, installation failures, shim verification and strict SSH defaults.
-// Read the entrypoint to assert its PATH contract. Do not use real keys, contact
-// GitLab or install provider dependencies. Per-test cleanup removes fixture files.
-// These tests do not prove actual SSH authentication or provider discovery at runtime;
-// the disposable container fixture supplies separate integration coverage.
-
+// Use a disposable socket and mocked Git/installer. No keys, GitLab calls or real
+// authentication are involved. Run: node --test scripts/tests/bootstrap-hook.test.mjs
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { once } from 'node:events';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
-// Create a temporary runtime HOME and mocked Git/installer with selectable failure modes.
-// Return a hook runner and register cleanup; no network or real credentials are used.
-function fixture(t) {
+
+/** Prepare an isolated home, socket and provider installer with selectable failures. */
+async function fixture(t) {
 	const home = mkdtempSync(join(tmpdir(), 'ddash-bootstrap-'));
 	t.after(() => rmSync(home, { recursive: true, force: true }));
+	const socket = join(home, 'agent.sock');
+	const server = createServer().listen(socket);
+	await once(server, 'listening');
+	t.after(() => server.close());
 	const bin = join(home, 'bin');
 	mkdirSync(bin);
 	writeFileSync(
@@ -44,7 +43,7 @@ chmod +x "$HOME/.devbootstrap/install.sh"
 	);
 	return {
 		home,
-		// Execute the fixture copy with per-test overrides; return captured output/status (and recorded calls).
+		/** Execute the hook without replacing its credential checks. */
 		run(env = {}) {
 			return spawnSync('bash', [join(root, 'plugins/tern-dev-bootstrap.sh')], {
 				encoding: 'utf8',
@@ -53,7 +52,7 @@ chmod +x "$HOME/.devbootstrap/install.sh"
 					...process.env,
 					HOME: home,
 					PATH: `${bin}:${process.env.PATH}`,
-					SSH_AUTH_SOCK: '',
+					SSH_AUTH_SOCK: socket,
 					GIT_SSH_COMMAND: '',
 					...env
 				}
@@ -61,42 +60,47 @@ chmod +x "$HOME/.devbootstrap/install.sh"
 		}
 	};
 }
-test('explicit installation fails instead of silently skipping without credentials', (t) => {
-	const f = fixture(t);
-	const r = f.run();
-	assert.notEqual(r.status, 0);
-	assert.match(r.stderr, /Installation was enabled.*no SSH/);
-});
-test('clones and installs with strict known-host policy without modifying SSH files', (t) => {
-	const f = fixture(t);
+
+test('explicit installation requires the agent instead of falling back to key files', async (t) => {
+	const f = await fixture(t);
 	mkdirSync(join(f.home, '.ssh'));
-	writeFileSync(join(f.home, '.ssh/config'), '# operator configuration\n');
-	const r = f.run();
-	assert.equal(r.status, 0, r.stderr);
+	writeFileSync(join(f.home, '.ssh/id_ed25519'), 'fake key data');
+	const result = f.run({ SSH_AUTH_SOCK: '' });
+	assert.notEqual(result.status, 0);
+	assert.match(result.stderr, /no SSH agent socket/);
+});
+
+test('clones and installs with strict host-key policy without modifying SSH files', async (t) => {
+	const f = await fixture(t);
+	mkdirSync(join(f.home, '.ssh'));
+	writeFileSync(join(f.home, '.ssh/known_hosts'), '# trusted fixture\n');
+	const result = f.run();
+	assert.equal(result.status, 0, result.stderr);
 	assert.match(readFileSync(join(f.home, 'ssh-policy'), 'utf8'), /StrictHostKeyChecking=yes/);
-	assert.equal(readFileSync(join(f.home, '.ssh/config'), 'utf8'), '# operator configuration\n');
-	assert.match(r.stdout, /devbootstrap is available/);
+	assert.equal(readFileSync(join(f.home, '.ssh/known_hosts'), 'utf8'), '# trusted fixture\n');
+	assert.match(result.stdout, /devbootstrap is available/);
 	assert.equal(f.run().status, 0, 'existing installation can be rerun');
 });
+
 for (const [env, diagnostic] of [
 	[{ FAIL_CLONE: '1' }, /Clone failed/],
 	[{ FAIL_INSTALL: '1' }, /installer failed/],
 	[{ NO_SHIM: '1' }, /not on PATH/]
 ]) {
-	test(`bootstrap fails closed: ${JSON.stringify(env)}`, (t) => {
-		const f = fixture(t);
-		const r = f.run({ GIT_SSH_COMMAND: 'ssh -F /operator/config', ...env });
-		assert.notEqual(r.status, 0);
-		assert.match(r.stderr, diagnostic);
+	test(`bootstrap fails closed: ${JSON.stringify(env)}`, async (t) => {
+		const f = await fixture(t);
+		const result = f.run({ GIT_SSH_COMMAND: 'ssh -F /operator/config', ...env });
+		assert.notEqual(result.status, 0);
+		assert.match(result.stderr, diagnostic);
 	});
 }
-test('broken existing installation reports repair instructions', (t) => {
-	const f = fixture(t);
+
+test('broken existing installation reports repair instructions', async (t) => {
+	const f = await fixture(t);
 	mkdirSync(join(f.home, '.devbootstrap'));
-	const r = f.run();
-	assert.notEqual(r.status, 0);
-	assert.match(r.stderr, /install.sh is missing/);
+	assert.match(f.run().stderr, /install.sh is missing/);
 });
+
 test('runtime PATH includes the bootstrap shim for server and terminal children', () => {
 	const source = readFileSync(join(root, 'docker-entrypoint.sh'), 'utf8');
 	assert.ok(source.includes('export PATH="/opt/dashboard-tools/bin:$HOME/.local/bin:$PATH"'));

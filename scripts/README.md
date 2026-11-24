@@ -25,34 +25,60 @@ mode must not source repository files or require a checkout.
   on success or failure for inspection. It never publishes an image or replaces
   another instance.
 
-All inputs are explicit CLI flags; see `bash scripts/run-dashboard.sh --help` for
-the full grammar. The launcher reads no deployment environment. An exported
-`SSH_AUTH_SOCK` is forwarded read-only at its original absolute path, and
-`SUDO_USER` selects the passwd-based operator identity under sudo. Everything
-else (`DASHBOARD_*`, `DDASH_*`, `WORKSPACE_ROOT`, `HOST_*`, `SERVICE_PROXY_*`)
-is ignored.
+All deployment inputs are explicit CLI flags. Both modes require `--host-user`,
+`--host-uid`, `--host-gid`, `--host-home` and `--ssh-agent-socket`. There is no
+fallback to host `SSH_AUTH_SOCK`, `SUDO_USER`, `HOSTNAME`, `USER`, `HOME` or exported
+`HOST_*` configuration. Optional `--host-name NAME` defaults to unset.
+
+The selected agent is mounted at the same absolute path in DevHarbour. The script
+sets the standard `SSH_AUTH_SOCK` variable inside the container from the socket
+argument. Startup checks agent connectivity as the non-root operator. This
+internal environment variable is not an implicit launcher input.
 
 Common flags:
 
-| Flag                                             | Meaning                                                                                                                          |
-| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
-| `--workspace PATH`                               | Workspace bind, source and target identical. Registry default `~/ddash-workspace`, build default `~/ddash-production-workspace`. |
-| `--socket PATH`                                  | Docker-host socket (default `/var/run/docker.sock`).                                                                             |
-| `--port N`                                       | Published host port (registry default 3000, build default 3001).                                                                 |
-| `--bind-address ADDR`                            | Registry-mode publication address (default `127.0.0.1`). Build mode stays loopback-only.                                         |
-| `--origin URL`                                   | External HTTP(S) origin, forwarded only when set.                                                                                |
-| `--password VALUE`                               | Explicit password (visible in process lists; prefer the file or prompt).                                                         |
-| `--password-file PATH`                           | Read the password from a file, trimming one trailing newline.                                                                    |
-| `--env-file PATH`                                | Extend the container environment from a Docker env file; repeatable in both modes.                                               |
-| `--host-user/--host-uid/--host-gid/--host-home`  | All-or-none Docker-host identity override.                                                                                       |
-| `--bootstrap` / `--no-bootstrap`                 | dev-bootstrap startup hook (default off).                                                                                        |
-| `--ssh-dir` / `--no-ssh-dir`                     | Read-only `HOST_HOME/.ssh` bind (default off).                                                                                   |
-| `--no-create-workspace`                          | Skip local workspace creation for remote daemons.                                                                                |
-| `--non-interactive`                              | Disable all prompts; requires `--password` or `--password-file`.                                                                 |
-| `--gateway`, `--gateway-host`, `--gateway-ports` | Opt-in service-gateway passthroughs.                                                                                             |
-| `--vscode-ssh-host VALUE`                        | `VSCODE_SSH_HOST` passthrough.                                                                                                   |
-| `--image REF`                                    | Registry mode only: image reference.                                                                                             |
-| `--platform`, `--name`, `--health-timeout`       | Build mode only. Cross-mode flags fail with clear errors.                                                                        |
+| Flag                                             | Meaning                                                                                                                                          |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--host-user NAME`                               | Required non-root Docker-host operator name.                                                                                                     |
+| `--host-uid UID`                                 | Required Docker-host operator UID.                                                                                                               |
+| `--host-gid GID`                                 | Required Docker-host operator primary GID.                                                                                                       |
+| `--host-home PATH`                               | Required canonical absolute Docker-host operator home.                                                                                           |
+| `--ssh-agent-socket PATH`                        | Required existing Docker-host SSH agent socket.                                                                                                  |
+| `--host-name NAME`                               | Optional host label; defaults to unset, not host HOSTNAME.                                                                                       |
+| `--workspace PATH`                               | Workspace bind, source and target identical. Registry default `HOST_HOME/ddash-workspace`, build default `HOST_HOME/ddash-production-workspace`. |
+| `--socket PATH`                                  | Docker-host socket (default `/var/run/docker.sock`).                                                                                             |
+| `--port N`                                       | Published host port (registry default 3000, build default 3001).                                                                                 |
+| `--bind-address ADDR`                            | Registry-mode publication address (default `127.0.0.1`). Build mode stays loopback-only.                                                         |
+| `--origin URL`                                   | External HTTP(S) origin, forwarded only when set.                                                                                                |
+| `--password VALUE`                               | Explicit password (visible in process lists; prefer the file or prompt).                                                                         |
+| `--password-file PATH`                           | Read the password from a file, trimming one trailing newline.                                                                                    |
+| `--env-file PATH`                                | Extend the container environment from a Docker env file; repeatable in both modes.                                                               |
+| `--bootstrap`                                    | Enable the dev-bootstrap startup hook. Omit the flag to keep it disabled.                                                                        |
+| `--ssh-known-hosts PATH`                         | One trusted known_hosts file, mounted read-only in the dashboard. No key-directory mount.                                                        |
+| `--no-create-workspace`                          | Skip local workspace creation for remote daemons.                                                                                                |
+| `--non-interactive`                              | Disable all prompts; requires `--password` or `--password-file`.                                                                                 |
+| `--gateway`, `--gateway-host`, `--gateway-ports` | Opt-in service-gateway passthroughs.                                                                                                             |
+| `--vscode-ssh-host VALUE`                        | `VSCODE_SSH_HOST` passthrough.                                                                                                                   |
+| `--image REF`                                    | Registry mode only: image reference.                                                                                                             |
+| `--platform`, `--name`, `--health-timeout`       | Build mode only. Cross-mode flags fail with clear errors.                                                                                        |
+
+`--no-bootstrap`, `--ssh-dir` and `--no-ssh-dir` have been removed. They fail with
+migration guidance rather than silently changing behavior. `--help` needs none
+of the required deployment arguments.
+
+Example with literal values (replace them with your actual host values):
+
+```bash
+bash scripts/run-dashboard.sh --build \
+  --host-user axel --host-uid 1000 --host-gid 1000 --host-home /home/axel \
+  --ssh-agent-socket /run/user/1000/ssh-agent.socket \
+  --host-name development-host \
+  --workspace /home/axel/git.workspaces
+```
+
+Callers may choose to expand values explicitly, such as
+`--ssh-agent-socket "$SSH_AUTH_SOCK"`. The launcher itself never reads that host
+variable. Missing arguments fail even when the old host variables are set.
 
 `tern-dev-bootstrap.sh` lives in `plugins/` in the repository. The Dockerfile copies
 it to `/opt/dashboard/plugins/`, and the entrypoint selects bundled hooks from
@@ -69,7 +95,9 @@ The existing terminal environment filter still removes dashboard credentials,
 
 ```bash
 bash scripts/run-dashboard.sh --build \
-  --env-file "$HOME/.config/devcontainer-dashboard/development.env"
+  --host-user axel --host-uid 1000 --host-gid 1000 --host-home /home/axel \
+  --ssh-agent-socket /run/user/1000/ssh-agent.socket \
+  --env-file /home/axel/.config/devcontainer-dashboard/development.env
 ```
 
 Example file:
@@ -93,10 +121,11 @@ that variable from the Docker client's exported environment. Prefer explicit
 
 Repeat `--env-file` to layer files in argument order; later files take precedence.
 Explicit container environment entries generated by the launcher take precedence
-over all files, including the password, resolved host identity and workspace root.
-The file does not configure launcher options or replace `--password-file`.
-Variables without a launcher-generated override can change application behavior,
-so review the file as trusted runtime configuration.
+over all files, including the password, required identity, workspace root,
+selected agent socket and optional host-name label. An env file cannot supply or
+replace required launcher arguments. Variables without a launcher-generated
+override can change application behavior, so review the file as trusted runtime
+configuration.
 
 Protect files that contain secrets and keep them out of version control. The
 launcher does not print file contents or put their values into Docker arguments,
@@ -107,19 +136,20 @@ container after changing an env file; restarting it does not reload the file.
 
 ## Identity and resources
 
-Supply all four `--host-user`, `--host-uid`, `--host-gid` and `--host-home` values
-for an explicit Docker-host identity. Otherwise the launcher resolves the local
-account from passwd, using `SUDO_USER` under sudo. Root UID/GID, partial
-overrides, system home paths, traversal and noncanonical home spellings are
-rejected. The entrypoint also checks actual home symlinks and account collisions
-inside the container.
+Supply all four `--host-user`, `--host-uid`, `--host-gid` and `--host-home` values.
+There is no automatic account selection, including under sudo. Root UID/GID,
+missing/partial identity, system home paths, traversal and noncanonical home
+spellings are rejected. The entrypoint also checks actual home symlinks and
+account collisions inside the container.
 
-For remote daemons and launchers inside another container, set all four values
-explicitly. Do not assume the launcher's filesystem is the daemon host's
+For remote daemons and launchers inside another container, arguments must describe
+the Docker host. Do not assume the launcher's filesystem is the daemon host's
 filesystem. Use `--no-create-workspace` to avoid local directory creation and
 provision the workspace on the daemon host separately. This flag does not add
 remote-daemon support to the application: it still needs a host Unix socket
-mounted at `/var/run/docker.sock`. `--socket` selects that bind source.
+mounted at `/var/run/docker.sock`. `--socket` selects that bind source. The SSH
+agent contract requires an actual daemon-host source path too, not a socket
+private to an outer VS Code container.
 
 Workspace paths stay identical on both sides. Docker `--mount` rejects missing
 bind sources on the daemon host. No SSH directory is created to satisfy a mount.
@@ -134,26 +164,43 @@ the container; selected resource subdirectories can be mounted read-only.
 
 ## Bootstrap and SSH
 
-Bootstrap is off by default. `--bootstrap` enables the bundled hook and every
-run prints `dev-bootstrap: 0` or `1`. `--ssh-dir` mounts `HOST_HOME/.ssh`
-read-only at the same absolute path. An exported `SSH_AUTH_SOCK` is forwarded at
-its original absolute daemon-host path; unset it for no-agent operation. Neither
-is required when bootstrap is disabled. Agent-only operation requires an
-independently supplied trusted host-key setup. An agent does not satisfy a
-devcontainer config that requires an SSH directory bind.
+Bootstrap is off by default. Add `--bootstrap` to enable the bundled hook; omit it
+to disable. Every run prints `dev-bootstrap: 0` or `1`. There is no negative
+bootstrap flag.
+
+Pass the existing Docker-host agent with `--ssh-agent-socket PATH`. The entrypoint
+verifies it as the operator before running hooks. A reachable agent with no loaded
+identities is permitted; missing or inaccessible agents are not. Private keys and
+the host `.ssh` directory are never mounted by the launcher.
 
 ```bash
-bash scripts/run-dashboard.sh --build --port 3002 --bootstrap --ssh-dir
+bash scripts/run-dashboard.sh --build --bootstrap \
+  --host-user axel --host-uid 1000 --host-gid 1000 --host-home /home/axel \
+  --ssh-agent-socket /run/user/1000/ssh-agent.socket \
+  --ssh-known-hosts /home/axel/.ssh/known_hosts
 ```
+
+`--ssh-known-hosts` mounts only that trusted file at `/etc/ssh/ssh_known_hosts` in
+the dashboard. It provides host-key trust for dashboard Git/bootstrap, not managed
+devcontainers automatically. Supply trust separately in their images or explicit
+known_hosts-only configuration. Default bootstrap SSH uses BatchMode and strict
+host-key checking. Do not trust unauthenticated keyscan output.
+
+Build/rebuild actions forward the same selected agent into the devcontainer,
+set container and remote environments, and verify access as its remote user.
+The target image needs a POSIX shell and `ssh-add`. Existing containers require
+an explicit rebuild to add a socket mount. No socket permissions are changed.
+Changing the socket path requires recreation, not rebuilding the dashboard image.
+Same-path restart/remount behavior after inode replacement still needs runtime
+validation. See [SSH-AGENT.md](../SSH-AGENT.md) for the full contract and checklist.
 
 Use an available port. Build mode creates a new instance, not an update to the
 old one. The selected hook fails startup if credentials are unavailable, cloning
 fails, the installer is broken, or no shim is installed. An existing checkout is
 reinstalled and can require GitLab access because its installer performs a pull.
-Default SSH uses BatchMode and strict host-key checking. Host SSH files are never
-rewritten. The provider installer creates `~/.local/bin/devbootstrap`; the
-entrypoint includes that directory on PATH for hooks, the server, terminals and
-builds.
+Host SSH files are never rewritten. The provider installer creates
+`~/.local/bin/devbootstrap`; the entrypoint includes that directory on PATH for
+hooks, the server, terminals and builds.
 
 Bootstrap resides in the container-private home, not a named volume. A newly
 created container needs installation again. Do not assume a previous container's
@@ -163,24 +210,29 @@ containers until you have preserved required state.
 ## Unattended use
 
 `--non-interactive` disables all prompts and requires `--password` or
-`--password-file`. The workspace then defaults per mode without prompting; the
-registry-mode prompt only runs when a terminal is available and `--workspace`
-was not given. `--origin` accepts an HTTP(S) origin without paths, credentials
-or invalid ports; leave it unset for local HTTP. The service-gateway
-passthroughs are forwarded only when their flags are set.
+`--password-file`. Identity and socket arguments are still required. The workspace
+then defaults per mode without prompting; the registry-mode prompt only runs when
+a terminal is available and `--workspace` was not given. `--origin` accepts an
+HTTP(S) origin without paths, credentials or invalid ports; leave it unset for
+local HTTP. Service-gateway passthroughs are forwarded only when flags are set.
 
 ```bash
 bash scripts/run-dashboard.sh --non-interactive \
-  --password-file "$HOME/.secrets/dashboard-password" \
-  --workspace "$HOME/ddash-workspace"
+  --host-user axel --host-uid 1000 --host-gid 1000 --host-home /home/axel \
+  --ssh-agent-socket /run/user/1000/ssh-agent.socket \
+  --password-file /home/axel/.secrets/dashboard-password \
+  --workspace /home/axel/ddash-workspace
 ```
 
 The application grants full operator capability; these mounts are not isolation.
+Agent forwarding permits authentication/signing while connected. A read-only
+socket bind does not restrict that authority.
 
 ## Validation
 
 ```bash
 npm run test:deployment
+npm run test:ssh
 npm run check
 npm run lint
 npm run test:unit -- --run
@@ -188,15 +240,17 @@ npm run build
 npm run build:server
 npm run test:production
 npm run test:e2e
-bash scripts/tests/container-smoke.sh
 ```
 
 Deployment tests use mocked privileged commands and Docker calls. They cover
-identity flags and passwd fallback, sudo capture, the rejection matrix, password
-prompt and file handling, origin and gateway validation, same-path mounts,
-mode violations, unattended startup, retained resources and password
-non-disclosure. They do not prove real privilege dropping, SSH authentication or
-Docker behavior.
+required identity and socket arguments, ignored ambient sudo/agent/hostname values,
+the rejection matrix, password prompt and file handling, origin and gateway
+validation, same-path mounts, mode violations, unattended startup, retained
+resources, agent startup diagnostics and password non-disclosure. They do not
+prove real privilege dropping, SSH authentication or Docker behavior. `test:ssh`
+adds configuration/runner and rebuild regressions, including named configurations
+and literal argv. Brain and Tailscale launcher fixtures supply the same explicit
+required arguments.
 
 `production-smoke.mjs` tests a compiled server or disposable `SMOKE_BASE_URL`. It
 checks health, login, WebSocket authorization and PTY output. Optional
@@ -204,18 +258,15 @@ checks health, login, WebSocket authorization and PTY output. Optional
 dashboard build API and waits for that persistent build terminal to exit. It is
 not a dry run. Fixture builds require `SMOKE_BASE_URL` and
 `SMOKE_FIXTURE_CLEANUP_OWNER=external`. The caller must own sibling-container
-cleanup; prefer `container-smoke.sh`, which removes the exact unique fixture
-containers even after a failed API request.
+cleanup.
 
-`container-smoke.sh` requires a non-root local Linux Docker operator with a
-`/home` home, Node 22, installed dependencies and network access. Its named
-functions prepare a disposable fixture, build/start the image with plain
-`docker run` mirroring the launcher argv, exercise the dashboard build API,
-verify read-only HOME substitution and ownership, and test fail-closed startup.
-It cleans up only its unique fixture resources. It uses fake SSH data and an
-operator-hook bootstrap stub to test provider discovery and PATH, not real
-private keys or a real GitLab installation. The sibling fixture uses explicit
-`remoteUser: root`, separate from the dashboard operator.
+`container-smoke.sh` creates its own disposable SSH agent and fixture key,
+forwards the socket into the dashboard and a non-root managed devcontainer, and
+checks public identities and signing. It mounts no private keys and never uses
+or changes the operator's real agent. It requires a native Linux Docker host and
+network access, and cleans up only its own resources. Its migration is source-
+checked but still requires a recorded Docker integration run. Use the checklist
+in [SSH-AGENT.md](../SSH-AGENT.md) for real end-to-end acceptance.
 
 Record the exact revision and commands actually run. A mocked suite passing is not
 a successful production build or Docker integration result. Real agent forwarding,

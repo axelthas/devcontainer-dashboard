@@ -29,12 +29,36 @@ Buildx. You do not need Node.js on the host for either option below.
 The dashboard has full Docker and terminal access. Run it only on a trusted host.
 Keep the default loopback binding; use HTTPS for remote access.
 
-### Option 1: build and run your checkout
-
-From the repository root:
+Both launcher modes require explicit host identity and SSH agent socket arguments.
+Set this Bash array once for the examples below, replacing every sample value with
+the actual Docker-host values:
 
 ```bash
-bash scripts/run-dashboard.sh --build
+launcher_args=(
+  --host-user axel
+  --host-uid 1000
+  --host-gid 1000
+  --host-home /home/axel
+  --ssh-agent-socket /run/user/1000/ssh-agent.socket
+)
+```
+
+The launcher does not fall back to `SSH_AUTH_SOCK`, `SUDO_USER`, `HOSTNAME` or exported
+identity variables. A caller may explicitly pass `--ssh-agent-socket "$SSH_AUTH_SOCK"`
+instead of a literal path. The standard `SSH_AUTH_SOCK` variable is set inside the
+container from the argument. Add `--host-name NAME` for an optional host label;
+otherwise the label is unset. Bootstrap is disabled unless `--bootstrap` is present.
+`--no-bootstrap`, `--ssh-dir` and `--no-ssh-dir` have been removed.
+
+These launcher changes belong to the SSH forwarding work, not the branding change.
+See [the SSH contract](SSH-AGENT.md) for migration and runtime validation limits.
+
+### Option 1: build and run your checkout
+
+From the repository root, in the shell where you defined `launcher_args`:
+
+```bash
+bash scripts/run-dashboard.sh "${launcher_args[@]}" --build
 ```
 
 This builds the current working tree into the production image, starts a new test
@@ -42,7 +66,7 @@ container, and checks readiness. It does not publish an image or replace an exis
 container.
 
 - Open `http://127.0.0.1:3001` and log in with the password you entered.
-- The default workspace is `~/ddash-production-workspace`.
+- The default workspace is `HOST_HOME/ddash-production-workspace`.
 - The launcher prints the container name, logs, stop/resume commands, and retained volumes.
 - Each run creates a separate container and data volumes. Stop the previous instance
   before reusing its port, or pass another `--port`.
@@ -50,17 +74,17 @@ container.
 To use an existing workspace and another port:
 
 ```bash
-bash scripts/run-dashboard.sh --build \
-  --workspace "$HOME/git.workspaces" \
-  --port 3002
+bash scripts/run-dashboard.sh "${launcher_args[@]}" --build \
+  --workspace /home/axel/git.workspaces \
+  --port 3004
 ```
 
 ### Option 2: pull and run the published image
 
-From a checkout:
+From a checkout, with the same explicit arguments:
 
 ```bash
-bash scripts/run-dashboard.sh
+bash scripts/run-dashboard.sh "${launcher_args[@]}"
 ```
 
 Or download the launcher without cloning the repository:
@@ -68,14 +92,14 @@ Or download the launcher without cloning the repository:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/axelthas/devcontainer-dashboard/main/scripts/run-dashboard.sh \
   -o run-dashboard.sh
-bash run-dashboard.sh
+bash run-dashboard.sh "${launcher_args[@]}"
 ```
 
 This pulls `ghcr.io/axelthas/devcontainer-dashboard:latest` and runs it in the
 foreground. It prompts for a workspace directory and password.
 
 - Open `http://127.0.0.1:3000`.
-- The default workspace is `~/ddash-workspace`.
+- The default workspace is `HOST_HOME/ddash-workspace`.
 - Ctrl+C stops the container. Data and shell-history volumes persist.
 - Use `--image ghcr.io/axelthas/devcontainer-dashboard:TAG` to select another published tag.
 
@@ -88,10 +112,11 @@ when testing this branch.
 bash scripts/run-dashboard.sh --help
 ```
 
-Use `--password-file PATH --non-interactive` for unattended runs. Configuration is
-passed through launcher flags, not exported deployment environment variables.
-Workspace and socket bind paths must exist on the Docker host, including when you
-invoke the launcher inside a devcontainer.
+Help does not require identity or socket arguments. Use
+`--password-file PATH --non-interactive` for unattended runs, together with all five
+required arguments. Configuration is passed through launcher flags, not exported
+deployment environment variables. Workspace and socket bind paths must exist on
+the Docker host, including when you invoke the launcher inside a devcontainer.
 
 - [Launcher reference](scripts/README.md): identity, mounts, SSH/bootstrap options, and tests.
 - [Tailscale HTTPS setup](tasks/ISSUE-27-HANDOFF.md): remote dashboard access and automatic
@@ -104,8 +129,8 @@ Add `--brain` to enable the MCP listener on host loopback. For public access fro
 ClickUp, add `--brain-funnel` to your Tailscale launch command:
 
 ```bash
-bash scripts/run-dashboard.sh --build \
-  --workspace "$HOME/git.workspaces" \
+bash scripts/run-dashboard.sh "${launcher_args[@]}" --build \
+  --workspace /home/axel/git.workspaces \
   --tailscale-socket /var/run/tailscale/tailscaled.sock \
   --origin https://YOUR-NODE.YOUR-TAILNET.ts.net \
   --brain-funnel
@@ -319,11 +344,12 @@ root, including after resolving symlinks. Missing labels disable the action; inv
 missing, ambiguous, or unsupported path metadata is rejected before replacement.
 The exact labelled configuration is used, not another default in the repository.
 
-The action runs `devcontainer up --remove-existing-container` with literal workspace,
-configuration, and identity-label arguments. It uses the normal build cache. This is
-not a no-cache build or a rollback facility. The CLI runs with the dashboard's configured
-host identity and existing filtered child environment, including permitted values
-supplied through the launcher's `--env-file`.
+The action runs `devcontainer up --remove-existing-container` through the agent-aware
+runner, with literal workspace, configuration, and identity-label arguments. It uses
+the normal build cache. This is not a no-cache build or a rollback facility. The CLI
+runs with the dashboard's explicit host identity and existing filtered child
+environment, including permitted values supplied through the launcher's `--env-file`.
+The runner adds the selected host agent without rewriting the tracked configuration.
 
 **Replacement interrupts services and container terminals and discards changes in the
 container writable layer.** The dashboard does not delete workspace files or volumes
@@ -372,6 +398,8 @@ WORKSPACE_ROOT="$HOME/git.workspaces" npm run dev -- --host 127.0.0.1
 ```
 
 Open the local URL printed by Vite. The password is required in development too.
+This direct development-server command configures the application, not the production
+launcher; the explicit launcher argument contract does not replace this interface.
 
 A [VS Code devcontainer](.devcontainer/devcontainer.json) is also included. It installs
 Node and build tools, but currently assumes a Linux host with `USER` and `HOME` set,
@@ -387,6 +415,7 @@ npm run check
 npm run lint
 npm run test:unit -- --run
 npm run test:deployment
+npm run test:ssh
 npm run test:tailscale
 ```
 

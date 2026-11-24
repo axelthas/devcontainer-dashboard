@@ -92,6 +92,7 @@ WORKDIR /app
 COPY --from=builder /app/build /app/build
 COPY --from=builder /app/node_modules /app/node_modules
 COPY --from=builder /app/package.json /app/package.json
+COPY scripts/devcontainer-agent.mjs /app/scripts/devcontainer-agent.mjs
 COPY --from=openchamber-ui /source/packages/web/dist /opt/openchamber-dist
 ENV OPENCHAMBER_DIST_DIR=/opt/openchamber-dist
 COPY plugins/tern-dev-bootstrap.sh /opt/dashboard/plugins/tern-dev-bootstrap.sh

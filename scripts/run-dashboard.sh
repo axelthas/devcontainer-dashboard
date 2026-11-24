@@ -13,7 +13,14 @@ usage() {
   cat <<'HELP'
 Usage: bash scripts/run-dashboard.sh [options]
 Registry mode pulls and runs attached; build mode verifies this checkout.
-Options:
+Required options (both modes):
+  --host-user NAME         Non-root Docker-host operator account name.
+  --host-uid UID           Docker-host operator UID.
+  --host-gid GID           Docker-host operator primary GID.
+  --host-home PATH         Absolute Docker-host operator home.
+  --ssh-agent-socket PATH  Existing Docker-host SSH agent socket.
+Other options:
+  --host-name NAME         Host label shown by the dashboard (default unset).
   --workspace PATH         Workspace bind (same source and target).
   --socket PATH            Docker socket (default /var/run/docker.sock).
   --port N                 Host port (default 3000 registry, 3001 build).
@@ -32,14 +39,9 @@ Options:
                            Requires --tailscale-socket and tailnet Funnel permission/HTTPS.
   --brain-funnel-port N    Public HTTPS port: 443, 8443 or 10000 (default 10000).
                            Requires --brain-funnel. Must not overlap service allocation.
-  --host-user NAME         All four identity values must be supplied together.
-  --host-uid UID
-  --host-gid GID
-  --host-home PATH
-  --bootstrap              Enable dev-bootstrap hook (default off).
-  --no-bootstrap           Keep hook disabled.
-  --ssh-dir                Mount HOST_HOME/.ssh read-only.
-  --no-ssh-dir             Keep SSH directory unmounted.
+  --bootstrap              Enable dev-bootstrap hook (default off; omit to disable).
+  --ssh-known-hosts PATH   Mount one trusted Docker-host known_hosts file read-only.
+                           Dashboard/bootstrap only; never mounts private keys.
   --no-create-workspace    Skip local workspace creation.
   --non-interactive        Disable prompts; password input required.
   --gateway                Enable existing path service gateway.
@@ -61,10 +63,13 @@ Options:
   --platform VALUE         Buildx platform (build only).
   --name NAME              Test container name (build only).
   --health-timeout SECONDS Readiness deadline (build only, default 180).
-  --help, -h               Show help.
+  --help, -h               Show help without required arguments.
 
-SSH_AUTH_SOCK is forwarded read-only when exported. SUDO_USER selects the operator
-under sudo. Other deployment environment variables are ignored.
+Host SSH_AUTH_SOCK, SUDO_USER, HOSTNAME and deployment environment variables are
+not launcher inputs. Pass the host identity and agent socket explicitly.
+The script sets SSH_AUTH_SOCK inside the container from --ssh-agent-socket.
+No private keys or SSH directories are mounted. Agent access is verified as the
+operator before hooks and the server start.
 HELP
 }
 
@@ -75,8 +80,9 @@ parse_arguments() {
   AI_PORT='' AI_STATE_VOLUME=''
   BRAIN=0 BRAIN_TOKEN_FILE='' BRAIN_PORT='' BRAIN_FUNNEL=0 BRAIN_FUNNEL_PORT=''
   PASSWORD='' PASSWORD_FILE='' HOST_USER='' HOST_UID='' HOST_GID='' HOST_HOME=''
+  HOST_NAME='' SSH_AGENT_SOCKET=''
   ENV_FILES=()
-  BOOTSTRAP=0 SSH_DIR=0 CREATE_WORKSPACE=1 NON_INTERACTIVE=0 GATEWAY=0
+  BOOTSTRAP=0 SSH_KNOWN_HOSTS='' CREATE_WORKSPACE=1 NON_INTERACTIVE=0 GATEWAY=0
   GATEWAY_HOST='' GATEWAY_PORTS='' VSCODE_SSH_HOST=''
   IMAGE='' PLATFORM='' TEST_NAME='' HEALTH_TIMEOUT=''
   TAILSCALE_SOCKET='' TAILSCALE_PORTS='' TAILSCALE_GATEWAY_PORT=''
@@ -84,7 +90,7 @@ parse_arguments() {
   while (( $# )); do
     case "$1" in
       --help|-h) SHOW_HELP=1; return ;;
-      --workspace|--socket|--port|--ai-port|--ai-state-volume|--bind-address|--origin|--password|--password-file|--env-file|--host-user|--host-uid|--host-gid|--host-home|--gateway-host|--gateway-ports|--vscode-ssh-host|--image|--platform|--name|--health-timeout|--tailscale-socket|--tailscale-ports|--tailscale-gateway-port|--brain-token-file|--brain-port|--brain-funnel-port)
+      --workspace|--socket|--port|--ai-port|--ai-state-volume|--bind-address|--origin|--password|--password-file|--env-file|--host-user|--host-uid|--host-gid|--host-home|--host-name|--ssh-agent-socket|--gateway-host|--gateway-ports|--vscode-ssh-host|--image|--platform|--name|--health-timeout|--tailscale-socket|--tailscale-ports|--tailscale-gateway-port|--brain-token-file|--brain-port|--brain-funnel-port|--ssh-known-hosts)
         [[ $# -ge 2 && -n "$2" ]] || fail "$1 requires a value"
         case "$1" in
           --workspace) WORKSPACE=$2 ;;
@@ -104,6 +110,9 @@ parse_arguments() {
           --host-uid) HOST_UID=$2 ;;
           --host-gid) HOST_GID=$2 ;;
           --host-home) HOST_HOME=$2 ;;
+          --host-name) HOST_NAME=$2 ;;
+          --ssh-agent-socket) SSH_AGENT_SOCKET=$2 ;;
+          --ssh-known-hosts) SSH_KNOWN_HOSTS=$2 ;;
           --gateway-host) GATEWAY_HOST=$2 ;;
           --gateway-ports) GATEWAY_PORTS=$2 ;;
           --vscode-ssh-host) VSCODE_SSH_HOST=$2 ;;
@@ -119,9 +128,8 @@ parse_arguments() {
       --brain) BRAIN=1; shift ;;
       --brain-funnel) BRAIN=1; BRAIN_FUNNEL=1; shift ;;
       --bootstrap) BOOTSTRAP=1; shift ;;
-      --no-bootstrap) BOOTSTRAP=0; shift ;;
-      --ssh-dir) SSH_DIR=1; shift ;;
-      --no-ssh-dir) SSH_DIR=0; shift ;;
+      --no-bootstrap) fail '--no-bootstrap was removed; omit --bootstrap to keep bootstrap disabled' ;;
+      --ssh-dir|--no-ssh-dir) fail "$1 was removed: pass --ssh-agent-socket, never a private-key directory. Use --ssh-known-hosts for trusted host keys." ;;
       --no-create-workspace) CREATE_WORKSPACE=0; shift ;;
       --non-interactive) NON_INTERACTIVE=1; shift ;;
       --gateway) GATEWAY=1; shift ;;
@@ -158,6 +166,20 @@ validate_env_files() {
   fi
 }
 
+# Validate only the explicit source. Docker and the non-root entrypoint validate
+# existence and agent connectivity on the daemon host, not the launcher client.
+validate_ssh_agent() {
+  [[ -n "$SSH_AGENT_SOCKET" ]] || fail '--ssh-agent-socket is required; host SSH_AUTH_SOCK is not read'
+  [[ "$SSH_AGENT_SOCKET" =~ ^/[a-zA-Z0-9_./\ -]+$ ]] ||
+    fail '--ssh-agent-socket must be an absolute Docker-host path using letters, digits, /, _, ., spaces and - only'
+  case "/$SSH_AGENT_SOCKET/" in */../*|*/./*) fail '--ssh-agent-socket must not contain traversal segments' ;; esac
+  if [[ -n "$SSH_KNOWN_HOSTS" ]]; then
+    [[ "$SSH_KNOWN_HOSTS" == /* && "$SSH_KNOWN_HOSTS" != *,* &&
+       "$SSH_KNOWN_HOSTS" != *$'\n'* && "$SSH_KNOWN_HOSTS" != *$'\r'* ]] ||
+      fail '--ssh-known-hosts must be an absolute Docker-host file path without commas or newlines'
+  fi
+}
+
 # Accept exact origins, including bracketed IPv6, but reject paths and credentials.
 valid_origin() {
   local authority port
@@ -189,16 +211,11 @@ valid_gateway_ports() {
   return 0
 }
 
-# Resolve a non-root host operator, without taking over a partial identity.
+# Validate a complete explicit non-root identity. Never consult passwd, id or sudo state.
 resolve_identity() {
-  local operator="${SUDO_USER:-$(id -un)}" record number
-  if [[ -z "${HOST_USER:-}${HOST_UID:-}${HOST_GID:-}${HOST_HOME:-}" ]]; then
-    record=$(getent passwd "$operator") ||
-      fail 'Cannot resolve operator; pass --host-user, --host-uid, --host-gid and --host-home together'
-    IFS=: read -r HOST_USER _ HOST_UID HOST_GID _ HOST_HOME _ <<< "$record"
-  fi
-  [[ -n "${HOST_USER:-}" && -n "${HOST_UID:-}" && -n "${HOST_GID:-}" && -n "${HOST_HOME:-}" ]] ||
-    fail 'Set all four --host-user, --host-uid, --host-gid and --host-home values together'
+  local number
+  [[ -n "$HOST_USER" && -n "$HOST_UID" && -n "$HOST_GID" && -n "$HOST_HOME" ]] ||
+    fail 'Set all four --host-user, --host-uid, --host-gid and --host-home arguments; automatic identity selection is not supported'
   [[ "$HOST_USER" =~ ^[a-zA-Z_][a-zA-Z0-9_-]*$ && "$HOST_USER" != root ]] || fail 'Invalid --host-user'
   for number in "$HOST_UID" "$HOST_GID"; do
     [[ "$number" =~ ^[1-9][0-9]*$ && ${#number} -le 10 ]] ||
@@ -210,6 +227,7 @@ resolve_identity() {
     /|//|*/../*|*/./*|*//*|/app/*|/data/*|/dashboard-history/*|/dashboard-ai/*|/opt/*|/etc/*|/usr/*|/var/*|/root/*|/bin/*|/sbin/*|/dev/*|/proc/*|/sys/*|/run/*|/tmp/*)
       fail '--host-home must be a canonical dedicated non-system home path' ;;
   esac
+  [[ -z "$HOST_NAME" || "$HOST_NAME" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,252}$ ]] || fail 'Invalid --host-name'
   export HOST_USER HOST_UID HOST_GID HOST_HOME
 }
 
@@ -251,7 +269,7 @@ read_secrets() {
 validate_options() {
   local value first last external
   SOCKET="${SOCKET:-/var/run/docker.sock}"
-  for value in "$WORKSPACE" "$SOCKET" "${SSH_AUTH_SOCK:-/unused}" "${TAILSCALE_SOCKET:-/unused}"; do
+  for value in "$WORKSPACE" "$SOCKET" "${SSH_AGENT_SOCKET:-/unused}" "${TAILSCALE_SOCKET:-/unused}"; do
     [[ "$value" == /* && "$value" != *,* && "$value" != *$'\n'* && "$value" != *$'\r'* ]] ||
       fail 'Bind sources must be absolute Docker-host paths without commas or newlines'
   done
@@ -374,7 +392,7 @@ prepare_arguments() {
   # Docker applies explicit --env entries after env files, preserving launcher inputs.
   ARGS+=(--env DASHBOARD_PASSWORD --env HOST_USER --env HOST_UID --env HOST_GID --env HOST_HOME
     --env "TAILSCALE_ALLOW_WILDCARD_BINDINGS=$TAILSCALE_ALLOW_WILDCARD_BINDINGS"
-    --env "WORKSPACE_ROOT=$WORKSPACE" --env "HOST_HOSTNAME=${HOSTNAME:-}"
+    --env "WORKSPACE_ROOT=$WORKSPACE" --env "HOST_HOSTNAME=$HOST_NAME"
     --env AI_ENABLED=1 --env "AI_PUBLIC_PORT=$AI_PORT"
     --mount "type=volume,source=$AI_STATE_VOLUME,target=/dashboard-ai"
     --mount "type=bind,source=$WORKSPACE,target=$WORKSPACE"
@@ -408,11 +426,14 @@ prepare_arguments() {
       PUBLICATION+=(--publish "127.0.0.1:$BRAIN_PORT:$BRAIN_PORT")
     fi
   fi
-  if [[ -n "${SSH_AUTH_SOCK:-}" ]]; then
-    export SSH_AUTH_SOCK
-    ARGS+=(--env SSH_AUTH_SOCK --mount "type=bind,source=$SSH_AUTH_SOCK,target=$SSH_AUTH_SOCK,readonly")
+  # The standard SSH environment exists only inside the container. Its value is
+  # generated from the explicit flag, never inherited from the launcher host.
+  ARGS+=(--env "SSH_AUTH_SOCK=$SSH_AGENT_SOCKET"
+    --env "DEVHARBOUR_KNOWN_HOSTS=${SSH_KNOWN_HOSTS:+1}"
+    --mount "type=bind,source=$SSH_AGENT_SOCKET,target=$SSH_AGENT_SOCKET,readonly")
+  if [[ -n "$SSH_KNOWN_HOSTS" ]]; then
+    ARGS+=(--mount "type=bind,source=$SSH_KNOWN_HOSTS,target=/etc/ssh/ssh_known_hosts,readonly")
   fi
-  if [[ "$SSH_DIR" == 1 ]]; then ARGS+=(--mount "type=bind,source=$HOST_HOME/.ssh,target=$HOST_HOME/.ssh,readonly"); fi
   HOOK=()
   if [[ "$BOOTSTRAP" == 1 ]]; then HOOK=(dev-bootstrap); fi
   if [[ "$MODE" == build ]]; then
@@ -430,7 +451,8 @@ print_plan() {
   printf 'dev-bootstrap: %s (1=enabled, 0=disabled)\n' "$BOOTSTRAP"
   printf 'Retained AI volume: %s (reuse with --ai-state-volume after stopping its old instance)\n' "$AI_STATE_VOLUME"
   echo 'OpenChamber password: docker exec <container> cat /dashboard-ai/ui-password'
-  echo 'All bind sources must exist on the Docker host. SSH resources are read-only.'
+  echo 'All bind sources must exist on the Docker host. Private SSH keys are not mounted.'
+  echo 'SSH agent access permits authentication while connected, even through a read-only socket bind.'
   if [[ "$BRAIN" == 1 ]]; then
     printf 'Brain MCP: host loopback port %s. Grant containers in the dashboard.\n' "$BRAIN_PORT"
     if [[ -z "$BRAIN_TOKEN_FILE" ]]; then
@@ -517,6 +539,7 @@ main() {
   resolve_identity
   read_secrets
   validate_options
+  validate_ssh_agent
   if [[ "$MODE" == build ]]; then prepare_checkout; else prepare_registry; fi
   prepare_arguments
   print_plan
