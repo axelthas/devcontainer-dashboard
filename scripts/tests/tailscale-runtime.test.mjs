@@ -646,7 +646,13 @@ if [ "$1" = run ]; then printf '<%s>\\n' "$@"; fi
 		spawnSync('bash', [...base, ...extra], {
 			cwd: new URL('../../', import.meta.url),
 			encoding: 'utf8',
-			env: { ...process.env, PATH: `${directory}:${process.env.PATH}`, SSH_AUTH_SOCK: '/ignored/agent', SUDO_USER: 'ignored', HOSTNAME: 'ignored' }
+			env: {
+				...process.env,
+				PATH: `${directory}:${process.env.PATH}`,
+				SSH_AUTH_SOCK: '/ignored/agent',
+				SUDO_USER: 'ignored',
+				HOSTNAME: 'ignored'
+			}
 		});
 	const result = run(['--tailscale-socket', '/run/tailscale.sock', '--origin', dashboardOrigin]);
 	assert.equal(result.status, 0, result.stderr);

@@ -133,7 +133,12 @@ test('agent is checked after privilege dropping and permits an empty identity li
 
 test('missing, stale and inaccessible agents fail before server startup', async (t) => {
 	const f = await fixture(t);
-	for (const env of [{ SSH_AUTH_SOCK: '' }, { SSH_AUTH_SOCK: join(f.dir, 'missing') }, { AGENT_STATUS: '2' }, { AGENT_STATUS: '124' }]) {
+	for (const env of [
+		{ SSH_AUTH_SOCK: '' },
+		{ SSH_AUTH_SOCK: join(f.dir, 'missing') },
+		{ AGENT_STATUS: '2' },
+		{ AGENT_STATUS: '124' }
+	]) {
 		const result = f.run(env);
 		assert.notEqual(result.status, 0);
 		assert.match(result.stderr, /SSH_AUTH_SOCK|SSH agent is unreachable/);
@@ -227,7 +232,10 @@ test('Dockerfile keeps the dashboard tools prefix and healthcheck contract', () 
 	assert.match(read('Dockerfile'), /NPM_CONFIG_PREFIX=\/opt\/dashboard-tools/);
 	assert.match(read('Dockerfile'), /HEALTHCHECK[\s\S]*\/healthz/);
 	assert.match(read('Dockerfile'), /plugins\/tern-dev-bootstrap\.sh/);
-	assert.match(read('Dockerfile'), /COPY scripts\/devcontainer-agent\.mjs \/app\/scripts\/devcontainer-agent\.mjs/);
+	assert.match(
+		read('Dockerfile'),
+		/COPY scripts\/devcontainer-agent\.mjs \/app\/scripts\/devcontainer-agent\.mjs/
+	);
 });
 
 // Run the actual Dockerfile instruction with fake downloads and a harmless installer.

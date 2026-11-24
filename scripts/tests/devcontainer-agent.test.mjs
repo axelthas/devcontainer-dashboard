@@ -13,7 +13,13 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
-import { AGENT_TARGET, agentSource, commandTarget, parseConfiguration, withAgent } from '../devcontainer-agent.mjs';
+import {
+	AGENT_TARGET,
+	agentSource,
+	commandTarget,
+	parseConfiguration,
+	withAgent
+} from '../devcontainer-agent.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 
@@ -40,14 +46,21 @@ test('adds the same agent mount and runtime environment for image, Dockerfile an
 		{ build: { dockerfile: './Dockerfile', context: '../..' } },
 		{ dockerComposeFile: ['../compose.yml', './extra.yml'], service: 'development' }
 	]) {
-		const input = { ...base, remoteUser: '${localEnv:USER}', containerEnv: { KEEP: 'yes' }, remoteEnv: { OTHER: '${containerEnv:PATH}' } };
+		const input = {
+			...base,
+			remoteUser: '${localEnv:USER}',
+			containerEnv: { KEEP: 'yes' },
+			remoteEnv: { OTHER: '${containerEnv:PATH}' }
+		};
 		const output = withAgent(input, '/run/user/1000/ssh-agent');
 		assert.equal(output.containerEnv.SSH_AUTH_SOCK, AGENT_TARGET);
 		assert.equal(output.remoteEnv.SSH_AUTH_SOCK, AGENT_TARGET);
 		assert.equal(output.containerEnv.KEEP, 'yes');
 		assert.equal(output.remoteEnv.OTHER, '${containerEnv:PATH}');
 		assert.equal(output.remoteUser, '${localEnv:USER}');
-		assert.deepEqual(output.mounts, [{ type: 'bind', source: '/run/user/1000/ssh-agent', target: AGENT_TARGET }]);
+		assert.deepEqual(output.mounts, [
+			{ type: 'bind', source: '/run/user/1000/ssh-agent', target: AGENT_TARGET }
+		]);
 		assert.equal(input.mounts, undefined);
 		assert.deepEqual(output.build, base.build);
 		assert.deepEqual(output.dockerComposeFile, base.dockerComposeFile);
@@ -55,13 +68,16 @@ test('adds the same agent mount and runtime environment for image, Dockerfile an
 });
 
 test('replaces explicit agent mounts without adding a second socket and preserves unrelated mounts', () => {
-	const result = withAgent({
-		mounts: [
-			'source=${localEnv:SSH_AUTH_SOCK},target=/tmp/vscode-agent,type=bind',
-			{ type: 'volume', source: 'history', target: '/history' }
-		],
-		remoteEnv: { SSH_AUTH_SOCK: '/tmp/vscode-agent' }
-	}, '/run/agent');
+	const result = withAgent(
+		{
+			mounts: [
+				'source=${localEnv:SSH_AUTH_SOCK},target=/tmp/vscode-agent,type=bind',
+				{ type: 'volume', source: 'history', target: '/history' }
+			],
+			remoteEnv: { SSH_AUTH_SOCK: '/tmp/vscode-agent' }
+		},
+		'/run/agent'
+	);
 	assert.equal(result.mounts.length, 2);
 	assert.equal(result.mounts[0].source, 'history');
 	assert.equal(result.mounts[1].source, '/run/agent');
@@ -73,18 +89,38 @@ test('refuses a conflicting reserved target or a private-key directory mount', (
 		[{ type: 'bind', source: '/unrelated', target: AGENT_TARGET }],
 		['source=${localEnv:HOME}/.ssh,target=/home/developer/.ssh,type=bind'],
 		[{ type: 'bind', source: '/home/operator/.ssh', target: '/credentials' }]
-	]) assert.throws(() => withAgent({ mounts }, '/run/agent'));
+	])
+		assert.throws(() => withAgent({ mounts }, '/run/agent'));
 	assert.throws(() => withAgent({ mounts: 'not-an-array' }, '/run/agent'));
 });
 
 test('agent paths and managed argv fail closed without shell interpretation', () => {
-	assert.equal(agentSource({ SSH_AUTH_SOCK: '/run/user/1000/agent with spaces' }), '/run/user/1000/agent with spaces');
-	for (const source of ['', 'relative', '/run/../agent', '/tmp/a,b', '/tmp/a\nb', '/tmp/$AGENT', '/tmp/a:b']) {
+	assert.equal(
+		agentSource({ SSH_AUTH_SOCK: '/run/user/1000/agent with spaces' }),
+		'/run/user/1000/agent with spaces'
+	);
+	for (const source of [
+		'',
+		'relative',
+		'/run/../agent',
+		'/tmp/a,b',
+		'/tmp/a\nb',
+		'/tmp/$AGENT',
+		'/tmp/a:b'
+	]) {
 		assert.throws(() => agentSource({ SSH_AUTH_SOCK: source }));
 	}
 	const workspace = "/workspace/repo ' $HOME; $(not-a-command)";
-	assert.deepEqual(commandTarget(['up', '--workspace-folder', workspace]), { workspace, config: undefined });
-	for (const args of [[], ['exec'], ['up', '--workspace-folder', 'relative'], ['up', '--workspace-folder', '/repo', '--override-config', '/evil']]) {
+	assert.deepEqual(commandTarget(['up', '--workspace-folder', workspace]), {
+		workspace,
+		config: undefined
+	});
+	for (const args of [
+		[],
+		['exec'],
+		['up', '--workspace-folder', 'relative'],
+		['up', '--workspace-folder', '/repo', '--override-config', '/evil']
+	]) {
 		assert.throws(() => commandTarget(args));
 	}
 });
@@ -102,9 +138,19 @@ prepare_arguments
 printf '%s\\0' "\${ARGS[@]}"
 `;
 	const socketArgs = socket ? ['--ssh-agent-socket', socket] : [];
-	const result = spawnSync('bash', ['-c', script, 'test', join(root, 'scripts/run-dashboard.sh'), ...socketArgs, ...args], {
-		encoding: 'utf8', env: { ...process.env, SSH_AUTH_SOCK: '/ignored/ambient-agent', SUDO_USER: 'ignored', HOSTNAME: 'ignored' }
-	});
+	const result = spawnSync(
+		'bash',
+		['-c', script, 'test', join(root, 'scripts/run-dashboard.sh'), ...socketArgs, ...args],
+		{
+			encoding: 'utf8',
+			env: {
+				...process.env,
+				SSH_AUTH_SOCK: '/ignored/ambient-agent',
+				SUDO_USER: 'ignored',
+				HOSTNAME: 'ignored'
+			}
+		}
+	);
 	return { ...result, args: result.stdout.split('\0') };
 }
 
@@ -123,8 +169,16 @@ test('launcher separates known_hosts from the agent and overrides ambient values
 	assert.equal(result.status, 0, result.stderr);
 	assert.ok(result.args.includes('SSH_AUTH_SOCK=/run/user/1000/agent'));
 	assert.ok(result.args.includes('HOST_HOSTNAME='));
-	assert.ok(result.args.includes('type=bind,source=/run/user/1000/agent,target=/run/user/1000/agent,readonly'));
-	assert.ok(result.args.includes('type=bind,source=/home/developer/.ssh/known_hosts,target=/etc/ssh/ssh_known_hosts,readonly'));
+	assert.ok(
+		result.args.includes(
+			'type=bind,source=/run/user/1000/agent,target=/run/user/1000/agent,readonly'
+		)
+	);
+	assert.ok(
+		result.args.includes(
+			'type=bind,source=/home/developer/.ssh/known_hosts,target=/etc/ssh/ssh_known_hosts,readonly'
+		)
+	);
 	assert.ok(!result.args.some((arg) => arg.includes('target=/home/developer/.ssh')));
 	assert.ok(!result.args.some((arg) => arg.includes('/ignored/ambient-agent')));
 });
@@ -145,25 +199,61 @@ async function fixture(t) {
 	await once(server, 'listening');
 	t.after(() => server.close());
 	await writeFile(join(bin, 'ssh-add'), '#!/bin/sh\nexit "${AGENT_EXIT:-0}"\n', { mode: 0o755 });
-	await writeFile(join(bin, 'devcontainer'), `#!${process.execPath}
+	await writeFile(
+		join(bin, 'devcontainer'),
+		`#!${process.execPath}
 const fs = require('node:fs');
 const args = process.argv.slice(2);
 const override = args[args.indexOf('--override-config') + 1];
 fs.appendFileSync(process.env.TEST_LOG, JSON.stringify({args, override, config: JSON.parse(fs.readFileSync(override, 'utf8'))})+'\\n');
 process.exit(args[0] === 'exec' ? Number(process.env.REMOTE_EXIT || 0) : Number(process.env.UP_EXIT || 0));
-`, { mode: 0o755 });
+`,
+		{ mode: 0o755 }
+	);
 	return {
-		workspace, config, socket,
+		workspace,
+		config,
+		socket,
 		run(env = {}, rebuild = false) {
-			return spawnSync(process.execPath, [join(root, 'scripts/devcontainer-agent.mjs'), 'up', '--workspace-folder', workspace, '--config', config,
-				...(rebuild ? ['--id-label', `devcontainer.local_folder=${workspace}`, '--id-label', `devcontainer.config_file=${config}`, '--remove-existing-container'] : [])], {
-				encoding: 'utf8', timeout: 10000,
-				env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, SSH_AUTH_SOCK: socket, TEST_LOG: log, ...env }
-			});
+			return spawnSync(
+				process.execPath,
+				[
+					join(root, 'scripts/devcontainer-agent.mjs'),
+					'up',
+					'--workspace-folder',
+					workspace,
+					'--config',
+					config,
+					...(rebuild
+						? [
+								'--id-label',
+								`devcontainer.local_folder=${workspace}`,
+								'--id-label',
+								`devcontainer.config_file=${config}`,
+								'--remove-existing-container'
+							]
+						: [])
+				],
+				{
+					encoding: 'utf8',
+					timeout: 10000,
+					env: {
+						...process.env,
+						PATH: `${bin}:${process.env.PATH}`,
+						SSH_AUTH_SOCK: socket,
+						TEST_LOG: log,
+						...env
+					}
+				}
+			);
 		},
 		async calls() {
-			try { return (await readFile(log, 'utf8')).trim().split('\n').filter(Boolean).map(JSON.parse); }
-			catch (error) { if (error.code === 'ENOENT') return []; throw error; }
+			try {
+				return (await readFile(log, 'utf8')).trim().split('\n').filter(Boolean).map(JSON.parse);
+			} catch (error) {
+				if (error.code === 'ENOENT') return [];
+				throw error;
+			}
 		}
 	};
 }

@@ -175,7 +175,12 @@ printf '%s\\0' "\${ARGS[@]}" __PUBLICATION__ "\${PUBLICATION[@]}"
 		['-c', script, 'test', join(root, 'scripts/run-dashboard.sh'), ...args],
 		{
 			encoding: 'utf8',
-			env: { ...process.env, SSH_AUTH_SOCK: '/ignored/agent', SUDO_USER: 'ignored', HOSTNAME: 'ignored' }
+			env: {
+				...process.env,
+				SSH_AUTH_SOCK: '/ignored/agent',
+				SUDO_USER: 'ignored',
+				HOSTNAME: 'ignored'
+			}
 		}
 	);
 	return { ...result, args: result.stdout.split('\0') };
@@ -289,10 +294,7 @@ test('automatic token is private, stable across starts, opt-in, and never overwr
 	await assert.rejects(brain.startup.prepareBrain({ BRAIN_MCP_ENABLED: '1' }, path), /32 to 512/);
 	assert.equal(await readFile(path, 'utf8'), 'invalid');
 	await chmod(path, 0o644);
-	await assert.rejects(
-		brain.startup.prepareBrain({ BRAIN_MCP_ENABLED: '1' }, path),
-		/mode 600/
-	);
+	await assert.rejects(brain.startup.prepareBrain({ BRAIN_MCP_ENABLED: '1' }, path), /mode 600/);
 	assert.equal(
 		(await brain.startup.prepareBrain({ BRAIN_MCP_ENABLED: '1', BRAIN_MCP_TOKEN: TOKEN }, path))
 			.token,

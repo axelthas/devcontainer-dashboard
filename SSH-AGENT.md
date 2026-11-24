@@ -176,7 +176,10 @@ disposable native Linux Docker host:
 12. Confirm strict host-key rejection for an unknown server.
 13. Confirm missing flags fail even with host SSH_AUTH_SOCK and SUDO_USER set.
 
-`scripts/tests/container-smoke.sh` is a legacy fixture that still uses fake `.ssh`
-directory data. It must be migrated before it can validate this new contract; do
-not interpret it as agent-forwarding evidence. No runtime validation was performed
-while preparing the GitHub-only draft PR.
+`scripts/tests/container-smoke.sh` uses its own disposable SSH agent and generated
+fixture key. It forwards only that socket, a public test key and a read-only
+fixture known_hosts file. It compares agent identities and tests signing in the
+dashboard and a non-root managed devcontainer. It never loads keys into the
+operator's agent or mounts private keys. Run it only on a disposable native Linux
+Docker-host fixture; source and mocked tests do not establish runtime forwarding.
+The migrated Docker fixture has not yet been executed for this branch.

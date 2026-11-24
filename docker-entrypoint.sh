@@ -120,7 +120,7 @@ exec runuser -u "$HOST_USER" -- /bin/sh -c '
     case "$agent_status" in
         0) ;;
         1) echo "[entrypoint] SSH agent connected, but no identities are loaded" ;;
-        *) echo "[entrypoint] ERROR: Host SSH agent is unreachable by $USER. Check socket permissions and preserve SSH_AUTH_SOCK under sudo. No private-key fallback is available." >&2; exit 1 ;;
+        *) echo "[entrypoint] ERROR: Host SSH agent is unreachable by $USER. Check --ssh-agent-socket and operator UID/socket permissions. No private-key fallback is available." >&2; exit 1 ;;
     esac
     if [ "${DEVHARBOUR_KNOWN_HOSTS:-}" = 1 ]; then
         test -f /etc/ssh/ssh_known_hosts && test -r /etc/ssh/ssh_known_hosts || {

@@ -23,7 +23,9 @@ async function fixture(t) {
 	t.after(() => server.close());
 	const bin = join(home, 'bin');
 	mkdirSync(bin);
-	writeFileSync(join(bin, 'git'), `#!/bin/bash
+	writeFileSync(
+		join(bin, 'git'),
+		`#!/bin/bash
 printf '%s\\n' "$GIT_SSH_COMMAND" > "$HOME/ssh-policy"
 [[ "\${FAIL_CLONE:-0}" != 1 ]] || exit 1
 mkdir -p "$HOME/.devbootstrap"
@@ -36,14 +38,24 @@ printf '#!/bin/sh\\nexit 0\\n' > "$HOME/.local/bin/devbootstrap"
 chmod +x "$HOME/.local/bin/devbootstrap"
 INSTALL
 chmod +x "$HOME/.devbootstrap/install.sh"
-`, { mode: 0o755 });
+`,
+		{ mode: 0o755 }
+	);
 	return {
 		home,
 		/** Execute the hook without replacing its credential checks. */
 		run(env = {}) {
 			return spawnSync('bash', [join(root, 'plugins/tern-dev-bootstrap.sh')], {
-				encoding: 'utf8', timeout: 5000,
-				env: { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH}`, SSH_AUTH_SOCK: socket, GIT_SSH_COMMAND: '', ...env }
+				encoding: 'utf8',
+				timeout: 5000,
+				env: {
+					...process.env,
+					HOME: home,
+					PATH: `${bin}:${process.env.PATH}`,
+					SSH_AUTH_SOCK: socket,
+					GIT_SSH_COMMAND: '',
+					...env
+				}
 			});
 		}
 	};

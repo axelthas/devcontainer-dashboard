@@ -114,6 +114,8 @@ if(args[0]==='inspect') console.log(args[2].includes('Health') ? (process.env.HE
 				interactive ? 'script' : 'bash',
 				interactive ? ['-q', '-e', '-c', command, '/dev/null'] : [path, ...args],
 				{
+					// Non-interactive children must not inherit the runner's controlling TTY.
+					detached: !interactive,
 					encoding: 'utf8',
 					timeout: 10000,
 					input,
@@ -256,7 +258,12 @@ test('registry mode: image, port, bind address, hook and known_hosts-only flags'
 
 test('registry mode: forwards only the explicitly selected agent and host name', (t) => {
 	const f = fixture(t);
-	const r = registry(f, ['--ssh-agent-socket', '/run/user/2345/selected-agent', '--host-name', 'build-host']);
+	const r = registry(f, [
+		'--ssh-agent-socket',
+		'/run/user/2345/selected-agent',
+		'--host-name',
+		'build-host'
+	]);
 	assert.equal(r.status, 0, r.stderr);
 	assert.ok(
 		runCall(r).args.includes(
@@ -271,8 +278,17 @@ test('registry mode: forwards only the explicitly selected agent and host name',
 test('missing socket argument cannot fall back to host SSH_AUTH_SOCK', (t) => {
 	const f = fixture(t);
 	const missing = f.run(
-		[...identityFlags, '--non-interactive', '--no-create-workspace', '--password-file', f.passwordFile],
-		{ SSH_AUTH_SOCK: '/run/user/2345/environment-agent' }, false, '\n', false
+		[
+			...identityFlags,
+			'--non-interactive',
+			'--no-create-workspace',
+			'--password-file',
+			f.passwordFile
+		],
+		{ SSH_AUTH_SOCK: '/run/user/2345/environment-agent' },
+		false,
+		'\n',
+		false
 	);
 	assert.notEqual(missing.status, 0);
 	assert.match(missing.stderr, /--ssh-agent-socket is required/);
@@ -323,7 +339,13 @@ test('host identity is required even when sudo and identity environment variable
 	const f = fixture(t);
 	const r = f.run(
 		['--non-interactive', '--no-create-workspace', '--password-file', f.passwordFile],
-		{ SUDO_USER: 'original', HOST_USER: 'original', HOST_UID: '4567', HOST_GID: '5678', HOST_HOME: '/home/original' }
+		{
+			SUDO_USER: 'original',
+			HOST_USER: 'original',
+			HOST_UID: '4567',
+			HOST_GID: '5678',
+			HOST_HOME: '/home/original'
+		}
 	);
 	assert.notEqual(r.status, 0);
 	assert.match(r.stderr, /Set all four/);
@@ -335,11 +357,17 @@ test('host identity is required even when sudo and identity environment variable
 
 test('help needs no identity, password or daemon and ignores the environment', (t) => {
 	const f = fixture(t);
-	const r = f.run(['--help'], {
-		DASHBOARD_PASSWORD: 'ignored',
-		WORKSPACE_ROOT: '/ignored',
-		DDASH_DEV_BOOTSTRAP: '1'
-	}, false, '\n', false);
+	const r = f.run(
+		['--help'],
+		{
+			DASHBOARD_PASSWORD: 'ignored',
+			WORKSPACE_ROOT: '/ignored',
+			DDASH_DEV_BOOTSTRAP: '1'
+		},
+		false,
+		'\n',
+		false
+	);
 	assert.equal(r.status, 0);
 	assert.equal(r.calls.length, 0);
 	assert.match(r.stdout, /--password-file/);
@@ -538,6 +566,8 @@ test('non-interactive runs require --password or --password-file', (t) => {
 test('prompts without a terminal fail with guidance', (t) => {
 	const f = fixture(t);
 	const r = f.run([...identityFlags]);
+	assert.equal(r.error, undefined, 'The child must exit normally, not time out');
+	assert.notEqual(r.status, null);
 	assert.notEqual(r.status, 0);
 	assert.match(r.stderr, /terminal/);
 	assert.equal(r.calls.length, 0);

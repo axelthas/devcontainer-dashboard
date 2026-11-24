@@ -37,30 +37,30 @@ internal environment variable is not an implicit launcher input.
 
 Common flags:
 
-| Flag | Meaning |
-| ---- | ------- |
-| `--host-user NAME` | Required non-root Docker-host operator name. |
-| `--host-uid UID` | Required Docker-host operator UID. |
-| `--host-gid GID` | Required Docker-host operator primary GID. |
-| `--host-home PATH` | Required canonical absolute Docker-host operator home. |
-| `--ssh-agent-socket PATH` | Required existing Docker-host SSH agent socket. |
-| `--host-name NAME` | Optional host label; defaults to unset, not host HOSTNAME. |
-| `--workspace PATH` | Workspace bind, source and target identical. Registry default `HOST_HOME/ddash-workspace`, build default `HOST_HOME/ddash-production-workspace`. |
-| `--socket PATH` | Docker-host socket (default `/var/run/docker.sock`). |
-| `--port N` | Published host port (registry default 3000, build default 3001). |
-| `--bind-address ADDR` | Registry-mode publication address (default `127.0.0.1`). Build mode stays loopback-only. |
-| `--origin URL` | External HTTP(S) origin, forwarded only when set. |
-| `--password VALUE` | Explicit password (visible in process lists; prefer the file or prompt). |
-| `--password-file PATH` | Read the password from a file, trimming one trailing newline. |
-| `--env-file PATH` | Extend the container environment from a Docker env file; repeatable in both modes. |
-| `--bootstrap` | Enable the dev-bootstrap startup hook. Omit the flag to keep it disabled. |
-| `--ssh-known-hosts PATH` | One trusted known_hosts file, mounted read-only in the dashboard. No key-directory mount. |
-| `--no-create-workspace` | Skip local workspace creation for remote daemons. |
-| `--non-interactive` | Disable all prompts; requires `--password` or `--password-file`. |
-| `--gateway`, `--gateway-host`, `--gateway-ports` | Opt-in service-gateway passthroughs. |
-| `--vscode-ssh-host VALUE` | `VSCODE_SSH_HOST` passthrough. |
-| `--image REF` | Registry mode only: image reference. |
-| `--platform`, `--name`, `--health-timeout` | Build mode only. Cross-mode flags fail with clear errors. |
+| Flag                                             | Meaning                                                                                                                                          |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--host-user NAME`                               | Required non-root Docker-host operator name.                                                                                                     |
+| `--host-uid UID`                                 | Required Docker-host operator UID.                                                                                                               |
+| `--host-gid GID`                                 | Required Docker-host operator primary GID.                                                                                                       |
+| `--host-home PATH`                               | Required canonical absolute Docker-host operator home.                                                                                           |
+| `--ssh-agent-socket PATH`                        | Required existing Docker-host SSH agent socket.                                                                                                  |
+| `--host-name NAME`                               | Optional host label; defaults to unset, not host HOSTNAME.                                                                                       |
+| `--workspace PATH`                               | Workspace bind, source and target identical. Registry default `HOST_HOME/ddash-workspace`, build default `HOST_HOME/ddash-production-workspace`. |
+| `--socket PATH`                                  | Docker-host socket (default `/var/run/docker.sock`).                                                                                             |
+| `--port N`                                       | Published host port (registry default 3000, build default 3001).                                                                                 |
+| `--bind-address ADDR`                            | Registry-mode publication address (default `127.0.0.1`). Build mode stays loopback-only.                                                         |
+| `--origin URL`                                   | External HTTP(S) origin, forwarded only when set.                                                                                                |
+| `--password VALUE`                               | Explicit password (visible in process lists; prefer the file or prompt).                                                                         |
+| `--password-file PATH`                           | Read the password from a file, trimming one trailing newline.                                                                                    |
+| `--env-file PATH`                                | Extend the container environment from a Docker env file; repeatable in both modes.                                                               |
+| `--bootstrap`                                    | Enable the dev-bootstrap startup hook. Omit the flag to keep it disabled.                                                                        |
+| `--ssh-known-hosts PATH`                         | One trusted known_hosts file, mounted read-only in the dashboard. No key-directory mount.                                                        |
+| `--no-create-workspace`                          | Skip local workspace creation for remote daemons.                                                                                                |
+| `--non-interactive`                              | Disable all prompts; requires `--password` or `--password-file`.                                                                                 |
+| `--gateway`, `--gateway-host`, `--gateway-ports` | Opt-in service-gateway passthroughs.                                                                                                             |
+| `--vscode-ssh-host VALUE`                        | `VSCODE_SSH_HOST` passthrough.                                                                                                                   |
+| `--image REF`                                    | Registry mode only: image reference.                                                                                                             |
+| `--platform`, `--name`, `--health-timeout`       | Build mode only. Cross-mode flags fail with clear errors.                                                                                        |
 
 `--no-bootstrap`, `--ssh-dir` and `--no-ssh-dir` have been removed. They fail with
 migration guidance rather than silently changing behavior. `--help` needs none
@@ -260,10 +260,13 @@ not a dry run. Fixture builds require `SMOKE_BASE_URL` and
 `SMOKE_FIXTURE_CLEANUP_OWNER=external`. The caller must own sibling-container
 cleanup.
 
-The legacy `container-smoke.sh` fixture still uses fake SSH-directory binds and
-requires migration before it can validate this agent-only contract. Do not run
-it as evidence of the new behavior. Use the native Linux checklist in
-[SSH-AGENT.md](../SSH-AGENT.md) for real end-to-end acceptance.
+`container-smoke.sh` creates its own disposable SSH agent and fixture key,
+forwards the socket into the dashboard and a non-root managed devcontainer, and
+checks public identities and signing. It mounts no private keys and never uses
+or changes the operator's real agent. It requires a native Linux Docker host and
+network access, and cleans up only its own resources. Its migration is source-
+checked but still requires a recorded Docker integration run. Use the checklist
+in [SSH-AGENT.md](../SSH-AGENT.md) for real end-to-end acceptance.
 
 Record the exact revision and commands actually run. A mocked suite passing is not
 a successful production build or Docker integration result. Real agent forwarding,

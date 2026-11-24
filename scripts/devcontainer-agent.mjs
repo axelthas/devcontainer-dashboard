@@ -77,8 +77,7 @@ export function withAgent(configuration, source) {
 			);
 		}
 		const hostAgent =
-			parts.source === source ||
-			/^\$\{localEnv:SSH_AUTH_SOCK(?::[^}]*)?\}$/.test(parts.source);
+			parts.source === source || /^\$\{localEnv:SSH_AUTH_SOCK(?::[^}]*)?\}$/.test(parts.source);
 		if (parts.target === AGENT_TARGET && !hostAgent) {
 			throw new Error(
 				'The reserved DevHarbour SSH agent target is already mounted from another source'
@@ -162,7 +161,9 @@ async function run(file, args, { capture = false, timeout = 0 } = {}) {
 			cleanup();
 			if (timedOut || overflow || signal) {
 				reject(
-					new Error('SSH/devcontainer command timed out, exceeded its output limit, or was interrupted')
+					new Error(
+						'SSH/devcontainer command timed out, exceeded its output limit, or was interrupted'
+					)
 				);
 			} else resolveResult({ code, output });
 		});
@@ -203,20 +204,24 @@ async function verifyRemote(workspace, config, override) {
 		'command -v ssh-add >/dev/null || { echo "Install openssh-client in this devcontainer to verify agent access" >&2; exit 2; }; ' +
 		'status=0; ssh-add -l >/dev/null 2>&1 || status=$?; ' +
 		'case "$status" in 0|1) exit 0;; *) echo "The remote user cannot access the host SSH agent. Check remoteUser UID and socket permissions; no chmod was applied." >&2; exit 2;; esac';
-	const result = await run('devcontainer', [
-		'exec',
-		'--workspace-folder',
-		workspace,
-		'--config',
-		config,
-		'--override-config',
-		override,
-		'--remote-env',
-		`SSH_AUTH_SOCK=${AGENT_TARGET}`,
-		'sh',
-		'-c',
-		script
-	], { timeout: 30000 });
+	const result = await run(
+		'devcontainer',
+		[
+			'exec',
+			'--workspace-folder',
+			workspace,
+			'--config',
+			config,
+			'--override-config',
+			override,
+			'--remote-env',
+			`SSH_AUTH_SOCK=${AGENT_TARGET}`,
+			'sh',
+			'-c',
+			script
+		],
+		{ timeout: 30000 }
+	);
 	if (result.code !== 0) {
 		throw new Error(
 			'Devcontainer SSH agent verification failed. An existing container may need an explicit rebuild. The container was not removed or rolled back.'
@@ -235,7 +240,10 @@ export async function main(args = process.argv.slice(2)) {
 	const directory = await mkdtemp(join(tmpdir(), 'devharbour-agent-'));
 	try {
 		const override = join(directory, 'devcontainer.json');
-		await writeFile(override, JSON.stringify(managed, null, '\t') + '\n', { mode: 0o600, flag: 'wx' });
+		await writeFile(override, JSON.stringify(managed, null, '\t') + '\n', {
+			mode: 0o600,
+			flag: 'wx'
+		});
 		// --config remains the original file: relative Dockerfiles, Features, Compose
 		// files, variable substitution and identity labels keep their original base.
 		const actualArgs = target.config ? args : [...args, '--config', config];
