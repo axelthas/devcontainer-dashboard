@@ -16,14 +16,30 @@ mode must not source repository files or require a checkout.
 
 `run-dashboard.sh` is the single entrypoint for running the dashboard.
 
-- Default (registry) mode pulls the selected image and runs it attached in the
-  foreground with the stable `dashboard_data` and `ddash_zsh_data` named volumes.
-  Ctrl+C stops the container; the volumes persist.
+- Default (registry) mode pulls the selected image and runs it detached with the
+  stable `dashboard_data` and `ddash_zsh_data` named volumes. The container remains
+  after it stops. Use the printed `docker logs`, `docker stop` and `docker start`
+  commands to manage it; Ctrl+C in the log viewer does not stop the dashboard.
 - `--build` builds this checkout with Docker Buildx, loads the image, creates a
   uniquely named test instance on host loopback, waits for the image healthcheck,
   and checks HTTP responses inside the container. Containers and volumes remain
   on success or failure for inspection. It never publishes an image or replaces
   another instance.
+
+Both modes use `--restart always`: Docker restarts the dashboard after it exits
+and whenever the daemon starts, including after a manual stop. Docker must be
+enabled at host boot for host-reboot startup. Use the printed
+`docker update --restart=no CONTAINER_NAME` command before stopping an instance
+that must stay stopped across daemon restarts. Build instances also retain this
+policy on readiness failure; inspect logs and disable it if startup keeps failing.
+Each retained build instance can start again, so disable the policy on old test
+instances before reusing their ports or shared resources.
+
+Use `docker start CONTAINER_NAME` to resume a retained instance, not another
+launcher invocation. Existing retained containers need
+`docker update --restart=always CONTAINER_NAME` to adopt the new default. Old
+registry containers created with `--rm` must be recreated without `--rm`, retaining
+their named volumes.
 
 All inputs are explicit CLI flags; see `bash scripts/run-dashboard.sh --help` for
 the full grammar. The launcher reads no deployment environment. An exported

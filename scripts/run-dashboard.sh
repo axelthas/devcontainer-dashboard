@@ -2,7 +2,8 @@
 # Run the dashboard: pull the published image, or build and verify this checkout.
 # Explicit flags are the only deployment inputs. Tailscale mode is Linux-only,
 # uses host networking, and keeps the dashboard and service gateway on loopback.
-# Named volumes persist. The selected image has full Docker operator access.
+# Containers run detached and restart whenever Docker starts. Named volumes persist.
+# The selected image has full Docker operator access.
 set -euo pipefail
 
 # Stop before starting later phases.
@@ -12,7 +13,8 @@ fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 usage() {
   cat <<'HELP'
 Usage: bash scripts/run-dashboard.sh [options]
-Registry mode pulls and runs attached; build mode verifies this checkout.
+Registry mode pulls the image; build mode verifies this checkout.
+Both modes run detached with Docker's always restart policy.
 Options:
   --workspace PATH         Workspace bind (same source and target).
   --socket PATH            Docker socket (default /var/run/docker.sock).
@@ -449,25 +451,29 @@ print_plan() {
   fi
 }
 
-# Pull and run attached; keep data/history volumes after Ctrl+C.
+# Pull and run persistently; retain the container and data/history volumes.
 run_registry() {
   docker pull "$IMAGE"
-  printf 'Dashboard address: http://%s:%s\n' "$BIND_ADDRESS" "$PORT"
-  echo 'Ctrl+C stops the container; the dashboard_data and ddash_zsh_data volumes persist.'
-  exec docker run --rm "${ARGS[@]}" "${PUBLICATION[@]}" \
+  docker run --detach --restart always "${ARGS[@]}" "${PUBLICATION[@]}" \
     --volume dashboard_data:/data --volume ddash_zsh_data:/dashboard-history \
     --name devcontainer-dashboard "$IMAGE" "${HOOK[@]}"
+  printf 'Dashboard address: http://%s:%s\n' "$BIND_ADDRESS" "$PORT"
+  printf 'Logs: docker logs -f devcontainer-dashboard\nStop: docker stop devcontainer-dashboard\nResume: docker start devcontainer-dashboard\n'
+  echo 'Restart policy: always. A stopped container starts again when Docker restarts.'
+  echo 'Disable automatic restart: docker update --restart=no devcontainer-dashboard'
 }
 
 # Build a disposable instance and retain its resources on success or failure.
 run_build() {
   printf 'Test container name: %s\nImage: %s\n' "$TEST_NAME" "$IMAGE"
   docker buildx build "${BUILD_ARGS[@]}" .
-  docker run --detach "${ARGS[@]}" "${PUBLICATION[@]}" \
+  docker run --detach --restart always "${ARGS[@]}" "${PUBLICATION[@]}" \
     --volume "$TEST_NAME-data:/data" --volume "$TEST_NAME-zsh:/dashboard-history" \
     --name "$TEST_NAME" "$IMAGE" "${HOOK[@]}" || fail 'Container creation failed; check daemon-host paths and port availability'
   printf 'Retained volumes: %s-data %s-zsh %s\n' "$TEST_NAME" "$TEST_NAME" "$AI_STATE_VOLUME"
   printf 'Logs: docker logs -f %s\nStop: docker stop %s\nResume: docker start %s\n' "$TEST_NAME" "$TEST_NAME" "$TEST_NAME"
+  echo 'Restart policy: always. A stopped container starts again when Docker restarts.'
+  printf 'Disable automatic restart: docker update --restart=no %s\n' "$TEST_NAME"
   wait_for_readiness
 }
 
