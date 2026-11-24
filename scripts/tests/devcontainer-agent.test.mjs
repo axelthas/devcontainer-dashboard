@@ -89,7 +89,7 @@ test('agent paths and managed argv fail closed without shell interpretation', ()
 	}
 });
 
-/** Execute only the pure launcher phases for mount grammar and validation checks. */
+/** Execute only the pure launcher phases with explicit deployment arguments. */
 function launcher(args = [], socket = '/run/user/1000/agent') {
 	const script = `source <(sed '$d' "$1")
 shift
@@ -101,29 +101,32 @@ validate_ssh_agent
 prepare_arguments
 printf '%s\\0' "\${ARGS[@]}"
 `;
-	const result = spawnSync('bash', ['-c', script, 'test', join(root, 'scripts/run-dashboard.sh'), ...args], {
-		encoding: 'utf8', env: { ...process.env, SSH_AUTH_SOCK: socket }
+	const socketArgs = socket ? ['--ssh-agent-socket', socket] : [];
+	const result = spawnSync('bash', ['-c', script, 'test', join(root, 'scripts/run-dashboard.sh'), ...socketArgs, ...args], {
+		encoding: 'utf8', env: { ...process.env, SSH_AUTH_SOCK: '/ignored/ambient-agent', SUDO_USER: 'ignored', HOSTNAME: 'ignored' }
 	});
 	return { ...result, args: result.stdout.split('\0') };
 }
 
-test('launcher requires the agent and rejects both removed directory flags', () => {
-	for (const args of [['--ssh-dir'], ['--no-ssh-dir']]) {
+test('launcher requires the socket argument and rejects removed flags', () => {
+	for (const args of [['--ssh-dir'], ['--no-ssh-dir'], ['--no-bootstrap']]) {
 		const result = launcher(args);
 		assert.notEqual(result.status, 0);
-		assert.match(result.stderr, /removed.*SSH_AUTH_SOCK/);
+		assert.match(result.stderr, /removed/);
 	}
-	assert.match(launcher([], '').stderr, /Export SSH_AUTH_SOCK/);
+	assert.match(launcher([], '').stderr, /--ssh-agent-socket is required/);
 	assert.notEqual(launcher([], '/tmp/a:b').status, 0);
 });
 
-test('launcher separates known_hosts from the agent and explicitly overrides env files', () => {
+test('launcher separates known_hosts from the agent and overrides ambient values', () => {
 	const result = launcher(['--ssh-known-hosts', '/home/developer/.ssh/known_hosts']);
 	assert.equal(result.status, 0, result.stderr);
 	assert.ok(result.args.includes('SSH_AUTH_SOCK=/run/user/1000/agent'));
+	assert.ok(result.args.includes('HOST_HOSTNAME='));
 	assert.ok(result.args.includes('type=bind,source=/run/user/1000/agent,target=/run/user/1000/agent,readonly'));
 	assert.ok(result.args.includes('type=bind,source=/home/developer/.ssh/known_hosts,target=/etc/ssh/ssh_known_hosts,readonly'));
 	assert.ok(!result.args.some((arg) => arg.includes('target=/home/developer/.ssh')));
+	assert.ok(!result.args.some((arg) => arg.includes('/ignored/ambient-agent')));
 });
 
 /** Make an agent socket and fake CLI boundaries without a daemon or real keys. */

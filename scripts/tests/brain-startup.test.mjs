@@ -156,15 +156,16 @@ async function directory(t) {
 	return path;
 }
 
-/** Execute the real launcher's pure phases, with explicit identity and no daemon calls. */
+/** Execute the real launcher's pure phases, with explicit identity/socket and no daemon calls. */
 function launcher(args = []) {
 	const script = `
 source <(sed '$d' "$1")
 shift
-parse_arguments --workspace /workspaces --no-create-workspace --host-user developer --host-uid 2345 --host-gid 3456 --host-home /home/developer "$@"
+parse_arguments --workspace /workspaces --no-create-workspace --host-user developer --host-uid 2345 --host-gid 3456 --host-home /home/developer --ssh-agent-socket /run/user/2345/agent "$@"
 validate_env_files
 resolve_identity
 validate_options
+validate_ssh_agent
 TEST_NAME=brain-test REVISION=test DIRTY=false
 prepare_arguments
 printf '%s\\0' "\${ARGS[@]}" __PUBLICATION__ "\${PUBLICATION[@]}"
@@ -174,7 +175,7 @@ printf '%s\\0' "\${ARGS[@]}" __PUBLICATION__ "\${PUBLICATION[@]}"
 		['-c', script, 'test', join(root, 'scripts/run-dashboard.sh'), ...args],
 		{
 			encoding: 'utf8',
-			env: { ...process.env, SSH_AUTH_SOCK: '' }
+			env: { ...process.env, SSH_AUTH_SOCK: '/ignored/agent', SUDO_USER: 'ignored', HOSTNAME: 'ignored' }
 		}
 	);
 	return { ...result, args: result.stdout.split('\0') };
@@ -288,7 +289,10 @@ test('automatic token is private, stable across starts, opt-in, and never overwr
 	await assert.rejects(brain.startup.prepareBrain({ BRAIN_MCP_ENABLED: '1' }, path), /32 to 512/);
 	assert.equal(await readFile(path, 'utf8'), 'invalid');
 	await chmod(path, 0o644);
-	await assert.rejects(brain.startup.prepareBrain({ BRAIN_MCP_ENABLED: '1' }, path), /mode 600/);
+	await assert.rejects(
+		brain.startup.prepareBrain({ BRAIN_MCP_ENABLED: '1' }, path),
+		/mode 600/
+	);
 	assert.equal(
 		(await brain.startup.prepareBrain({ BRAIN_MCP_ENABLED: '1', BRAIN_MCP_TOKEN: TOKEN }, path))
 			.token,
