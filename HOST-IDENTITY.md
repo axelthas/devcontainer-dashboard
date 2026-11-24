@@ -17,50 +17,60 @@ storage, and drops privileges with `runuser`. Bundled hooks, operator hooks, the
 server, terminals and builds run as the configured account. HOME, USER and
 LOGNAME describe that account. The target devcontainer's remoteUser is separate.
 
-Set all four values together for an explicit identity:
+All four identity arguments and the host agent socket are required in both modes:
 
 ```bash
 bash scripts/run-dashboard.sh --build \
   --host-user axel \
   --host-uid 1000 \
   --host-gid 1000 \
-  --host-home /home/axel
+  --host-home /home/axel \
+  --ssh-agent-socket /run/user/1000/ssh-agent.socket
 ```
 
-Normal local launcher invocations capture the current account from passwd.
-Under sudo, they select SUDO_USER. Partial `--host-*` overrides are rejected.
-For systemd, remote Docker hosts, and launches inside another container, supply
-all four values explicitly. The launcher cannot discover a remote daemon's
-operator. Root UID/GID is not supported. Existing image accounts must match exactly;
-conflicting accounts fail rather than being renamed or repurposed.
+Replace the sample values with the actual Docker-host identity and socket path.
+The launcher does not select an identity from passwd, `id`, `SUDO_USER`, `USER`,
+`HOME` or exported `HOST_*` variables. Missing and partial arguments fail. This
+also applies under sudo, in systemd, with remote Docker hosts and when invoked
+inside another container. Arguments must describe the daemon-host operator,
+not necessarily the account running the launcher client.
 
-Home paths must be canonical absolute paths without symlink parents. System
-directories, shell interpolation characters and commas are rejected.
-Spaces are supported in mounts. Structured build commands still have the
-separate shell-argument limitation tracked in issue #11.
+`--host-name NAME` optionally supplies the dashboard's host label. It defaults
+to unset. The launcher does not read `HOSTNAME` or discover a host name implicitly.
+
+Root UID/GID is not supported. Existing image accounts must match exactly;
+conflicting accounts fail rather than being renamed or repurposed. Home paths
+must be canonical absolute paths without symlink parents. System directories,
+shell interpolation characters and commas are rejected. Spaces are supported
+in mounts. Structured build commands still have the separate shell-argument
+limitation tracked in issue #11.
 
 ## Production launcher
 
 ```bash
 bash scripts/run-dashboard.sh --build \
-  --workspace "$HOME/ddash-production-workspace" \
+  --host-user axel --host-uid 1000 --host-gid 1000 --host-home /home/axel \
+  --ssh-agent-socket /run/user/1000/ssh-agent.socket \
+  --workspace /home/axel/ddash-production-workspace \
   --non-interactive --password-file /path/to/password
 ```
 
-Export the existing Docker-host agent's `SSH_AUTH_SOCK` before either launcher mode.
 Build mode builds both application outputs through the Dockerfile, loads the
 image locally, and starts a separate instance on loopback port 3001. It does not
 publish, replace another instance, or use Vite preview. `--origin` still
 configures an external HTTPS origin. Existing containers and data remain for
 inspection.
 
-Both launcher modes use the same identity contract. Supply `--workspace` and a
-password to avoid prompts; registry mode still prompts for the workspace and
-password when a terminal is available. Runs use the bundled hook only with
-`--bootstrap`. The launcher forwards the selected identity into the container,
-and its bind mounts fail closed: a missing workspace source fails instead of
-silently creating a root-owned directory. Restarting an old container does not
-change its configuration; start a new one with updated flags.
+Both launcher modes use the same explicit identity contract. Supply `--workspace`
+and a password to avoid prompts; registry mode still prompts for the workspace
+and password when a terminal is available. Bootstrap is disabled by default.
+Supply `--bootstrap` to enable the bundled hook; omit it to keep the hook disabled.
+`--no-bootstrap` has been removed and reports that migration guidance.
+
+The launcher forwards the supplied identity into the container. Bind mounts fail
+closed: a missing workspace source fails instead of silently creating a root-owned
+directory. Restarting an old container does not change its configuration; start
+a new one with updated flags.
 
 ## SSH and bind paths
 
@@ -72,10 +82,12 @@ mounted below it. The workspace uses the same absolute path on both sides.
 `--ssh-dir` and `--no-ssh-dir` have been removed. Do not mount the host `.ssh`
 directory, even read-only: a process can still read and extract private keys.
 
-The launcher requires `SSH_AUTH_SOCK` at its absolute Docker-host path and mounts
-the socket at the same path in DevHarbour. The entrypoint verifies connectivity
-as the configured non-root operator before hooks or server startup. A reachable
-agent with no identities is permitted, with an explicit diagnostic. Missing or
+`--ssh-agent-socket PATH` identifies the existing agent's absolute Docker-host
+socket path. The launcher never falls back to the host's `SSH_AUTH_SOCK`. It mounts
+the selected socket at the same path in DevHarbour and sets `SSH_AUTH_SOCK` inside
+the container from that argument. The entrypoint verifies connectivity as the
+configured non-root operator before hooks or server startup. A reachable agent
+with no identities is permitted, with an explicit diagnostic. Missing or
 inaccessible agents have no key-file fallback. No host socket permissions change.
 
 Managed devcontainer builds and rebuilds add the same agent at a dedicated target,

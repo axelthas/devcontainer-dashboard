@@ -6,32 +6,44 @@ mount instructions in deployment history and handoff notes.
 ## Authentication path
 
 ```text
-Existing Docker-host agent
+Existing Docker-host agent selected with --ssh-agent-socket
   -> same-path socket bind in DevHarbour
   -> /tmp/devharbour-ssh-agent.sock in each managed devcontainer
 ```
 
 DevHarbour does not start an agent. It does not copy private keys. It does not
-mount the host `.ssh` directory. `SSH_AUTH_SOCK` identifies the existing agent on
-the Docker host. There is no `SSH_SOCKET` configuration variable.
+mount the host `.ssh` directory. Pass the existing Docker-host agent socket with
+`--ssh-agent-socket PATH`. The launcher never reads the host's `SSH_AUTH_SOCK`.
+It sets `SSH_AUTH_SOCK` inside DevHarbour from the argument; standard SSH clients
+and the managed-devcontainer runner use that internal environment variable.
+There is no `SSH_SOCKET` configuration variable.
 
-Run the launcher from the native Linux Docker host with that variable exported.
-Keep the existing agent running. If it has no loaded identities, DevHarbour can
-start, but SSH authentication will not work until the operator loads an identity.
-The launcher fails when the variable is absent. The entrypoint checks the socket
-and agent protocol as the configured non-root operator before hooks or the server
-start. A missing, stale, inaccessible or unresponsive socket stops startup.
+Run the launcher from the native Linux Docker host with explicit identity and
+socket arguments. Keep the existing agent running. If it has no loaded identities,
+DevHarbour can start, but SSH authentication will not work until the operator
+loads an identity. A missing socket argument fails. The entrypoint checks the
+socket and agent protocol as the configured non-root operator before hooks or
+the server start. A missing, stale, inaccessible or unresponsive socket stops startup.
 
 ```bash
-ssh-add -l
 bash scripts/run-dashboard.sh --build \
-  --workspace "$HOME/git.workspaces" \
-  --ssh-known-hosts "$HOME/.ssh/known_hosts"
+  --host-user axel --host-uid 1000 --host-gid 1000 --host-home /home/axel \
+  --ssh-agent-socket /run/user/1000/ssh-agent.socket \
+  --workspace /home/axel/git.workspaces \
+  --ssh-known-hosts /home/axel/.ssh/known_hosts
 ```
 
-Do not use sudo unless necessary. If sudo is necessary, preserve the intended
-operator's `SSH_AUTH_SOCK` through your sudo policy. Do not discover another user's
-agent or change the socket permissions to make startup pass.
+Replace sample paths and numeric identity values before running. Add `--bootstrap`
+only when the bundled provider installer is wanted. Omission means disabled;
+`--no-bootstrap` has been removed. The launcher does not infer identity from
+`SUDO_USER`, passwd, `id` or exported identity variables. `--host-name NAME` is an
+optional label with an unset default; host `HOSTNAME` is not read either.
+
+A caller can explicitly expand a value, for example
+`--ssh-agent-socket "$SSH_AUTH_SOCK"`. That is an argument supplied by the caller,
+not a script fallback. Supplying no argument must fail even if the host variable
+is set. Do not discover another user's agent or change socket permissions to make
+startup pass.
 
 The path must exist on the Docker daemon host, not only in a browser, an SSH client
 or an outer VS Code devcontainer. A VS Code proxy socket inside another container
@@ -48,7 +60,7 @@ This avoids shell, Docker mount and Compose interpolation ambiguities.
 Build and rebuild actions run `scripts/devcontainer-agent.mjs` with literal argv.
 The runner does the following:
 
-1. Check the dashboard's access to the existing agent.
+1. Check the dashboard's access to the selected existing agent.
 2. Read the selected JSONC devcontainer configuration without executing it.
 3. Write a private temporary override outside the repository.
 4. Add a bind from the daemon-host socket to `/tmp/devharbour-ssh-agent.sock`.
@@ -85,10 +97,14 @@ can expose credentials independently and remain trusted operator configuration.
 ## Migration and lifecycle
 
 - Remove `--ssh-dir` and `--no-ssh-dir` from launch commands. Both now report removal.
+- Remove `--no-bootstrap`. Use `--bootstrap` to opt in, or omit it to disable.
+- Supply all four `--host-user`, `--host-uid`, `--host-gid` and `--host-home` arguments.
+- Supply `--ssh-agent-socket PATH`; exported `SSH_AUTH_SOCK` is not a fallback.
+- Supply `--host-name NAME` only when a host label is wanted.
 - Remove private-key directory binds from repository devcontainer configurations.
 - Remove obsolete socket mounts when they are declared in Compose or `runArgs`.
-- Keep the original host agent running and export its socket before launch.
-- Recreate DevHarbour to apply its changed mounts.
+- Keep the original host agent running.
+- Recreate DevHarbour to apply its changed mounts or launcher arguments.
 - Use an explicit rebuild to apply mounts to an existing devcontainer.
 
 An ordinary build/start does not silently replace an existing container. If that
@@ -96,11 +112,14 @@ container lacks the managed socket, verification fails and asks for an explicit
 rebuild. Verification failure does not roll back or remove the container. Normal
 rebuild replacement warnings and writable-layer loss still apply.
 
-A single-socket bind pins the socket inode. Adding or removing identities in the
-same agent works without recreation. Replacing the socket inode or selecting a
-new socket path requires recreation of DevHarbour and affected devcontainers.
+A single-socket bind pins the socket inode while the container runs. Adding or
+removing identities in the same agent does not require a new mount. A changed
+socket path requires recreation of DevHarbour and affected devcontainers to change
+the bind source. A stable path must exist before containers start after reboot;
+restart/remount behavior after inode replacement still requires runtime validation.
 There is no background agent discovery, relay or transparent socket recovery.
-Browser disconnection does not end the agent or the persistent build process.
+No image rebuild is needed merely to update a socket bind. Browser disconnection
+does not end the agent or the persistent build process.
 
 ## Host-key trust is separate
 
@@ -134,6 +153,8 @@ Source and mocked checks:
 ```bash
 npm run test:deployment
 npm run test:ssh
+npm run test:brain
+npm run test:tailscale
 npm run check
 npm run lint
 ```
@@ -149,10 +170,11 @@ disposable native Linux Docker host:
 6. Check `SSH_AUTH_SOCK` and a permitted Git operation in Terminal and OpenCode.
 7. Repeat with an empty agent, inaccessible socket, stale socket and wrong remote UID.
 8. Check a container that predates the mount, then explicitly rebuild it.
-9. Replace the agent socket and confirm the documented recreation requirement.
+9. Replace the agent socket and verify changed-path recreation and same-path restart.
 10. Disconnect and reattach during a build, then check explicit cancellation.
 11. Confirm there is no host `.ssh` directory or private-key mount in either container.
 12. Confirm strict host-key rejection for an unknown server.
+13. Confirm missing flags fail even with host SSH_AUTH_SOCK and SUDO_USER set.
 
 `scripts/tests/container-smoke.sh` is a legacy fixture that still uses fake `.ssh`
 directory data. It must be migrated before it can validate this new contract; do
