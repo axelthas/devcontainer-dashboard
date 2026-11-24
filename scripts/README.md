@@ -424,6 +424,40 @@ DEVHARBOUR_TEST_PYTHON=/tmp/devharbour-cli-tests/bin/python npm run test:cli
 The tests use disposable PTYs, Unix sockets, empty OpenSSH agents and Git fixtures;
 they do not use operator keys or existing Docker resources.
 
+#### Tailscale origin autodiscovery
+
+In the Tailscale access step, a CLI running on the actual Docker host executes
+`tailscale --socket=<selected-path> whoami --json`. It derives only the local
+`Node.Name`, removes the final DNS dot, validates a device `*.ts.net` hostname,
+and offers `https://<name>` for confirmation. It never uses `UserProfile.LoginName`,
+a peer's DNS name, a service advertisement or the account/tailnet display name.
+
+Older clients can fall back to
+`tailscale --socket=<selected-path> status --json --peers=false`, using
+`Self.DNSName` only when `BackendState` is `Running` and the node is not explicitly
+offline. Disabled MagicDNS, an unauthorized machine, mismatched tailnet metadata
+or an invalid hostname is not guessed around. Missing commands, socket/login
+permissions, malformed JSON and timeouts produce actionable manual-entry guidance.
+Raw identity output, node keys and endpoint lists are never printed or saved.
+
+An explicit `--origin` bypasses discovery. A saved origin, including a nonstandard
+HTTPS port, stays the highlighted default; the detected suggestion is a separate
+choice. Remote-host setup does not query the current machine's Tailscale identity.
+Jumping straight from saved review to access requires confirmation of which host
+the CLI is running on before attempting local discovery.
+
+The detected DNS name suggests HTTPS port 443 only. It does not inspect existing
+Serve ports, prove certificate/HTTPS availability, or establish a route. Operators
+can retain or enter a configured custom port. Discovery runs only read-only
+identity/status commands with a five-second timeout each and the configured socket;
+it never invokes sudo, login, up, cert, serve or funnel. The overall apply step
+still has its separate existing Tailscale trust and startup behavior.
+
+Reference: [Tailscale CLI documentation](https://tailscale.com/docs/reference/tailscale-cli).
+The current CLI source also documents `whoami --json`; the status JSON format can
+vary by release, so unknown shapes retain the manual path rather than inventing a
+hostname.
+
 #### Host SSH-agent discovery
 
 Interactive setup on the local Docker host ignores `SSH_AUTH_SOCK` and does not

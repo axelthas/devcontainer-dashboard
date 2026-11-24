@@ -207,3 +207,66 @@ test('selected public Funnel uses 10000 and Brain uses 3100 only after opt-in', 
 		`setup.settings.update({'tailscale-socket':'/var/run/tailscale/tailscaled.sock','origin':'https://node.example.ts.net'})\nterminal.overrides['Enable optional capabilities']=['brain-funnel']\nassert setup.features() is True\nassert setup.settings['brain'] is True and setup.settings['brain-port']==3100\nassert setup.settings['brain-funnel'] is True and setup.settings['brain-funnel-port']==10000\n`
 	);
 });
+
+test('whoami derives the node HTTPS origin and removes the final DNS dot', (t) => {
+	probe(
+		t,
+		`document={'Node':{'Name':'workstation.example-tailnet.ts.net.','MachineAuthorized':True},'UserProfile':{'LoginName':'not-the-device-name@example.test'},'CurrentTailnet':{'MagicDNSEnabled':True,'MagicDNSSuffix':'example-tailnet.ts.net'}}\norigin,error=ui.tailscale_origin_from_json(document,'whoami')\nassert origin=='https://workstation.example-tailnet.ts.net' and error is None\n`
+	);
+});
+test('status fallback uses only Self DNSName, not a user, peer or tailnet name', (t) => {
+	probe(
+		t,
+		`document={'BackendState':'Running','Self':{'DNSName':'workstation.example.ts.net.','Online':True},'Peer':{'other':{'DNSName':'wrong.example.ts.net.'}},'CurrentTailnet':{'Name':'owner@example.test','MagicDNSEnabled':True}}\nassert ui.tailscale_origin_from_json(document,'status')==('https://workstation.example.ts.net',None)\n`
+	);
+});
+test('discovery sends read-only commands to the selected socket and falls back for older clients', (t) => {
+	probe(
+		t,
+		`calls=[]\nclass Result:\n def __init__(self,code,output):self.returncode=code;self.stdout=output;self.stderr='private-node-key-never-print'\ndef query(argv,**kwargs):\n calls.append((argv,kwargs))\n return Result(1,'unsupported command') if argv[2]=='whoami' else Result(0,json.dumps({'BackendState':'Running','Self':{'DNSName':'host.example.ts.net.'}}))\nui.subprocess.run=query\nassert ui.discover_tailscale_origin('/custom/tailscaled.sock')==('https://host.example.ts.net',None)\nassert calls[0][0]==['tailscale','--socket=/custom/tailscaled.sock','whoami','--json']\nassert calls[1][0]==['tailscale','--socket=/custom/tailscaled.sock','status','--json','--peers=false']\nassert all(options['timeout']==5 and options['capture_output'] for _,options in calls)\n`
+	);
+});
+test('invalid names, missing local identity and disabled MagicDNS are not guessed', (t) => {
+	probe(
+		t,
+		`for name in ['https://host.example.ts.net','host.example.ts.net/path','host.example.ts.net:7443','host.example.ts.net.evil.test','host..example.ts.net','-host.example.ts.net','host.example.ts.net..',123,None]:\n assert ui.tailscale_origin_from_json({'Node':{'Name':name}},'whoami')[0] is None\nassert ui.tailscale_origin_from_json({'Node':{'Name':'host.example.ts.net.'},'CurrentTailnet':{'MagicDNSEnabled':False}},'whoami')[0] is None\nassert ui.tailscale_origin_from_json({'Node':{'Name':'host.other.ts.net.'},'CurrentTailnet':{'MagicDNSSuffix':'expected.ts.net'}},'whoami')[0] is None\nassert ui.tailscale_origin_from_json({'Node':{'Name':'host.example.ts.net.','MachineAuthorized':False}},'whoami')[0] is None\n`
+	);
+});
+test('logged-out, stopped and offline status cannot produce an automatic origin', (t) => {
+	probe(
+		t,
+		`for state in ['NeedsLogin','NeedsMachineAuth','Stopped','Starting',None]:\n assert ui.tailscale_origin_from_json({'BackendState':state,'Self':{'DNSName':'host.example.ts.net.'}},'status')[0] is None\nassert ui.tailscale_origin_from_json({'BackendState':'Running','Self':{'DNSName':'host.example.ts.net.','Online':False}},'status')[0] is None\n`
+	);
+});
+test('missing CLI, timeout, malformed JSON and access failures give manual-entry guidance', (t) => {
+	const r = probe(
+		t,
+		`def missing(*a,**k):raise FileNotFoundError()\nui.subprocess.run=missing\nassert 'missing' in ui.discover_tailscale_origin('/socket')[1]\ndef timeout(*a,**k):raise ui.subprocess.TimeoutExpired('tailscale',5,output='secret-node-key')\nui.subprocess.run=timeout\nassert 'timed out' in ui.discover_tailscale_origin('/socket')[1]\nclass Result:returncode=0;stdout='invalid-json-secret-node-key';stderr='private-key'\nui.subprocess.run=lambda *a,**k:Result()\nassert 'invalid JSON' in ui.discover_tailscale_origin('/socket')[1]\nResult.returncode=1\nassert 'permissions' in ui.discover_tailscale_origin('/socket')[1]\n`
+	);
+	assert.equal(r.stdout.includes('secret-node-key'), false);
+});
+test('new local Tailscale setup offers the detected origin as its default', (t) => {
+	const r = probe(
+		t,
+		`setup.local=True;setup.settings['tailscale-socket']='/selected/socket'\nui.discover_tailscale_origin=lambda path: ('https://host.example.ts.net',None) if path=='/selected/socket' else (_ for _ in ()).throw(AssertionError('wrong socket'))\nsetup.tailscale_origin()\nassert setup.settings['origin']=='https://host.example.ts.net'\nassert 'Dashboard HTTPS origin' in terminal.events\n`
+	);
+	assert.match(r.stdout, /does not create or verify a Serve route/);
+});
+test('saved custom-port origin stays the default even when another host name is detected', (t) => {
+	probe(
+		t,
+		`setup.local=True;setup.settings.update({'tailscale-socket':'/socket','origin':'https://saved.example.ts.net:7443'})\nui.discover_tailscale_origin=lambda path:('https://detected.example.ts.net',None)\nsetup.tailscale_origin()\nassert setup.settings['origin']=='https://saved.example.ts.net:7443'\n`
+	);
+});
+test('explicit origin and remote-host settings never invoke local discovery', (t) => {
+	probe(
+		t,
+		`def forbidden(*a):raise AssertionError('must not query local Tailscale')\nui.discover_tailscale_origin=forbidden\nsetup.settings.update({'tailscale-socket':'/socket','origin':'https://remote.example.ts.net:7443'})\nsetup.local=False;setup.tailscale_origin()\nassert setup.settings['origin']=='https://remote.example.ts.net:7443'\nargs.origin=setup.settings['origin'];setup.local=True;setup.tailscale_origin()\n`
+	);
+});
+test('jumping directly from saved review to access requires host confirmation before querying', (t) => {
+	probe(
+		t,
+		`def forbidden(*a):raise AssertionError('another host must not be queried')\nui.discover_tailscale_origin=forbidden\nsetup.settings.update({'tailscale-socket':'/socket','origin':'https://remote.example.ts.net'})\nassert setup.local is None\nsetup.tailscale_origin()\nassert 'Discover Tailscale on the Docker host?' in terminal.events and setup.local is False\n`
+	);
+});

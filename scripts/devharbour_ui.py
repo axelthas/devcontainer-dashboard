@@ -8,7 +8,81 @@ import json
 import os
 from pathlib import Path
 import pwd
+import re
+import subprocess
 import sys
+
+
+def tailscale_origin_from_json(document, command):
+    """Extract only this node's validated MagicDNS host, never a user name or peer."""
+    if not isinstance(document, dict):
+        return None, 'Tailscale returned an unexpected JSON shape.'
+    tailnet = document.get('CurrentTailnet')
+    if tailnet is not None and not isinstance(tailnet, dict):
+        return None, 'Tailscale returned invalid tailnet metadata.'
+    if isinstance(tailnet, dict) and tailnet.get('MagicDNSEnabled') is False:
+        return None, 'MagicDNS is disabled. Enable it in the tailnet or enter an already-configured HTTPS origin.'
+    if command == 'whoami':
+        node = document.get('Node')
+        name = node.get('Name') if isinstance(node, dict) else None
+        if isinstance(node, dict) and node.get('MachineAuthorized') is False:
+            return None, 'This Tailscale machine still needs tailnet authorization.'
+    else:
+        if document.get('BackendState') != 'Running':
+            return None, 'Tailscale is not running and logged in. Connect it on the Docker host, then retry.'
+        node = document.get('Self')
+        name = node.get('DNSName') if isinstance(node, dict) else None
+        if isinstance(node, dict) and node.get('Online') is False:
+            return None, 'The selected Tailscale node is offline.'
+    if not isinstance(name, str):
+        return None, 'The local node did not report a MagicDNS name.'
+    # Tailscale reports absolute DNS names with a final dot; URLs must omit it.
+    hostname = name[:-1] if name.endswith('.') else name
+    hostname = hostname.lower()
+    labels = hostname.split('.')
+    if len(hostname) > 253 or len(labels) < 4 or labels[-2:] != ['ts', 'net'] or any(not re.fullmatch(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?', label) for label in labels):
+        return None, 'The local node returned an invalid ts.net DNS name; enter the HTTPS origin explicitly.'
+    if isinstance(tailnet, dict) and tailnet.get('MagicDNSSuffix'):
+        suffix = tailnet['MagicDNSSuffix']
+        if not isinstance(suffix, str) or not hostname.endswith('.' + suffix.rstrip('.').lower()):
+            return None, 'The node DNS name does not match its current tailnet.'
+    return 'https://' + hostname, None
+
+
+def discover_tailscale_origin(socket_path):
+    """Read and size-check identity/status JSON from the selected daemon, never raw logs.
+
+    No login/up/serve/funnel/cert command is used. The resulting hostname suggests
+    HTTPS port 443; it does not establish a certificate or an existing Serve route.
+    """
+    reason = 'Tailscale did not report a usable local MagicDNS identity.'
+    for name, flags in [('whoami', ['--json']), ('status', ['--json', '--peers=false'])]:
+        try:
+            result = subprocess.run(['tailscale', '--socket=' + socket_path, name, *flags],
+                                    text=True, capture_output=True, check=False, timeout=5)
+        except FileNotFoundError:
+            return None, 'The tailscale command is missing. Install/run it on the Docker host or enter the HTTPS origin manually.'
+        except subprocess.TimeoutExpired:
+            return None, 'Tailscale discovery timed out. Check the selected daemon socket or enter the HTTPS origin manually.'
+        except (OSError, UnicodeError):
+            return None, 'Cannot run tailscale. Check command access and the selected host socket, or enter the origin manually.'
+        if result.returncode:
+            reason = 'Cannot read the selected tailscaled identity. Check daemon/login/socket permissions, or enter the origin manually.'
+            continue
+        if len(result.stdout) > 1024 * 1024:
+            return None, 'Tailscale returned oversized identity data. Enter the origin manually.'
+        try:
+            document = json.loads(result.stdout)
+        except (ValueError, TypeError):
+            reason = 'Tailscale returned invalid JSON. Enter the origin manually or check the client version.'
+            continue
+        origin, error = tailscale_origin_from_json(document, name)
+        if origin:
+            return origin, None
+        # A successful identity response with invalid state/name must not be
+        # replaced with a different peer, LoginName or a guessed tailnet suffix.
+        return None, error
+    return None, reason
 
 
 class Back(Exception):
@@ -95,7 +169,7 @@ class Setup:
         self.c, self.args, self.t = core, args, terminal
         self.config = copy.deepcopy(config)
         self.pending = None
-        self.local = True
+        self.local = None
         self.selected_features = None
         self.original = copy.deepcopy(config)
         self.config['settings'].setdefault('ai-state-volume', core.resource_names(config)[2])
@@ -177,7 +251,7 @@ class Setup:
         """Confirm a detected host profile and explicitly select a host-owned SSH agent."""
         heading(2, 'Host, workspace and SSH authentication',
                 'DevHarbour manages Docker and writes repositories in your workspace. These paths and numeric IDs must belong to the actual Docker host, not an unrelated container.')
-        self.local = self.t.select('Where is Docker running?', [('On this Linux machine (recommended)', True), ('Another host / I am inside a container', False)], default=self.local)
+        self.local = self.t.select('Where is Docker running?', [('On this Linux machine (recommended)', True), ('Another host / I am inside a container', False)], default=True if self.local is None else self.local)
         account = pwd.getpwuid(os.getuid()) if self.local else None
         suggested = {'host-user': account.pw_name, 'host-uid': account.pw_uid, 'host-gid': account.pw_gid, 'host-home': account.pw_dir} if account else {}
         for key in ('host-user', 'host-uid', 'host-gid', 'host-home'):
@@ -221,6 +295,37 @@ class Setup:
         self.settings.setdefault('ai-state-volume', self.c.resource_names(self.config)[2])
         print('Retained AI state:', self.settings['ai-state-volume'], '(Docker volume, not a host folder).')
 
+    def tailscale_origin(self):
+        """Offer the detected local origin while preserving saved/explicit choices."""
+        if hasattr(self.args, 'origin'):
+            self.field('origin', required=True)
+            return
+        if self.local is None:
+            self.local = self.t.select('Discover Tailscale on the Docker host?', [
+                ('Yes, this CLI runs on the actual Docker host', True),
+                ('No, enter/keep the other host origin manually', False)], default=False)
+        if not self.local:
+            print('This is another host: local Tailscale identity is not used for its origin.')
+            self.field('origin', required=True)
+            return
+        origin, reason = discover_tailscale_origin(self.settings['tailscale-socket'])
+        if not origin:
+            print(reason)
+            self.field('origin', required=True)
+            return
+        print('Detected Tailscale origin:', origin)
+        print('Derived from this node DNS name. Default HTTPS port 443; this does not create or verify a Serve route or certificate. Keep a custom port if you already use one.')
+        saved = self.settings.get('origin')
+        options = [('Use detected origin (' + origin + ')', 'detected')]
+        if saved:
+            options.insert(0, ('Keep saved origin (' + saved + ')', 'saved'))
+        options.append(('Enter another HTTPS origin / custom port', 'manual'))
+        action = self.t.select('Dashboard HTTPS origin', options, default='saved' if saved else 'detected')
+        if action == 'detected':
+            self.settings['origin'] = origin
+        elif action == 'manual':
+            self.field('origin', default=origin, required=True)
+
     def access(self):
         """Choose the audience first, then collect only that access mode's details."""
         heading(3, 'Access and login',
@@ -238,7 +343,7 @@ class Setup:
             if not hasattr(self.args, 'bind_address'):
                 self.settings['bind-address'] = '127.0.0.1'
             self.field('tailscale-socket', required=True)
-            self.field('origin', required=True)
+            self.tailscale_origin()
         else:
             if hasattr(self.args, 'tailscale_socket'):
                 raise self.c.CliError('Explicit --tailscale-socket requires the Tailscale access choice.')

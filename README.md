@@ -97,7 +97,11 @@ and Ctrl+C to cancel. Each numbered step explains why the choice is needed:
 2. **Host and workspace:** confirm the detected account as a group, choose a
    workspace, and select a verified host SSH agent. Local Docker is the default.
 3. **Access and login:** choose local-only, private Tailscale HTTPS, or a custom
-   network binding; set or keep the shared login password.
+   network binding; set or keep the shared login password. For local Tailscale
+   access, the wizard reads `tailscale whoami --json` through the selected daemon
+   socket and offers the device's detected `https://<MagicDNS-name>` origin.
+   Older clients fall back to `tailscale status --json --peers=false`. Existing
+   origins, custom ports and explicit `--origin` values are preserved.
 4. **Optional capabilities:** use checkboxes for development bootstrap, ClickUp
    Brain and public Brain Funnel. Each has a clear explanation and only selected
    features ask follow-up questions. Ports, volumes and other detailed settings
@@ -112,6 +116,13 @@ only: it never clones build source, builds an image, or starts/replaces a contai
 Cancellation and back navigation do not write partial settings. An invalid plan
 must be corrected before Save/Start is offered. Replacement of an existing
 container still requires a separate exact-container approval.
+
+Tailscale detection is read-only and needs the `tailscale` command on the actual
+Docker host. The detected hostname suggests HTTPS port 443; it does not prove a
+certificate or Serve route is configured there. Confirm the suggestion or enter
+your existing custom HTTPS port. Missing CLI/daemon access, disabled MagicDNS or
+another-host setup falls back to manual origin entry. The wizard does not run
+Tailscale login/up/serve/funnel commands during discovery.
 
 The default retained AI volume is `dashboard_ai` (or `<instance>-ai`). Brain is off
 by default; when selected, its separate MCP listener defaults to **3100** and still
