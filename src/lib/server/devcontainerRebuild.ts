@@ -79,13 +79,13 @@ export async function resolveRebuildTarget(
 	return resolveDevcontainerTarget(workspaceRoot, repo, config);
 }
 
-/** Use argv, not bash interpolation. Normal starts retain cache and do not replace containers. */
+/** Use the agent-aware runner with literal argv. Ordinary starts never replace containers. */
 export function devcontainerCommand(
 	repoPath: string,
 	configPath?: string,
 	rebuildLabels?: Record<string, string>
 ): { file: string; args: string[] } {
-	const args = ['up', '--workspace-folder', repoPath];
+	const args = [resolve('scripts/devcontainer-agent.mjs'), 'up', '--workspace-folder', repoPath];
 	if (configPath) args.push('--config', resolve(repoPath, configPath));
 	if (rebuildLabels) {
 		const folder = rebuildLabels['devcontainer.local_folder'];
@@ -101,5 +101,5 @@ export function devcontainerCommand(
 			'--remove-existing-container'
 		);
 	}
-	return { file: 'devcontainer', args };
+	return { file: process.execPath, args };
 }
