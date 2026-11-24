@@ -36,12 +36,16 @@ export interface BrainGrant {
 	exposure: BrainExposure[];
 	createdAt: number;
 	expiresAt: number;
+	/** The broader task Brain last supplied for this grant. */
+	intent?: string;
 }
 
 /** One command that Brain typed into a shell. Cursors are absolute output offsets. */
 export interface BrainShellCommand {
 	id: string;
 	command: string;
+	/** What Brain said the command should accomplish */
+	goal?: string;
 	status: 'running' | 'exited';
 	/** Output end when Brain typed the command; the echoed command line follows */
 	startCursor: number;
@@ -68,6 +72,8 @@ export interface BrainShell {
 	current?: BrainShellCommand;
 	/** Commands that Brain typed */
 	commands: number;
+	/** The newest commands that Brain typed, oldest first, for the operator's activity view */
+	history: BrainShellCommand[];
 }
 
 /** One command or shell that Brain started. The process runs inside the container, not here. */
@@ -79,6 +85,8 @@ export interface BrainExecution {
 	kind: BrainExecutionKind;
 	/** The command, or the shell start script */
 	command: string;
+	/** What Brain said a one-off command should accomplish */
+	goal?: string;
 	/** Set for a persistent shell */
 	shell?: BrainShell;
 	execUser?: string;
@@ -133,6 +141,10 @@ export const brainState: BrainState = (globalBrain.__devcontainerDashboardBrain 
 });
 
 export const AUDIT_LIMIT = 200;
+/** Longest goal that Brain can give with a command */
+export const GOAL_LIMIT = 200;
+/** Shell commands retained per shell for the activity view */
+export const SHELL_HISTORY_LIMIT = 50;
 
 /** Docker client for Brain operations. */
 export function brainDocker(): Dockerode {
@@ -144,7 +156,8 @@ export function recordAudit(entry: Omit<BrainAuditEntry, 'at'>, now = Date.now()
 	brainState.audit.push({
 		...entry,
 		at: new Date(now).toISOString(),
-		detail: entry.detail.slice(0, 300)
+		detail: entry.detail.slice(0, 300),
+		...(entry.goal === undefined ? {} : { goal: entry.goal.slice(0, GOAL_LIMIT) })
 	});
 	if (brainState.audit.length > AUDIT_LIMIT)
 		brainState.audit.splice(0, brainState.audit.length - AUDIT_LIMIT);

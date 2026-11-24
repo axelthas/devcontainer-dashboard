@@ -40,11 +40,18 @@ export class BrainAccess {
 	now = $state(Date.now());
 	/** The page sets this to open the terminal drawer on one Brain tab. */
 	revealHandler: ((executionId: string) => void) | undefined;
+	/** The page sets this to show the Brain pane, so container rows can jump to their group. */
+	focusHandler: (() => void) | undefined;
+	/** The group that the Brain pane scrolls to and highlights, until it clears */
+	focusRequest = $state<{ grantId: string; at: number } | null>(null);
 	readonly #reads = latestRequest();
-	/** Commands with an open tab. Running commands open one automatically. */
+	/**
+	 * Commands with an open terminal tab. A tab opens only when the operator asks for it; the
+	 * Brain pane shows each command's goal, status and output without one.
+	 */
 	readonly #opened = new SvelteSet<string>();
-	/** Running commands whose tab the operator closed; they do not reopen automatically. */
-	readonly #dismissed = new SvelteSet<string>();
+	#focusTimer: ReturnType<typeof setTimeout> | undefined;
+	#focusVersion = 0;
 
 	get enabled(): boolean {
 		return this.status?.enabled ?? false;
@@ -64,14 +71,12 @@ export class BrainAccess {
 
 	/** Open a tab for a command, also for one that ended. */
 	openTab(executionId: string): void {
-		this.#dismissed.delete(executionId);
 		this.#opened.add(executionId);
 	}
 
 	/** Close a tab. The command continues. */
 	closeTab(executionId: string): void {
 		this.#opened.delete(executionId);
-		this.#dismissed.add(executionId);
 	}
 
 	/** Open a tab and show it in the terminal drawer. */
@@ -80,11 +85,15 @@ export class BrainAccess {
 		this.revealHandler?.(executionId);
 	}
 
-	/** Open tabs for running commands that the operator has not closed. */
-	#openRunningTabs(status: BrainStatus): void {
-		for (const execution of status.executions)
-			if (isRunningStatus(execution.status) && !this.#dismissed.has(execution.id))
-				this.#opened.add(execution.id);
+	/** Show the Brain pane on one container's group; the highlight clears after a moment. */
+	focus(grantId: string): void {
+		this.focusHandler?.();
+		clearTimeout(this.#focusTimer);
+		const version = ++this.#focusVersion;
+		this.focusRequest = { grantId, at: Date.now() };
+		this.#focusTimer = setTimeout(() => {
+			if (this.#focusVersion === version) this.focusRequest = null;
+		}, 2000);
 	}
 
 	/** Read status. A failure keeps the last known status and reports that it may be outdated. */
@@ -94,7 +103,6 @@ export class BrainAccess {
 			await this.#reads.run(
 				(signal) => requestJson<BrainStatus>('/api/brain', { signal }),
 				(value) => {
-					this.#openRunningTabs(value);
 					this.status = value;
 					this.error = '';
 				}
@@ -146,6 +154,7 @@ export class BrainAccess {
 	}
 
 	dispose(): void {
+		clearTimeout(this.#focusTimer);
 		this.#reads.cancel();
 	}
 }

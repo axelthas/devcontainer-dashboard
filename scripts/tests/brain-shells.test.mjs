@@ -124,7 +124,7 @@ test('without a start marker, the echoed command line is not part of the output'
 	const { nonce } = shell.shell;
 	fake.main.push(Buffer.from(`${PGID}user$ ${prompt(nonce, 0, '/w')}`));
 	await eventually(() => shell.shell.ready);
-	const command = await brain.shells.runInShell(shell, 'ls --color');
+	const command = await brain.shells.runInShell(shell, 'ls --color', 'List the files.');
 	assert.deepEqual(fake.main.written, ['ls --color\r']);
 	// bash 4.2 has no PS0: echo, coloured output, then the next prompt.
 	fake.main.push(
@@ -136,6 +136,49 @@ test('without a start marker, the echoed command line is not part of the output'
 	assert.equal(brain.shells.commandOutput(shell, command).text, 'dir\n');
 	assert.equal(brain.executions.executionView(shell).command, 'shell main');
 	assert.equal(brain.executions.executionView(shell).shell.busy, false);
+	// The activity view lists the typed command with its goal and result.
+	assert.deepEqual(
+		brain.executions
+			.executionView(shell)
+			.shell.commands.map(({ id, command, goal, status, exitCode }) => ({
+				id,
+				command,
+				goal,
+				status,
+				exitCode
+			})),
+		[
+			{
+				id: command.id,
+				command: 'ls --color',
+				goal: 'List the files.',
+				status: 'exited',
+				exitCode: 0
+			}
+		]
+	);
+});
+
+test('a shell command updates intent only after the shell accepts it', async () => {
+	const fake = installFake();
+	const shell = await brain.shells.openShell(fake.grant);
+	const args = {
+		target_id: fake.grant.id,
+		shell_id: shell.id,
+		command: 'pwd',
+		goal: 'Show directory.',
+		intent: 'Inspect the workspace',
+		wait_seconds: 0
+	};
+	const before = await brain.tools.callTool('execute', args);
+	assert.equal(before.isError, true);
+	assert.equal(brain.access.grantView(fake.grant).intent, undefined);
+	fake.main.push(Buffer.from(`${PGID}user$ ${prompt(shell.shell.nonce, 0, '/w')}`));
+	await eventually(() => shell.shell.ready);
+	const accepted = await brain.tools.callTool('execute', args);
+	assert.equal(accepted.isError, undefined);
+	assert.equal(brain.access.grantView(fake.grant).intent, 'Inspect the workspace');
+	assert.equal(brain.executions.executionView(shell).shell.commands[0].goal, 'Show directory.');
 });
 
 test('a shell refuses commands before its prompt, in the foreground and under operator control', async () => {
@@ -250,6 +293,7 @@ for (const shell of ['zsh', 'bash', 'sh']) {
 						target_id: real.grant.id,
 						shell_id: opened.shell_id,
 						command,
+						goal: 'Check the shell.',
 						wait_seconds: 10
 					});
 				const identity = await run(
@@ -300,6 +344,7 @@ test(
 				target_id: real.grant.id,
 				shell_id: opened.shell_id,
 				command: 'printf "%s|%s|%s\\n" "$DDB_CUSTOM_ENV" "$DDB_CUSTOM_RC" "$ZDOTDIR"',
+				goal: 'Show the startup variables.',
 				wait_seconds: 10
 			});
 			assert.equal(result.output, `env|rc|${dotdir}\n`);
@@ -323,7 +368,13 @@ test(
 			assert.equal(opened.cwd, home);
 			const shell_id = opened.shell_id;
 			const run = (command) =>
-				call('execute', { target_id: real.grant.id, shell_id, command, wait_seconds: 10 });
+				call('execute', {
+					target_id: real.grant.id,
+					shell_id,
+					command,
+					goal: 'Check the shell.',
+					wait_seconds: 10
+				});
 
 			const moved = await run('cd /tmp && export DDB_TEST=kept');
 			assert.equal(moved.status, 'exited');
@@ -370,7 +421,13 @@ test(
 		try {
 			const { shell_id } = await call('open_shell', { target_id: real.grant.id, wait_seconds: 10 });
 			const run = (command, wait_seconds = 10) =>
-				call('execute', { target_id: real.grant.id, shell_id, command, wait_seconds });
+				call('execute', {
+					target_id: real.grant.id,
+					shell_id,
+					command,
+					goal: 'Check the shell.',
+					wait_seconds
+				});
 			const background = await run('sleep 300 & echo "pid=$!"');
 			const pid = Number(/pid=(\d+)/.exec(background.output)[1]);
 

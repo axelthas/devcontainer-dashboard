@@ -23,9 +23,10 @@ import type {
 	BrainExecutionStatus,
 	BrainExecutionView,
 	BrainOutputView,
+	BrainShellCommandView,
 	BrainTerminalState
 } from '../../brainTypes.js';
-import type { BrainExecution, BrainGrant } from './state.js';
+import type { BrainExecution, BrainGrant, BrainShellCommand } from './state.js';
 import { brainDocker, brainState, notify } from './state.js';
 
 export const EXECUTION_LIMITS = {
@@ -309,6 +310,8 @@ export async function startExecution(
 	grant: BrainGrant,
 	request: {
 		command: string;
+		/** What Brain said the command should accomplish */
+		goal?: string;
 		workdir?: string;
 		interactive?: boolean;
 		kind?: BrainExecutionKind;
@@ -344,6 +347,7 @@ export async function startExecution(
 		containerName: grant.containerName,
 		kind,
 		command,
+		...(request.goal === undefined ? {} : { goal: request.goal }),
 		execUser: grant.execUser,
 		user: grant.user,
 		workdir: request.workdir ?? grant.workdir,
@@ -610,6 +614,20 @@ export async function stopAllExecutions(reason: string, deadlineMs = 8000): Prom
 	await Promise.race([Promise.allSettled(stops), delay(deadlineMs)]);
 }
 
+/** Operator view of one shell command: bounded command text, ISO times. */
+export function shellCommandView(command: BrainShellCommand): BrainShellCommandView {
+	return {
+		id: command.id,
+		command: command.command.slice(0, 500),
+		goal: command.goal,
+		status: command.status,
+		exitCode: command.exitCode,
+		cwd: command.cwd,
+		startedAt: new Date(command.startedAt).toISOString(),
+		endedAt: command.endedAt === undefined ? undefined : new Date(command.endedAt).toISOString()
+	};
+}
+
 /** Operator view of one execution. A shell shows its name, not its start script. */
 export function executionView(execution: BrainExecution): BrainExecutionView {
 	const shell = execution.shell;
@@ -619,6 +637,7 @@ export function executionView(execution: BrainExecution): BrainExecutionView {
 		containerName: execution.containerName,
 		kind: execution.kind,
 		command: shell ? `shell ${shell.name}` : execution.command.slice(0, 500),
+		goal: shell ? undefined : execution.goal,
 		...(shell
 			? {
 					shell: {
@@ -627,7 +646,8 @@ export function executionView(execution: BrainExecution): BrainExecutionView {
 						busy: shell.current?.status === 'running',
 						cwd: shell.cwd,
 						command: shell.current?.command.slice(0, 500),
-						exitCode: shell.exitCode
+						exitCode: shell.exitCode,
+						commands: (shell.history ?? []).map(shellCommandView)
 					}
 				}
 			: {}),

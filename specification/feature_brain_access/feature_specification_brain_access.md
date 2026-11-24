@@ -40,7 +40,11 @@ Operator browser
 | `src/lib/server/brain/state.ts`               | Process-wide state on `globalThis`, shared by both server bundles      |
 | `src/lib/brainAccess.svelte.ts`               | Browser state, provided as context by the dashboard page               |
 | `src/lib/components/BrainAccessButton.svelte` | Grant control on devcontainer rows, cards and service rows             |
-| `src/lib/components/BrainPanel.svelte`        | Header control and panel: grants, commands, output and activity        |
+| `src/lib/brainActivity.ts`                    | Group retained commands and calls by container                         |
+| `src/lib/components/BrainPane.svelte`         | Desktop split pane: endpoint, grants and Brain activity                |
+| `src/lib/components/BrainActivity.svelte`     | Container groups and their command timelines in the desktop pane       |
+| `src/routes/mobile/brain/+page.svelte`        | Mobile Brain tab: native grouped list of commands, newest first        |
+| `src/routes/mobile/brain/[id]/+page.svelte`   | Mobile command screen: goal, command, output, Open in terminal         |
 | `src/lib/components/BrainTerminalTab.svelte`  | Terminal view of one command or shell, with Take over and Stop         |
 | `src/lib/components/TerminalManager.svelte`   | Drawer: one Brain tab per container, with a list of its shells         |
 
@@ -169,13 +173,17 @@ When a grant ends, its running commands receive TERM, then KILL. Brain also lose
 
 `list_targets` also lists the open shells of each target: `shell_id`, name, `ready`, `busy`, controller and working directory.
 
+Every `execute` call requires a non-blank `goal` of at most 200 characters. The goal describes what the command should accomplish. The command is refused if its goal is missing or invalid. This changes the MCP tool contract: clients must refresh their tool schemas and supply `goal` before upgrading.
+
+An `execute` call can also supply an `intent` of at most 200 characters. It describes the broader task for that grant and appears as **Working on**. An accepted command replaces the grant's previous intent; an empty string clears it. An omitted intent leaves it unchanged. Failed or refused calls do not update it. `list_targets` returns the current intent when one is set. The intent is process-local and ends with its grant; it is not a verified task state.
+
 Without `shell_id`, every `execute` call starts a new process with `bash -lc`, or `sh -lc` when bash is missing, in its own pseudo-terminal (PTY, 120 x 32). The working directory and variables do not carry over between calls. stdin is `/dev/null` unless `interactive` is true. Commands run with `TERM=dumb`, `NO_COLOR=1`, `PAGER=cat`, `GIT_PAGER=cat` and `GIT_TERMINAL_PROMPT=0`.
 
 The PTY merges stdout and stderr, and its CRLF line endings are converted back to LF, so Brain reads output as without a terminal. For an interactive command, the PTY echoes input into the output. `close_stdin` sends Ctrl+D (end-of-file in canonical terminal mode); after that, Brain cannot write to the command again.
 
 ## Persistent shells
 
-A one-off command per call is hard to follow: every command opens a tab, and nothing carries over. A shell is one long-lived interactive shell that Brain types commands into, as a person would. The operator sees one ordinary terminal with the user's prompt.
+A one-off command runs in its own process and does not carry state between calls. A persistent shell is a long-lived interactive shell that Brain types commands into, so the working directory and variables carry over. The operator can open its terminal on request.
 
 1. `open_shell` selects the first available interactive shell: zsh, bash, then sh. Zsh loads the user's `.zshenv` and `.zshrc`, respecting `ZDOTDIR`; bash loads `~/.bashrc`; sh loads its `ENV` file when set. Private integration files delete themselves. Shell names are unique among the open shells of a grant (default `main`, then `shell-2`).
 2. Shell integration adds OSC sequences with a per-shell nonce. Terminals do not display them. A prompt hook reports the exit code and working directory. Zsh's `preexec` and bash's `PS0` (4.4 and later) also print a start marker after the echoed command line.
@@ -191,7 +199,7 @@ Known limits: startup files that later replace the shell's prompt integration ca
 
 ## Terminal tabs and takeover
 
-Brain's commands and shells in one container share one Brain tab in the terminal drawer, next to the shell tabs. When the tab holds more than one entry, a vertical list at its right selects between them (shells first), with a status for each: starting, idle, busy, running, you have control, or how it ended. The view shows the shell name or the command, the container, the user and the directory, live output, and **Stop** (**Close shell** for a shell). Closing the tab, or hiding an entry from the list, never stops a command or shell. **Open in terminal** in the Brain panel reopens any retained entry.
+A terminal viewer opens only when the operator selects **Open in terminal**. Brain commands and shells in one container share one Brain tab in the terminal drawer, next to the shell tabs. When the tab holds more than one entry, a vertical list at its right selects between them (shells first), with a status for each: starting, idle, busy, running, you have control, or how it ended. The view shows the shell name or the command, the container, the user and the directory, live output, and **Stop** (**Close shell** for a shell). Closing the tab, or hiding an entry from the list, never stops a command or shell. **Open in terminal** in the Brain panel reopens any retained entry.
 
 The tab is read-only while Brain has control. Input control is explicit:
 
@@ -222,9 +230,15 @@ Known limits: processes that leave the group or session (for example with `setsi
 - Commands and stdin writes: 16,384 characters. Output: the newest 1,000,000 characters per command; reads return at most 65,536 characters.
 - Requests: 1 MiB body, 32 concurrent requests. Browser requests (with an `Origin` header) are refused.
 
+## Brain activity view
+
+On desktop, **Brain** opens a non-modal split pane. The dashboard remains usable beside it. The operator can drag or use the arrow keys to resize the pane, or choose a preset. On small screens the pane fills the screen. Cards, command lines and output boxes stay inside the pane at every width: long lines wrap or truncate, and output scrolls inside its box. On mobile, **Brain** is a tab and a live strip on other tabs links to a running command. The tab uses the native phone list: one group per container, with its commands newest first. A tap opens the command screen with the goal, the command, its output and **Open in terminal**. The mobile Terminals list shows a Brain viewer only after the operator opens it from that command screen. The close button removes the viewer from the list without stopping its command. Open viewer selections remain in memory for the current page session and reset when the page reloads.
+
+The pane groups commands by granted container and leads each command with its goal. The optional grant intent appears as **Working on**. Expanding a command shows its retained output. Each shell retains its newest 50 commands; the operator output endpoint can read one shell command using `?command=<command_id>`. An idle shell does not count as a running command in this view. On-demand terminal viewers and command processes have separate lifecycles: closing a viewer does not stop a command.
+
 ## Audit
 
-The panel shows the newest 50 of 200 retained entries: tool, target, command or execution ID, and the outcome. Refused calls are recorded. stdin content and command output are never recorded.
+The API returns up to 200 retained audit entries, newest first. The activity view associates `read_output`, `write_stdin` and other calls with their execution and shell command when the association is known. It shows refused or failed calls under their container, or outside granted containers when no group matches. There is no separate duplicate activity list. stdin content and command output are never recorded in the audit log.
 
 ## Follow-ups
 

@@ -50,6 +50,8 @@ export interface BrainGrantRequest {
 
 export interface BrainGrantView extends BrainTargetPreview {
 	id: string;
+	/** The broader task Brain last supplied for this grant. */
+	intent?: string;
 	createdAt: string;
 	expiresAt: string;
 	runningExecutions: number;
@@ -76,6 +78,20 @@ export type BrainController = 'brain' | 'operator';
  */
 export type BrainExecutionKind = 'command' | 'shell';
 
+/** One command that Brain typed into a shell, for the operator's activity view. */
+export interface BrainShellCommandView {
+	id: string;
+	command: string;
+	/** What Brain said the command should accomplish */
+	goal?: string;
+	status: 'running' | 'exited';
+	exitCode?: number;
+	/** Working directory after the command */
+	cwd?: string;
+	startedAt: string;
+	endedAt?: string;
+}
+
 /** Live state of one persistent Brain shell. */
 export interface BrainShellView {
 	/** Name that Brain gave the shell, unique among the open shells of one grant */
@@ -90,6 +106,8 @@ export interface BrainShellView {
 	command?: string;
 	/** Exit code reported at the last prompt */
 	exitCode?: number;
+	/** Retained commands that Brain typed, oldest first */
+	commands: BrainShellCommandView[];
 }
 
 export interface BrainExecutionView {
@@ -99,6 +117,8 @@ export interface BrainExecutionView {
 	kind: BrainExecutionKind;
 	/** The command, or `shell <name>` for a shell */
 	command: string;
+	/** What Brain said a one-off command should accomplish */
+	goal?: string;
 	/** Set for a shell */
 	shell?: BrainShellView;
 	user: string;
@@ -143,6 +163,12 @@ export interface BrainAuditEntry {
 	target?: string;
 	detail: string;
 	outcome: 'ok' | 'denied' | 'error';
+	/** Execution or shell that the call used, so the dashboard shows it with that command */
+	executionId?: string;
+	/** Shell command that the call used */
+	commandId?: string;
+	/** Goal that Brain gave with an `execute` call */
+	goal?: string;
 }
 
 /** Response of GET /api/brain. */

@@ -1,18 +1,34 @@
 import { error, json } from '@sveltejs/kit';
 import { readOutput, setController, stopExecution } from '$lib/server/brain/executions';
+import { commandOutput } from '$lib/server/brain/shells';
 import { brainHttpError } from '$lib/server/brain/http';
 import { brainState, recordAudit } from '$lib/server/brain/state';
+import type { BrainOutputView } from '$lib/brainTypes';
 import type { RequestHandler } from './$types';
 
-/** Read retained output from an absolute cursor; the operator can read ended grants too. */
+/**
+ * Read retained output from an absolute cursor; the operator can read ended grants too.
+ * With `command`, read only the output of that shell command, as plain text.
+ */
 export const GET: RequestHandler = async ({ params, url }) => {
 	const execution = brainState.executions.get(params.id);
 	if (!execution) throw error(404, 'The command is no longer retained.');
 	const raw = url.searchParams.get('cursor');
 	if (raw !== null && !/^\d{1,15}$/.test(raw)) throw error(400, 'Invalid cursor');
-	return json(readOutput(execution, raw === null ? undefined : Number(raw)), {
-		headers: { 'Cache-Control': 'no-store' }
-	});
+	const cursor = raw === null ? undefined : Number(raw);
+	const headers = { 'Cache-Control': 'no-store' };
+	const commandId = url.searchParams.get('command');
+	if (commandId === null) return json(readOutput(execution, cursor), { headers });
+	const command = execution.shell?.history.find((candidate) => candidate.id === commandId);
+	if (!command) throw error(404, 'The shell command is no longer retained.');
+	const page = commandOutput(execution, command, cursor);
+	const view: BrainOutputView = {
+		executionId: execution.id,
+		...page,
+		status: command.status,
+		exitCode: command.exitCode
+	};
+	return json(view, { headers });
 };
 
 /** Stop one command and report whether the stop was confirmed. */

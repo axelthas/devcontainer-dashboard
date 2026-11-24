@@ -11,7 +11,7 @@ import {
 	type BrainStatus
 } from '../../brainTypes.js';
 import type { BrainGrant } from './state.js';
-import { brainDocker, brainState, recordAudit } from './state.js';
+import { AUDIT_LIMIT, brainDocker, brainState, recordAudit } from './state.js';
 import { executionView, isActive, stopExecution } from './executions.js';
 
 export const MAX_GRANTS = 16;
@@ -126,6 +126,7 @@ export async function reconcileGrants(now = Date.now()): Promise<void> {
 export function grantView(grant: BrainGrant): BrainGrantView {
 	return {
 		id: grant.id,
+		intent: grant.intent,
 		containerId: grant.containerId.slice(0, 12),
 		containerName: grant.containerName,
 		kind: grant.kind,
@@ -156,6 +157,7 @@ export function brainStatus(now = Date.now()): BrainStatus {
 			.sort((a, b) => b.startedAt - a.startedAt)
 			.slice(0, 30)
 			.map(executionView),
-		audit: brainState.audit.slice(-50).reverse()
+		// The dashboard shows each call with its command, so it needs the whole retained log.
+		audit: brainState.audit.slice(-AUDIT_LIMIT).reverse()
 	};
 }

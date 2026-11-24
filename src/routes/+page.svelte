@@ -11,7 +11,8 @@
 		Eye,
 		EyeOff,
 		LogOut,
-		Smartphone
+		Smartphone,
+		BrainCircuit
 	} from 'lucide-svelte';
 	import { resolve } from '$app/paths';
 	import { untrack } from 'svelte';
@@ -35,7 +36,7 @@
 	import TerminalManager from '$lib/components/TerminalManager.svelte';
 	import RequestError from '$lib/components/RequestError.svelte';
 	import NetworkDrawer from '$lib/components/NetworkDrawer.svelte';
-	import BrainPanel from '$lib/components/BrainPanel.svelte';
+	import BrainPane from '$lib/components/BrainPane.svelte';
 	import { errorMessage, latestRequest, requestJson } from '$lib/requests';
 	import { networkMemory } from '$lib/networkMemory.svelte';
 	import { brainExecutionIdOf, brainTabId, provideBrainAccess } from '$lib/brainAccess.svelte';
@@ -323,8 +324,84 @@
 		terminalOpen = true;
 		activeTerminalId = id;
 	}
-	// "Open in terminal" in the Brain panel shows that command's tab.
+	// "Open in terminal" in the Brain pane shows that command's tab. No tab opens otherwise.
 	brainAccess.revealHandler = (executionId) => openTerminalWith(brainTabId(executionId));
+	// A Brain chip on a container row shows that container's group in the Brain pane.
+	brainAccess.focusHandler = () => (brainPaneOpen = true);
+
+	/**
+	 * Brain split view: the pane takes `brainWidth` of the page on wide screens and the whole
+	 * screen below the lg breakpoint. Both sides stay interactive; nothing needs dismissal.
+	 */
+	const BRAIN_PANE_KEY = 'devharbour-brain-pane';
+	const BRAIN_SNAPS = [1 / 3, 1 / 2, 2 / 3];
+	let brainPaneOpen = $state(false);
+	let brainWidth = $state(0.5);
+	let brainPaneLoaded = false;
+	let headerHeight = $state(0);
+	let hoveredContainerId = $state<string | null>(null);
+
+	/** Keep the share between a quarter and three quarters, and snap near the presets. */
+	function clampBrainWidth(value: number): number {
+		const share = Math.min(0.75, Math.max(0.25, value));
+		return BRAIN_SNAPS.find((snap) => Math.abs(snap - share) < 0.02) ?? share;
+	}
+
+	// Restore the split once. Without a saved choice, the pane opens while a grant exists.
+	$effect(() => {
+		if (brainPaneLoaded || !brainAccess.status) return;
+		brainPaneLoaded = true;
+		untrack(() => {
+			try {
+				const saved = JSON.parse(localStorage.getItem(BRAIN_PANE_KEY) ?? 'null');
+				if (saved && typeof saved.open === 'boolean') brainPaneOpen = saved.open;
+				else brainPaneOpen = Boolean(brainAccess.status?.grants.length);
+				if (saved && typeof saved.width === 'number') brainWidth = clampBrainWidth(saved.width);
+			} catch {
+				brainPaneOpen = Boolean(brainAccess.status?.grants.length);
+			}
+		});
+	});
+	$effect(() => {
+		const value = JSON.stringify({ open: brainPaneOpen, width: brainWidth });
+		if (brainPaneLoaded) localStorage.setItem(BRAIN_PANE_KEY, value);
+	});
+
+	/** Drag the divider. The share comes from the pointer position, so the pane follows it. */
+	function startBrainResize(event: PointerEvent) {
+		if (event.button !== 0) return;
+		event.preventDefault();
+		const move = (next: PointerEvent) =>
+			(brainWidth = clampBrainWidth((window.innerWidth - next.clientX) / window.innerWidth));
+		const stop = () => {
+			window.removeEventListener('pointermove', move);
+			window.removeEventListener('pointerup', stop);
+			document.body.style.userSelect = '';
+		};
+		document.body.style.userSelect = 'none';
+		window.addEventListener('pointermove', move);
+		window.addEventListener('pointerup', stop);
+	}
+
+	/** Arrow keys move the divider in steps of 5 percent; Home resets it to half. */
+	function resizeBrainWithKeys(event: KeyboardEvent) {
+		const step = event.key === 'ArrowLeft' ? 0.05 : event.key === 'ArrowRight' ? -0.05 : 0;
+		if (step) brainWidth = clampBrainWidth(brainWidth + step);
+		else if (event.key === 'Home') brainWidth = 0.5;
+		else return;
+		event.preventDefault();
+	}
+
+	// Pointing at a Brain group highlights its container row on the left.
+	$effect(() => {
+		const id = hoveredContainerId;
+		if (!id) return;
+		const rows = document.querySelectorAll(`[data-container-id="${CSS.escape(id)}"]`);
+		for (const row of rows) row.classList.add('brain-hover');
+		return () => {
+			for (const row of rows) row.classList.remove('brain-hover');
+		};
+	});
 
 	/** The first Brain tab, as a fallback when the last shell tab closes. */
 	function firstBrainTabId(): string | null {
@@ -435,6 +512,7 @@
 	>
 		<!-- Header -->
 		<header
+			bind:offsetHeight={headerHeight}
 			class="sticky top-0 z-10 border-b border-[#d8dee9] bg-[#e5e9f0] transition-colors duration-300 dark:border-[#434c5e] dark:bg-[#3b4252]"
 		>
 			<div
@@ -470,8 +548,26 @@
 						</div>
 					</div>
 
-					<!-- Brain MCP access: shown only while the endpoint runs -->
-					<BrainPanel access={brainAccess} />
+					<!-- Brain split view toggle: shown once Brain status is known -->
+					{#if brainAccess.status}
+						{@const grants = brainAccess.status.grants.length}
+						<button
+							type="button"
+							aria-pressed={brainPaneOpen}
+							onclick={() => (brainPaneOpen = !brainPaneOpen)}
+							title={brainPaneOpen ? 'Hide the Brain pane' : 'Show what Brain does'}
+							class="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors {brainPaneOpen
+								? 'border-[#b48ead] bg-[#b48ead] text-[#2e3440]'
+								: 'border-[#b48ead]/40 bg-[#b48ead]/10 text-[#b48ead] hover:bg-[#b48ead]/20'}"
+						>
+							<BrainCircuit size={16} />
+							<span
+								>{brainAccess.status.enabled
+									? `Brain · ${grants} ${grants === 1 ? 'grant' : 'grants'}`
+									: 'Brain disabled'}</span
+							>
+						</button>
+					{/if}
 
 					<!-- SSH host for VS Code remote connections -->
 					<div
@@ -526,95 +622,80 @@
 			</div>
 		</header>
 
-		<main class="mx-auto mt-8 max-w-7xl space-y-12 px-6">
-			{#if containerError || workspaceError || terminalError || networkError}
-				<div>
-					<RequestError
-						message={containerError}
-						onRetry={() => void refreshContainers().catch(() => {})}
-					/>
-					<RequestError
-						message={workspaceError}
-						onRetry={() => void refreshWorkspaces().catch(() => {})}
-					/>
-					<RequestError message={terminalError} onRetry={() => void refreshTerminalSessions()} />
-					<RequestError message={networkError} onRetry={() => void refreshNetworks()} />
-				</div>
-			{/if}
-			<RequestError message={brainAccess.error} onRetry={() => void brainAccess.refresh()} />
-			<!-- Section 1: Active Devcontainers -->
-			<section>
-				<div
-					class="mb-6 flex items-center gap-2 border-b border-[#d8dee9] pb-2 dark:border-[#4c566a]"
-				>
-					<Box size={20} class="text-[#5e81ac] dark:text-[#81a1c1]" />
-					<h2 class="text-xl font-extrabold text-[#2e3440] dark:text-[#eceff4]">
-						Active Devcontainers
-					</h2>
-					<div class="ml-auto flex items-center gap-2">
-						{#if stoppedDevcontainerCount > 0}
-							<button
-								onclick={() => (showStopped = !showStopped)}
-								class="flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors {showStopped
-									? 'border-[#5e81ac] bg-[#eceff4] text-[#5e81ac] dark:border-[#81a1c1] dark:bg-[#2e3440] dark:text-[#81a1c1]'
-									: 'border-[#d8dee9] bg-[#eceff4] text-[#4c566a] hover:text-[#2e3440] dark:border-[#434c5e] dark:bg-[#2e3440] dark:text-[#d8dee9]/60 dark:hover:text-[#eceff4]'}"
-								title={showStopped ? 'Hide stopped containers' : 'Show stopped containers'}
+		<div class="flex items-start" style:--brain-top={`${headerHeight}px`}>
+			<main class="mx-auto mt-8 max-w-7xl min-w-0 flex-1 space-y-12 px-6">
+				{#if containerError || workspaceError || terminalError || networkError}
+					<div>
+						<RequestError
+							message={containerError}
+							onRetry={() => void refreshContainers().catch(() => {})}
+						/>
+						<RequestError
+							message={workspaceError}
+							onRetry={() => void refreshWorkspaces().catch(() => {})}
+						/>
+						<RequestError message={terminalError} onRetry={() => void refreshTerminalSessions()} />
+						<RequestError message={networkError} onRetry={() => void refreshNetworks()} />
+					</div>
+				{/if}
+				<RequestError message={brainAccess.error} onRetry={() => void brainAccess.refresh()} />
+				<!-- Section 1: Active Devcontainers -->
+				<section>
+					<div
+						class="mb-6 flex items-center gap-2 border-b border-[#d8dee9] pb-2 dark:border-[#4c566a]"
+					>
+						<Box size={20} class="text-[#5e81ac] dark:text-[#81a1c1]" />
+						<h2 class="text-xl font-extrabold text-[#2e3440] dark:text-[#eceff4]">
+							Active Devcontainers
+						</h2>
+						<div class="ml-auto flex items-center gap-2">
+							{#if stoppedDevcontainerCount > 0}
+								<button
+									onclick={() => (showStopped = !showStopped)}
+									class="flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors {showStopped
+										? 'border-[#5e81ac] bg-[#eceff4] text-[#5e81ac] dark:border-[#81a1c1] dark:bg-[#2e3440] dark:text-[#81a1c1]'
+										: 'border-[#d8dee9] bg-[#eceff4] text-[#4c566a] hover:text-[#2e3440] dark:border-[#434c5e] dark:bg-[#2e3440] dark:text-[#d8dee9]/60 dark:hover:text-[#eceff4]'}"
+									title={showStopped ? 'Hide stopped containers' : 'Show stopped containers'}
+								>
+									{#if showStopped}
+										<EyeOff size={14} />
+									{:else}
+										<Eye size={14} />
+									{/if}
+									<span>{stoppedDevcontainerCount} stopped</span>
+								</button>
+							{/if}
+							<div
+								class="flex items-center gap-1 rounded-lg border border-[#d8dee9] bg-[#eceff4] p-0.5 dark:border-[#434c5e] dark:bg-[#2e3440]"
 							>
-								{#if showStopped}
-									<EyeOff size={14} />
-								{:else}
-									<Eye size={14} />
-								{/if}
-								<span>{stoppedDevcontainerCount} stopped</span>
-							</button>
-						{/if}
-						<div
-							class="flex items-center gap-1 rounded-lg border border-[#d8dee9] bg-[#eceff4] p-0.5 dark:border-[#434c5e] dark:bg-[#2e3440]"
-						>
-							<button
-								onclick={() => (devcontainerView = 'grid')}
-								class="rounded-md p-1.5 transition-colors {devcontainerView === 'grid'
-									? 'bg-white text-[#5e81ac] shadow-sm dark:bg-[#3b4252] dark:text-[#81a1c1]'
-									: 'text-[#4c566a] hover:text-[#2e3440] dark:text-[#d8dee9]/60 dark:hover:text-[#eceff4]'}"
-								title="Grid view"
-							>
-								<LayoutGrid size={16} />
-							</button>
-							<button
-								onclick={() => (devcontainerView = 'list')}
-								class="rounded-md p-1.5 transition-colors {devcontainerView === 'list'
-									? 'bg-white text-[#5e81ac] shadow-sm dark:bg-[#3b4252] dark:text-[#81a1c1]'
-									: 'text-[#4c566a] hover:text-[#2e3440] dark:text-[#d8dee9]/60 dark:hover:text-[#eceff4]'}"
-								title="List view"
-							>
-								<List size={16} />
-							</button>
+								<button
+									onclick={() => (devcontainerView = 'grid')}
+									class="rounded-md p-1.5 transition-colors {devcontainerView === 'grid'
+										? 'bg-white text-[#5e81ac] shadow-sm dark:bg-[#3b4252] dark:text-[#81a1c1]'
+										: 'text-[#4c566a] hover:text-[#2e3440] dark:text-[#d8dee9]/60 dark:hover:text-[#eceff4]'}"
+									title="Grid view"
+								>
+									<LayoutGrid size={16} />
+								</button>
+								<button
+									onclick={() => (devcontainerView = 'list')}
+									class="rounded-md p-1.5 transition-colors {devcontainerView === 'list'
+										? 'bg-white text-[#5e81ac] shadow-sm dark:bg-[#3b4252] dark:text-[#81a1c1]'
+										: 'text-[#4c566a] hover:text-[#2e3440] dark:text-[#d8dee9]/60 dark:hover:text-[#eceff4]'}"
+									title="List view"
+								>
+									<List size={16} />
+								</button>
+							</div>
 						</div>
 					</div>
-				</div>
 
-				{#if devcontainers.length === 0}
-					<p class="text-[#4c566a] italic dark:text-[#d8dee9]/60">No devcontainers found.</p>
-				{:else if devcontainerView === 'grid'}
-					<div class="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
-						{#each visibleDevcontainers as container (container.id)}
-							<DevcontainerCard
-								{container}
-								{vscodeSshHost}
-								serviceProxyEnabled={data.serviceProxyEnabled}
-								onRefresh={refreshContainersAndNetworks}
-								onOpenTerminal={handleOpenTerminal}
-								onConnectNetwork={openNetworkDrawer}
-							/>
-						{/each}
-					</div>
-				{:else}
-					<div
-						class="overflow-hidden rounded-xl border border-[#d8dee9] bg-white shadow-sm dark:border-[#4c566a] dark:bg-[#3b4252]"
-					>
-						<div class="divide-y divide-[#d8dee9] dark:divide-[#4c566a]">
+					{#if devcontainers.length === 0}
+						<p class="text-[#4c566a] italic dark:text-[#d8dee9]/60">No devcontainers found.</p>
+					{:else if devcontainerView === 'grid'}
+						<div class="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
 							{#each visibleDevcontainers as container (container.id)}
-								<DevcontainerRow
+								<DevcontainerCard
 									{container}
 									{vscodeSshHost}
 									serviceProxyEnabled={data.serviceProxyEnabled}
@@ -624,91 +705,147 @@
 								/>
 							{/each}
 						</div>
-					</div>
-				{/if}
-				{#if !showStopped && stoppedDevcontainerCount > 0}
-					<p class="mt-3 text-center text-xs text-[#4c566a]/70 dark:text-[#d8dee9]/40">
-						{stoppedDevcontainerCount}
-						{stoppedDevcontainerCount === 1 ? 'stopped container' : 'stopped containers'} hidden —
-						<button
-							onclick={() => (showStopped = true)}
-							class="underline hover:text-[#4c566a] dark:hover:text-[#d8dee9]/70">show</button
+					{:else}
+						<div
+							class="overflow-hidden rounded-xl border border-[#d8dee9] bg-white shadow-sm dark:border-[#4c566a] dark:bg-[#3b4252]"
 						>
-					</p>
-				{/if}
-			</section>
+							<div class="divide-y divide-[#d8dee9] dark:divide-[#4c566a]">
+								{#each visibleDevcontainers as container (container.id)}
+									<DevcontainerRow
+										{container}
+										{vscodeSshHost}
+										serviceProxyEnabled={data.serviceProxyEnabled}
+										onRefresh={refreshContainersAndNetworks}
+										onOpenTerminal={handleOpenTerminal}
+										onConnectNetwork={openNetworkDrawer}
+									/>
+								{/each}
+							</div>
+						</div>
+					{/if}
+					{#if !showStopped && stoppedDevcontainerCount > 0}
+						<p class="mt-3 text-center text-xs text-[#4c566a]/70 dark:text-[#d8dee9]/40">
+							{stoppedDevcontainerCount}
+							{stoppedDevcontainerCount === 1 ? 'stopped container' : 'stopped containers'} hidden —
+							<button
+								onclick={() => (showStopped = true)}
+								class="underline hover:text-[#4c566a] dark:hover:text-[#d8dee9]/70">show</button
+							>
+						</p>
+					{/if}
+				</section>
 
-			<!-- Section 2: Local Workspaces -->
-			<LocalWorkspaces
-				workspaceRoot={WORKSPACE_ROOT}
-				{workspaces}
-				{containers}
-				{vscodeSshHost}
-				serviceProxyEnabled={data.serviceProxyEnabled}
-				onOpenTerminal={handleOpenTerminal}
-				onRefreshWorkspaces={refreshWorkspaces}
-				onBootstrap={() => (bootstrapModalOpen = true)}
-				onScrollToContainer={scrollToContainer}
-				onRefreshContainers={refreshContainers}
-			/>
+				<!-- Section 2: Local Workspaces -->
+				<LocalWorkspaces
+					workspaceRoot={WORKSPACE_ROOT}
+					{workspaces}
+					{containers}
+					{vscodeSshHost}
+					serviceProxyEnabled={data.serviceProxyEnabled}
+					onOpenTerminal={handleOpenTerminal}
+					onRefreshWorkspaces={refreshWorkspaces}
+					onBootstrap={() => (bootstrapModalOpen = true)}
+					onScrollToContainer={scrollToContainer}
+					onRefreshContainers={refreshContainers}
+				/>
 
-			<!-- Section 3: Docker Services -->
-			<section>
+				<!-- Section 3: Docker Services -->
+				<section>
+					<div
+						class="mb-6 flex items-center gap-2 border-b border-[#d8dee9] pb-2 dark:border-[#4c566a]"
+					>
+						<Cpu size={20} class="text-[#4c566a] dark:text-[#d8dee9]/70" />
+						<h2 class="text-xl font-extrabold text-[#2e3440] dark:text-[#eceff4]">
+							Docker Services
+						</h2>
+						<span class="ml-2 text-sm font-medium text-[#4c566a] dark:text-[#d8dee9]/60"
+							>(Compose stacks, databases, and other containers)</span
+						>
+					</div>
+
+					{#if composeGroups.length === 0 && standaloneSandboxes.length === 0}
+						<div
+							class="overflow-hidden rounded-xl border border-[#d8dee9] bg-white shadow-sm dark:border-[#4c566a] dark:bg-[#3b4252]"
+						>
+							<div class="p-8 text-center text-[#4c566a] italic dark:text-[#d8dee9]/60">
+								No external services exposing ports.
+							</div>
+						</div>
+					{:else}
+						<div
+							class="overflow-hidden rounded-xl border border-[#d8dee9] bg-white shadow-sm dark:border-[#4c566a] dark:bg-[#3b4252]"
+						>
+							<div class="divide-y divide-[#d8dee9]/60 dark:divide-[#4c566a]/60">
+								{#each composeGroups as group (group.projectName)}
+									<ComposeGroupRow
+										projectName={group.projectName}
+										containers={group.containers}
+										{vscodeSshHost}
+										serviceProxyEnabled={data.serviceProxyEnabled}
+										servicePorts={data.servicePorts}
+										serviceAccess={data.serviceAccess}
+										onRefresh={refreshContainersAndNetworks}
+										onOpenTerminal={handleOpenTerminal}
+										networks={projectNetworks(group.projectName)}
+										{devcontainers}
+										onConnectNetwork={openNetworkDrawer}
+									/>
+								{/each}
+								{#each standaloneSandboxes as container (container.id)}
+									<SandboxRow
+										{container}
+										{vscodeSshHost}
+										serviceProxyEnabled={data.serviceProxyEnabled}
+										servicePorts={data.servicePorts}
+										serviceAccess={data.serviceAccess}
+										standalone
+										onRefresh={refreshContainers}
+										onOpenTerminal={handleOpenTerminal}
+									/>
+								{/each}
+							</div>
+						</div>
+					{/if}
+				</section>
+			</main>
+			{#if brainPaneOpen}
+				<!-- The WAI-ARIA window splitter is a focusable separator controlled by arrows and Home. -->
+				<!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
 				<div
-					class="mb-6 flex items-center gap-2 border-b border-[#d8dee9] pb-2 dark:border-[#4c566a]"
+					role="separator"
+					aria-orientation="vertical"
+					aria-label="Resize the Brain pane"
+					aria-controls="brain-split-pane"
+					aria-valuemin={25}
+					aria-valuemax={75}
+					aria-valuenow={Math.round(brainWidth * 100)}
+					tabindex="0"
+					onpointerdown={startBrainResize}
+					ondblclick={() => (brainWidth = 0.5)}
+					onkeydown={resizeBrainWithKeys}
+					class="group sticky top-[var(--brain-top)] hidden h-[calc(100dvh-var(--brain-top))] w-1.5 shrink-0 cursor-col-resize items-center justify-center bg-[#d8dee9] transition-colors outline-none hover:bg-[#b48ead]/60 focus-visible:bg-[#b48ead] lg:flex dark:bg-[#434c5e]"
 				>
-					<Cpu size={20} class="text-[#4c566a] dark:text-[#d8dee9]/70" />
-					<h2 class="text-xl font-extrabold text-[#2e3440] dark:text-[#eceff4]">Docker Services</h2>
-					<span class="ml-2 text-sm font-medium text-[#4c566a] dark:text-[#d8dee9]/60"
-						>(Compose stacks, databases, and other containers)</span
-					>
+					<span
+						class="h-10 w-1 rounded-full bg-[#4c566a]/40 group-hover:bg-[#b48ead] dark:bg-[#d8dee9]/30"
+					></span>
 				</div>
-
-				{#if composeGroups.length === 0 && standaloneSandboxes.length === 0}
-					<div
-						class="overflow-hidden rounded-xl border border-[#d8dee9] bg-white shadow-sm dark:border-[#4c566a] dark:bg-[#3b4252]"
-					>
-						<div class="p-8 text-center text-[#4c566a] italic dark:text-[#d8dee9]/60">
-							No external services exposing ports.
-						</div>
-					</div>
-				{:else}
-					<div
-						class="overflow-hidden rounded-xl border border-[#d8dee9] bg-white shadow-sm dark:border-[#4c566a] dark:bg-[#3b4252]"
-					>
-						<div class="divide-y divide-[#d8dee9]/60 dark:divide-[#4c566a]/60">
-							{#each composeGroups as group (group.projectName)}
-								<ComposeGroupRow
-									projectName={group.projectName}
-									containers={group.containers}
-									{vscodeSshHost}
-									serviceProxyEnabled={data.serviceProxyEnabled}
-									servicePorts={data.servicePorts}
-									serviceAccess={data.serviceAccess}
-									onRefresh={refreshContainersAndNetworks}
-									onOpenTerminal={handleOpenTerminal}
-									networks={projectNetworks(group.projectName)}
-									{devcontainers}
-									onConnectNetwork={openNetworkDrawer}
-								/>
-							{/each}
-							{#each standaloneSandboxes as container (container.id)}
-								<SandboxRow
-									{container}
-									{vscodeSshHost}
-									serviceProxyEnabled={data.serviceProxyEnabled}
-									servicePorts={data.servicePorts}
-									serviceAccess={data.serviceAccess}
-									standalone
-									onRefresh={refreshContainers}
-									onOpenTerminal={handleOpenTerminal}
-								/>
-							{/each}
-						</div>
-					</div>
-				{/if}
-			</section>
-		</main>
+				<aside
+					id="brain-split-pane"
+					aria-label="Brain"
+					class="fixed inset-0 z-40 lg:sticky lg:inset-auto lg:top-[var(--brain-top)] lg:z-0 lg:h-[calc(100dvh-var(--brain-top))] lg:w-[var(--brain-width)] lg:shrink-0"
+					style:--brain-width={`${brainWidth * 100}%`}
+				>
+					<BrainPane
+						access={brainAccess}
+						width={brainWidth}
+						onResize={(value) => (brainWidth = clampBrainWidth(value))}
+						onClose={() => (brainPaneOpen = false)}
+						onOpenTerminal={(id) => brainAccess.reveal(id)}
+						onHoverGrant={(id) => (hoveredContainerId = id)}
+					/>
+				</aside>
+			{/if}
+		</div>
 	</div>
 
 	<!-- Bootstrap Modal -->

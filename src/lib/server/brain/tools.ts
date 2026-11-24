@@ -7,7 +7,7 @@
  * it. Without `shell_id`, `execute` starts one process per call, as before.
  */
 import type { BrainExecution } from './state.js';
-import { brainState, recordAudit } from './state.js';
+import { GOAL_LIMIT, brainState, recordAudit } from './state.js';
 import { BrainAccessError, grantView, liveGrant, pruneExpiredGrants } from './access.js';
 import {
 	BrainExecutionError,
@@ -93,12 +93,25 @@ export const BRAIN_TOOLS: ToolDefinition[] = [
 		name: 'execute',
 		title: 'Run a command',
 		description:
-			"Run a shell command in one granted container as the granted user, in a terminal that the operator can watch. With shell_id from open_shell, the command is typed into that persistent shell: the working directory and variables carry over, the result has command_id, exit_code and cwd, and status is the command's status. A shell runs one command at a time; a busy shell refuses another command. Without shell_id, every call starts a new process with bash -lc (or sh -lc when bash is missing), and nothing carries over; stdin is /dev/null unless interactive is true. The operator can take control of the terminal at any time; execute in that shell, write_stdin and cancel_execution are then refused until the operator hands control back. When the status is still running, call read_output with execution_id and next_cursor.",
+			"Run a shell command in one granted container as the granted user. The operator follows your work in the dashboard: give every command a goal, one short sentence that says what the command should accomplish. With shell_id from open_shell, the command is typed into that persistent shell: the working directory and variables carry over, the result has command_id, exit_code and cwd, and status is the command's status. A shell runs one command at a time; a busy shell refuses another command. Without shell_id, every call starts a new process with bash -lc (or sh -lc when bash is missing), and nothing carries over; stdin is /dev/null unless interactive is true. The operator can take control of the terminal at any time; execute in that shell, write_stdin and cancel_execution are then refused until the operator hands control back. When the status is still running, call read_output with execution_id and next_cursor.",
 		inputSchema: {
 			type: 'object',
 			properties: {
 				target_id: { ...id, description: 'target_id from list_targets' },
 				command: { type: 'string', minLength: 1, maxLength: EXECUTION_LIMITS.command },
+				goal: {
+					type: 'string',
+					minLength: 1,
+					maxLength: GOAL_LIMIT,
+					description:
+						'One short sentence for the operator: what this command should accomplish, not how. Example: "Confirm the branch is clean before the refactor."'
+				},
+				intent: {
+					type: 'string',
+					maxLength: GOAL_LIMIT,
+					description:
+						'Optional broader task for this container, displayed as Working on. Supply when the task changes; an empty string clears it.'
+				},
 				shell_id: {
 					...id,
 					description: 'shell_id from open_shell. Not combined with workdir or interactive.'
@@ -114,7 +127,7 @@ export const BRAIN_TOOLS: ToolDefinition[] = [
 				},
 				wait_seconds: waitSeconds(20)
 			},
-			required: ['target_id', 'command'],
+			required: ['target_id', 'command', 'goal'],
 			additionalProperties: false
 		},
 		annotations: { destructiveHint: true, openWorldHint: true }
@@ -272,6 +285,18 @@ function outputResult(execution: BrainExecution, cursor?: number) {
 	};
 }
 
+/**
+ * Link a call to a known execution, and for a shell to the command that runs or ran last,
+ * which is the command that the call reads from, types into or interrupts.
+ */
+function linkExecution(links: AuditLinks, executionId: string): void {
+	const execution = brainState.executions.get(executionId);
+	if (!execution) return;
+	links.executionId = execution.id;
+	const current = execution.shell?.current;
+	if (current) links.commandId = current.id;
+}
+
 /** Wrap structured data in an MCP tool result. */
 function success(data: Record<string, unknown>): ToolResult {
 	return { content: [{ type: 'text', text: JSON.stringify(data) }], structuredContent: data };
@@ -286,12 +311,18 @@ function failure(message: string): ToolResult {
 export async function callTool(name: string, input: unknown): Promise<ToolResult> {
 	let target: string | undefined;
 	let detail = '';
+	const links: AuditLinks = {};
 	try {
-		const result = await runTool(name, input, (value, description) => {
-			target = value;
-			detail = description;
-		});
-		recordAudit({ tool: name, target, detail, outcome: 'ok' });
+		const result = await runTool(
+			name,
+			input,
+			(value, description) => {
+				target = value;
+				detail = description;
+			},
+			links
+		);
+		recordAudit({ tool: name, target, detail, outcome: 'ok', ...links });
 		return result;
 	} catch (cause) {
 		const known =
@@ -306,17 +337,39 @@ export async function callTool(name: string, input: unknown): Promise<ToolResult
 			tool: name,
 			target,
 			detail: detail || message,
-			outcome: denied ? 'denied' : 'error'
+			outcome: denied ? 'denied' : 'error',
+			...links
 		});
 		if (!known) console.error('[brain] tool failed', cause);
 		return failure(message);
 	}
 }
 
+/**
+ * What one call used, so the dashboard shows the call with its command instead of in a
+ * separate activity list. Set as soon as known; a refused call keeps what was set.
+ */
+interface AuditLinks {
+	executionId?: string;
+	commandId?: string;
+	goal?: string;
+}
+
+/** Read the required goal of an `execute` call. */
+function goalOf(args: Arguments): string {
+	const goal = text(args, 'goal', false, GOAL_LIMIT)?.trim();
+	if (!goal)
+		throw new ToolInputError(
+			'goal is required: one short sentence that tells the operator what the command should accomplish'
+		);
+	return goal;
+}
+
 async function runTool(
 	name: string,
 	input: unknown,
-	describe: (target: string | undefined, detail: string) => void
+	describe: (target: string | undefined, detail: string) => void,
+	links: AuditLinks
 ): Promise<ToolResult> {
 	if (name === 'list_targets') {
 		argumentsOf(input, []);
@@ -331,6 +384,7 @@ async function runTool(
 				...(view.composeService ? { compose_service: view.composeService } : {}),
 				...(view.localFolder ? { workspace: view.localFolder } : {}),
 				user: view.user,
+				...(view.intent ? { intent: view.intent } : {}),
 				...(view.workdir ? { workdir: view.workdir } : {}),
 				expires_at: view.expiresAt,
 				running_executions: view.runningExecutions,
@@ -362,6 +416,7 @@ async function runTool(
 		);
 		const grant = await liveGrant(targetId);
 		const execution = await openShell(grant, { name: shellName, workdir });
+		links.executionId = execution.id;
 		await waitForPrompt(execution, wait * 1000);
 		return success({ ...outputResult(execution, 0), name: execution.shell?.name });
 	}
@@ -369,6 +424,8 @@ async function runTool(
 		const args = argumentsOf(input, [
 			'target_id',
 			'command',
+			'goal',
+			'intent',
 			'shell_id',
 			'workdir',
 			'interactive',
@@ -376,6 +433,8 @@ async function runTool(
 		]);
 		const targetId = text(args, 'target_id', true, 64);
 		const command = text(args, 'command', true, EXECUTION_LIMITS.command);
+		if (typeof args.goal === 'string') links.goal = args.goal.trim().slice(0, GOAL_LIMIT);
+		const intent = text(args, 'intent', false, GOAL_LIMIT)?.trim();
 		const shellId = text(args, 'shell_id', false, 64);
 		const workdir = text(args, 'workdir', false);
 		const interactive = flag(args, 'interactive');
@@ -390,10 +449,18 @@ async function runTool(
 				throw new ToolInputError(
 					'workdir and interactive do not apply to a shell. Use cd in the shell instead.'
 				);
+			const goal = goalOf(args);
 			const execution = await ownedExecution(shellId);
 			if (execution.grantId !== targetId)
 				throw new ToolInputError('shell_id belongs to another target_id');
-			const current = await runInShell(execution, command);
+			links.executionId = execution.id;
+			const current = await runInShell(execution, command, goal);
+			// Only an accepted command may update the intent of its live grant.
+			if (intent !== undefined) {
+				const grant = brainState.grants.get(execution.grantId);
+				if (grant) grant.intent = intent || undefined;
+			}
+			links.commandId = current.id;
 			await waitForCommand(execution, current, wait * 1000);
 			const page = commandOutput(execution, current);
 			return success({
@@ -414,12 +481,16 @@ async function runTool(
 			});
 		}
 		describe(brainState.grants.get(targetId)?.containerName ?? targetId, command);
+		const goal = goalOf(args);
 		const grant = await liveGrant(targetId);
 		const execution = await startExecution(grant, {
 			command,
+			goal,
 			workdir,
 			interactive: interactive ?? false
 		});
+		if (intent !== undefined) grant.intent = intent || undefined;
+		links.executionId = execution.id;
 		await waitUntilSettled(execution, wait * 1000);
 		return success(outputResult(execution, 0));
 	}
@@ -429,6 +500,7 @@ async function runTool(
 		const cursor = integer(args, 'cursor', Number.MAX_SAFE_INTEGER);
 		const wait = integer(args, 'wait_seconds', MAX_WAIT_SECONDS) ?? 0;
 		describe(brainState.executions.get(executionId)?.containerName, executionId);
+		linkExecution(links, executionId);
 		const execution = await ownedExecution(executionId);
 		await waitForOutput(execution, cursor ?? 0, wait * 1000);
 		return success(outputResult(execution, cursor));
@@ -443,6 +515,7 @@ async function runTool(
 			brainState.executions.get(executionId)?.containerName,
 			`${executionId}: ${value.length} characters${close ? ', then end-of-file' : ''}`
 		);
+		linkExecution(links, executionId);
 		const execution = await ownedExecution(executionId);
 		writeInput(execution, value, close);
 		return success({ execution_id: execution.id, written: value.length, stdin_closed: close });
@@ -451,6 +524,7 @@ async function runTool(
 		const args = argumentsOf(input, ['execution_id']);
 		const executionId = text(args, 'execution_id', true, 64);
 		describe(brainState.executions.get(executionId)?.containerName, executionId);
+		linkExecution(links, executionId);
 		const execution = await ownedExecution(executionId);
 		const status = await stopExecutionForBrain(execution);
 		return success({ execution_id: execution.id, status, confirmed: status === 'stopped' });
