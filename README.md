@@ -20,6 +20,74 @@ is a PNG, because iOS ignores SVG icons there. It is generated from the app icon
 After you change the app icon, run `node scripts/generate-app-icons.mjs` and commit
 the new PNG.
 
+## Install the DevHarbour command
+
+The `devharbour` command adds guided setup, saved JSON settings and management of
+one retained instance. It reuses the existing Bash launcher's deployment logic.
+It requires **Linux, Python 3.9+, Bash and Docker access**. No host Node.js or source
+checkout is needed for published images. Docker and other host packages are never
+installed automatically. The dashboard grants full Docker and terminal access;
+run it only on a trusted host.
+
+From a checkout of this version:
+
+```bash
+bash scripts/install-devharbour.sh --source "$PWD"
+~/.local/bin/devharbour
+```
+
+Without a checkout, download and review the installer before running it:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/axelthas/devcontainer-dashboard/main/scripts/install-devharbour.sh \
+  -o install-devharbour.sh
+bash install-devharbour.sh
+~/.local/bin/devharbour
+```
+
+The download example requires this feature to be merged into `main`. To try this
+PR before merge, download its installer from `feat/65-devharbour-cli` instead and
+pass `--ref feat/65-devharbour-cli`. Published images may not yet include the
+parent SSH-agent changes; select a compatible image explicitly when testing.
+
+The installer defaults to `~/.local/bin` and
+`${XDG_DATA_HOME:-$HOME/.local/share}/devharbour`. It reports missing PATH setup,
+resolves remote refs to an immutable commit, and records the installed source in
+`devharbour --version`. Use `--bin-dir`, `--data-dir`, or `--ref COMMIT` to override
+installation inputs. Reinstallation preserves configuration and data and refuses
+to overwrite unrelated commands. A local-source install includes your current CLI
+and launcher files, so review uncommitted changes first.
+
+On the first run, confirm the Docker-host identity, workspace and SSH-agent socket,
+then enter a hidden dashboard password or supply `--password-file`. A short setup
+path keeps advanced integrations optional. The CLI saves validated settings,
+starts a detached instance, checks the production listener and Docker API, and
+prints the URL. Later runs reuse the settings and container without another pull.
+
+```bash
+devharbour                              # first-run setup, then reuse
+devharbour --port 3010                  # save and run; review required recreation
+devharbour configure                   # guided config-only edit
+devharbour configure --clear bootstrap # turn off a saved optional setting
+devharbour status
+devharbour logs
+devharbour stop
+```
+
+Settings default to `${XDG_CONFIG_HOME:-$HOME/.config}/devharbour/config.json`.
+Use `--config PATH` for another instance configuration. Explicit flags override
+saved values; omitted values remain unchanged. Secrets are private files, not
+JSON values. An existing container or retained volume is never adopted silently.
+The default restart policy is `always`: Docker starts the instance again after a
+daemon restart, including after a manual stop. Select `--restart-policy
+unless-stopped` or `no` if that is not wanted; applying the change requires an
+explicitly reviewed recreation.
+
+See [the CLI reference](scripts/README.md#installed-devharbour-cli) for unattended
+examples, the JSON schema, relative paths, replacement/adoption rules and checkout
+builds. Direct launcher usage remains available below and retains its existing
+foreground-registry and isolated-build behavior.
+
 ## Run the dashboard
 
 Use the launcher on your Linux Docker host. You need Bash, Docker, and a non-root

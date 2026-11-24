@@ -14,7 +14,9 @@ mode must not source repository files or require a checkout.
 
 ## The launcher
 
-`run-dashboard.sh` is the single entrypoint for running the dashboard.
+`run-dashboard.sh` owns deployment validation and Docker launch argument construction.
+The installed `devharbour` command calls it for managed deployment; direct
+launcher usage remains supported as described below.
 
 - Default (registry) mode pulls the selected image and runs it attached in the
   foreground with the stable `dashboard_data` and `ddash_zsh_data` named volumes.
@@ -273,3 +275,208 @@ a successful production build or Docker integration result. Real agent forwardin
 actual Polaris localEnv requirements, persistent-build reconnect/cancellation,
 shutdown and volume migration still need appropriate runtime tests. Structured
 shell arguments for build paths remain coordinated with issue #11.
+
+## Installed DevHarbour CLI
+
+### Installation and prerequisites
+
+`bash scripts/install-devharbour.sh --source "$PWD"` installs the current checkout's
+CLI and launcher into a versioned user-local runtime directory. `--ref COMMIT`
+selects a remote GitHub revision instead of `--source`. Without either option, the
+installer resolves `main` to one immutable commit before downloading its archive.
+It reads only the two required regular-file archive members; it does not extract
+arbitrary archive paths or execute downloaded package hooks.
+
+Required host tools: Linux, Python 3.9+ (standard library only), Bash and Docker.
+Use an existing non-root Docker operator. No host Node.js, npm, sudo or checkout is
+needed for the published-image path. Docker Buildx and a source checkout are needed
+only for checkout builds. Optional integrations retain their own prerequisites.
+The installer never provisions Docker/Tailscale or changes host permissions.
+
+`--bin-dir PATH` defaults to `~/.local/bin`. `--data-dir PATH` defaults to
+`${XDG_DATA_HOME:-$HOME/.local/share}/devharbour` and must be private (0700).
+The installer refuses to overwrite unrelated commands or symlinks. It installs
+versioned runtime files and atomically publishes its own wrapper. Reinstallation
+does not touch config, credentials, volumes or containers. It does not edit shell
+startup files. Follow its printed PATH instruction if needed. `--version` reports
+the CLI version and installed source identity; the CLI does not upgrade itself.
+
+### Commands and precedence
+
+```bash
+devharbour [run] [configuration options]
+devharbour configure [configuration options]
+devharbour status
+devharbour logs
+devharbour stop
+devharbour build --source-checkout /absolute/path/to/checkout [options]
+devharbour --help
+devharbour --version
+```
+
+`run` is the default. It merges explicit flags, validates the result, saves JSON,
+and ensures the managed instance is ready. With no saved settings it guides setup.
+With complete saved settings it asks no repeated setup questions. `configure`
+uses the same validation and saving path but makes no Docker calls. It asks about
+advanced settings when interactive. Supply arguments to change required values
+or an existing password-file reference.
+
+Precedence is explicit flags, then saved settings, then documented defaults.
+`--env-file` replaces the saved list when supplied; repeat it to layer files in
+argument order. `--clear KEY` removes an optional saved setting. An omitted flag
+never disables a saved feature. Optional booleans can also be `false` in JSON.
+Clearing `brain` also clears its enabling token/port/Funnel options; clearing
+`brain-funnel` clears its public-port setting; clearing `tailscale-socket` clears
+Tailscale-only controls and Funnel. Contradictory `brain=false` and enabling
+options are rejected rather than silently enabling Brain.
+
+All current launcher deployment settings are supported under their existing flag
+names except `--password VALUE`, which is intentionally not accepted by the new
+CLI. Use a hidden prompt or `--password-file`. `--build` aliases the isolated
+`build` command. `--source-checkout` identifies its actual source directory;
+`--platform` and `--name` remain build-only. Managed `--health-timeout` is a CLI
+readiness deadline (1 to 86400 seconds), while direct build mode uses the launcher's
+existing deadline. An installed command does not build from its runtime directory.
+An explicit image or bind-address setting cannot be used for a checkout build;
+use a separate build config. Build creates a separate test instance, does not
+replace the managed instance and does not write managed last-applied state.
+
+`status`, `logs` (last 200 lines) and `stop` require a saved config and its ownership
+label. They do not require a usable saved password or agent, and never update
+configuration. They reject setting changes. `--help` and `--version` need neither
+Docker nor configuration. There is no automatic image refresh. A missing selected
+image is pulled on creation; existing image tags are not pulled again implicitly.
+
+### Version 1 JSON schema
+
+The default path is `${XDG_CONFIG_HOME:-$HOME/.config}/devharbour/config.json`.
+Override it with `--config PATH` on any command. The four top-level fields below are
+required; unknown fields, unknown setting keys and unsupported versions fail.
+
+```json
+{
+	"schemaVersion": 1,
+	"instanceName": "devcontainer-dashboard",
+	"restartPolicy": "always",
+	"settings": {
+		"host-user": "operator",
+		"host-uid": 1000,
+		"host-gid": 1000,
+		"host-home": "/home/operator",
+		"ssh-agent-socket": "/run/user/1000/ssh-agent.socket",
+		"workspace": "/home/operator/workspaces",
+		"password-file": "dashboard-password",
+		"port": 3000,
+		"bootstrap": false,
+		"env-file": ["development.env"]
+	}
+}
+```
+
+- `schemaVersion` is the integer `1`.
+- `instanceName` is an immutable lowercase container name (letters, digits, dot,
+  underscore or hyphen; 1 to 80 characters, starting with a letter or digit).
+  Select a new config and instance name for an extra instance.
+- `restartPolicy` is `always`, `unless-stopped`, `on-failure` or `no`. The default
+  `always` matches the policy proposed in PR #43. With `always`, a manual stop does
+  not keep an instance stopped through Docker restart. The direct launcher remains
+  unchanged outside its new managed path; coordinate PR #43 when it merges.
+- `settings` uses launcher flag names without `--`. Ports, UID/GID and readiness
+  timeout are JSON integers, optional switches are booleans, `env-file` is a list
+  of strings, and the remaining settings are nonempty strings. Required settings
+  are host-user, host-uid, host-gid, host-home, ssh-agent-socket and password-file.
+  Launcher validators enforce actual ranges, origins and feature combinations.
+- Defaults are dashboard port 3000, AI port 3002, loopback binding, the existing
+  `latest` image reference and `/var/run/docker.sock`. Workspace defaults to
+  `host-home/ddash-workspace` (the separate build default uses
+  `ddash-production-workspace`). Advanced integrations are off by default.
+
+Relative file and bind-source paths resolve against the config directory, not the
+shell's current directory. They are not shell expressions; `~`, `$VAR` and command
+substitutions are not expanded. An absolute Docker-host path names a path on that
+host even when the CLI runs elsewhere. Password/env files are client-local inputs;
+agent, known_hosts, workspace, Docker, Tailscale and Brain-token binds are host
+inputs. The application still requires the supported Docker-host socket model;
+this CLI does not add generic remote-daemon support. Guided setup does not infer
+host identity unless the operator explicitly selects this machine and confirms
+each proposed value. For another host it disables local workspace creation.
+
+### Private files and unattended use
+
+Config directories must be owned by the CLI user, non-symlink directories and mode 0700. Config, lock, last-applied state and password files are private (0600).
+Existing insecure files/directories fail with guidance; the CLI does not chmod
+unrelated host paths. Config writes are atomic and synced, and a per-config lock
+rejects concurrent CLI updates. Failed validation/cancelled setup preserves prior
+configuration. Never hand-edit files while the CLI is running.
+
+Password values and Brain tokens are never written to configuration JSON. Guided
+password entry uses a hidden terminal prompt and writes a separate private file
+only after validation and approval. Env files are trusted Docker runtime inputs,
+not a secret store. Protect them separately. Docker administrators and privileged
+container processes can still inspect runtime environment values.
+
+Prepare a private password file, then supply explicit settings:
+
+```bash
+install -d -m 700 "$HOME/.config/devharbour"
+# Create dashboard-password here with mode 0600 using your preferred secure editor.
+devharbour --non-interactive \
+  --host-user operator --host-uid 1000 --host-gid 1000 \
+  --host-home /home/operator \
+  --ssh-agent-socket /run/user/1000/ssh-agent.socket \
+  --workspace /home/operator/workspaces \
+  --password-file dashboard-password
+```
+
+`--non-interactive` never opens a terminal. Missing required inputs or approval
+fail instead. `--allow-exposure` explicitly approves a newly enabled remote
+bind/origin, Tailscale socket or public Brain Funnel configuration. Those remain
+opt-in. No container receives a Brain grant during CLI setup. A saved agent socket
+is revalidated as the configured operator, including supplementary groups, on
+reuse. Empty agents and unreachable agents have different diagnostics. Update a
+stale socket path explicitly; no replacement agent, permission relaxation or
+private-key mount is used.
+
+### Container ownership, replacement and adoption
+
+The CLI labels the container with a hash of its absolute config path and a desired
+configuration fingerprint. The fingerprint also includes password/env-file
+content hashes so changed credentials require reconfiguration. It never includes
+plaintext values in labels or output. Moving/copying a config does not implicitly
+transfer ownership. A healthy unchanged instance is left running, and a stopped
+unchanged instance is started rather than recreated.
+
+Recreation displays field-level changes and changed input-file paths, then asks
+for approval. `--replace` is explicit unattended authorization for the exact owned
+container, not for another installation. The CLI verifies the container identity
+again before stopping/removing it, does not remove volumes, and refuses volumes
+attached to other containers. Writable-layer data is lost during replacement.
+Image-pull/startup failures after replacement can leave no running instance;
+retained volumes remain for recovery. This is not transactional deployment or
+rollback. Config is saved before deployment, and a failure says so without claiming
+readiness. `<config>.state.json` records last-applied settings only after the
+production readiness, Docker socket and SSH-agent checks succeed.
+
+An unlabelled legacy container is not silently adopted. To adopt it, review its
+name, image and mounts, then explicitly use `--adopt --replace`. Its `/data`,
+`/dashboard-history` and `/dashboard-ai` named-volume mappings must match the
+requested instance exactly. Retained orphan volumes also need explicit adoption;
+use `--adopt` with a terminal approval, or `--adopt --replace` unattended. Volumes
+attached to another container are refused even with adoption. The default instance
+preserves `dashboard_data`, `ddash_zsh_data` and `dashboard_ai`; extra named
+instances use `<name>-data`, `<name>-history` and `<name>-ai`. An explicit
+`ai-state-volume` retains the existing launcher override.
+
+The CLI does not provision host boot ordering, auto-update an image/CLI, delete
+installation data, or silently rebuild a devcontainer. Existing direct launcher
+flags remain supported. The new `--validate-only` path checks explicit settings
+without reading credentials, creating workspaces, prompting or accessing Docker.
+The `--managed-*` options are integration arguments for the CLI: they reuse the
+same argument builder and refuse an existing container name.
+
+### Validation limits
+
+Run `npm run test:cli` for isolated config, installer, PTY, failure-path and mocked
+Docker regressions. These do not prove real Docker mounts, SSH authentication,
+image compatibility, production WebSockets or restart behavior. Real-Docker
+acceptance must use disposable resources, never existing operator data.

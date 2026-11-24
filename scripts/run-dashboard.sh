@@ -20,6 +20,13 @@ Required options (both modes):
   --host-home PATH         Absolute Docker-host operator home.
   --ssh-agent-socket PATH  Existing Docker-host SSH agent socket.
 Other options:
+  --validate-only          Validate explicit settings without prompts, secrets or Docker.
+  --managed-name NAME      Retained registry instance (used by devharbour).
+  --managed-owner ID       Config ownership label; required with --managed-name.
+  --managed-fingerprint ID Desired-settings label; required with --managed-name.
+  --managed-data-volume NAME
+  --managed-history-volume NAME
+  --restart-policy POLICY  Managed only: always, unless-stopped, on-failure or no.
   --host-name NAME         Host label shown by the dashboard (default unset).
   --workspace PATH         Workspace bind (same source and target).
   --socket PATH            Docker socket (default /var/run/docker.sock).
@@ -75,6 +82,8 @@ HELP
 
 # Parse flags and reject mode conflicts before reading secrets or touching Docker.
 parse_arguments() {
+  VALIDATE_ONLY=0 MANAGED_NAME='' MANAGED_OWNER='' MANAGED_FINGERPRINT=''
+  MANAGED_DATA_VOLUME='' MANAGED_HISTORY_VOLUME='' RESTART_POLICY=''
   MODE=registry SHOW_HELP=0
   WORKSPACE='' SOCKET='' PORT='' BIND_ADDRESS='' ORIGIN=''
   AI_PORT='' AI_STATE_VOLUME=''
@@ -90,9 +99,15 @@ parse_arguments() {
   while (( $# )); do
     case "$1" in
       --help|-h) SHOW_HELP=1; return ;;
-      --workspace|--socket|--port|--ai-port|--ai-state-volume|--bind-address|--origin|--password|--password-file|--env-file|--host-user|--host-uid|--host-gid|--host-home|--host-name|--ssh-agent-socket|--gateway-host|--gateway-ports|--vscode-ssh-host|--image|--platform|--name|--health-timeout|--tailscale-socket|--tailscale-ports|--tailscale-gateway-port|--brain-token-file|--brain-port|--brain-funnel-port|--ssh-known-hosts)
+      --managed-name|--managed-owner|--managed-fingerprint|--managed-data-volume|--managed-history-volume|--restart-policy|--workspace|--socket|--port|--ai-port|--ai-state-volume|--bind-address|--origin|--password|--password-file|--env-file|--host-user|--host-uid|--host-gid|--host-home|--host-name|--ssh-agent-socket|--gateway-host|--gateway-ports|--vscode-ssh-host|--image|--platform|--name|--health-timeout|--tailscale-socket|--tailscale-ports|--tailscale-gateway-port|--brain-token-file|--brain-port|--brain-funnel-port|--ssh-known-hosts)
         [[ $# -ge 2 && -n "$2" ]] || fail "$1 requires a value"
         case "$1" in
+          --managed-name) MANAGED_NAME=$2 ;;
+          --managed-owner) MANAGED_OWNER=$2 ;;
+          --managed-fingerprint) MANAGED_FINGERPRINT=$2 ;;
+          --managed-data-volume) MANAGED_DATA_VOLUME=$2 ;;
+          --managed-history-volume) MANAGED_HISTORY_VOLUME=$2 ;;
+          --restart-policy) RESTART_POLICY=$2 ;;
           --workspace) WORKSPACE=$2 ;;
           --socket) SOCKET=$2 ;;
           --port) PORT=$2 ;;
@@ -125,6 +140,7 @@ parse_arguments() {
           --tailscale-gateway-port) TAILSCALE_GATEWAY_PORT=$2 ;;
         esac
         shift 2 ;;
+      --validate-only) VALIDATE_ONLY=1; shift ;;
       --brain) BRAIN=1; shift ;;
       --brain-funnel) BRAIN=1; BRAIN_FUNNEL=1; shift ;;
       --bootstrap) BOOTSTRAP=1; shift ;;
@@ -319,6 +335,16 @@ validate_options() {
       fail 'Tailscale port and binding flags require --tailscale-socket'
   fi
   validate_brain_options
+  if [[ -n "$MANAGED_NAME" ]]; then
+    [[ "$MODE" == registry ]] || fail 'Managed instances cannot use --build'
+    for value in "$MANAGED_NAME" "$MANAGED_DATA_VOLUME" "$MANAGED_HISTORY_VOLUME"; do
+      [[ "$value" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$ ]] || fail 'Invalid managed resource name'
+    done
+    [[ "$MANAGED_OWNER" =~ ^[a-f0-9]{64}$ && "$MANAGED_FINGERPRINT" =~ ^[a-f0-9]{64}$ ]] || fail 'Managed labels must be SHA-256 values'
+    case "$RESTART_POLICY" in always|unless-stopped|on-failure|no) ;; *) fail 'Invalid managed restart policy' ;; esac
+  else
+    [[ -z "$MANAGED_OWNER$MANAGED_FINGERPRINT$MANAGED_DATA_VOLUME$MANAGED_HISTORY_VOLUME$RESTART_POLICY" ]] || fail 'Managed options require --managed-name'
+  fi
 }
 
 # Keep private MCP publication separate from the dashboard and every HTTPS service port.
@@ -397,6 +423,9 @@ prepare_arguments() {
     --mount "type=volume,source=$AI_STATE_VOLUME,target=/dashboard-ai"
     --mount "type=bind,source=$WORKSPACE,target=$WORKSPACE"
     --mount "type=bind,source=$SOCKET,target=/var/run/docker.sock")
+  # Managed registry publication always targets container port 3000.
+  # Tailscale host-network mode appends its explicit PORT override below.
+  if [[ -n "$MANAGED_NAME" ]]; then ARGS+=(--env PORT=3000); fi
   [[ -z "$ORIGIN" ]] || ARGS+=(--env "ORIGIN=$ORIGIN")
   if [[ "$GATEWAY" == 1 ]]; then ARGS+=(--env "SERVICE_PROXY_ENABLED=1"); fi
   [[ -z "$GATEWAY_HOST" ]] || ARGS+=(--env "SERVICE_PROXY_HOST=$GATEWAY_HOST")
@@ -481,6 +510,20 @@ run_registry() {
     --name devcontainer-dashboard "$IMAGE" "${HOOK[@]}"
 }
 
+# Start one retained instance using the same mounts, environment and publication.
+# The CLI owns reuse/replacement decisions; this path refuses an existing name.
+run_managed() {
+  if docker container inspect "$MANAGED_NAME" >/dev/null 2>&1; then
+    fail 'Managed container already exists; use devharbour to review its state'
+  fi
+  if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then docker pull "$IMAGE"; fi
+  docker run --detach --restart "$RESTART_POLICY" "${ARGS[@]}" "${PUBLICATION[@]}" \
+    --label "devharbour.config-owner=$MANAGED_OWNER" \
+    --label "devharbour.config-fingerprint=$MANAGED_FINGERPRINT" \
+    --volume "$MANAGED_DATA_VOLUME:/data" --volume "$MANAGED_HISTORY_VOLUME:/dashboard-history" \
+    --name "$MANAGED_NAME" "$IMAGE" "${HOOK[@]}"
+}
+
 # Build a disposable instance and retain its resources on success or failure.
 run_build() {
   printf 'Test container name: %s\nImage: %s\n' "$TEST_NAME" "$IMAGE"
@@ -537,12 +580,16 @@ main() {
   if [[ "$SHOW_HELP" == 1 ]]; then usage; return; fi
   validate_env_files
   resolve_identity
-  read_secrets
+  # Validation-only callers provide a workspace and need no password or daemon.
+  if [[ "$VALIDATE_ONLY" != 1 ]]; then read_secrets; fi
   validate_options
   validate_ssh_agent
+  if [[ "$VALIDATE_ONLY" == 1 ]]; then return; fi
   if [[ "$MODE" == build ]]; then prepare_checkout; else prepare_registry; fi
   prepare_arguments
   print_plan
-  if [[ "$MODE" == build ]]; then run_build; else run_registry; fi
+  if [[ "$MODE" == build ]]; then run_build
+  elif [[ -n "$MANAGED_NAME" ]]; then run_managed
+  else run_registry; fi
 }
 main "$@"
