@@ -13,6 +13,10 @@ services:
       WORKSPACE_ROOT: ${WORKSPACE_ROOT:-/workspaces}
       PRESETS_FILE: /data/presets.json
       VSCODE_SSH_HOST: ${VSCODE_SSH_HOST:-}
+      # Bearer token for the read-only MCP endpoint at /mcp. Empty keeps the endpoint off.
+      MCP_TOKEN: ${MCP_TOKEN:-}
+      # SSH hops agents use to reach containers, for example "bastion,user@server".
+      POLARIS_SSH_JUMP: ${POLARIS_SSH_JUMP:-}
       # SSH_AUTH_SOCK: /tmp/ssh-agent.socket
       # ── Polaris multi-instance support ────────────────────────────────────
       # Container-side path where generated instance files are stored

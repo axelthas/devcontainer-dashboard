@@ -9,6 +9,8 @@
 		BookOpen,
 		Trash2
 	} from 'lucide-svelte';
+	import { page } from '$app/state';
+	import { harnessAddress, isHarnessLoopbackOnly, type HarnessEndpoint } from '$lib/harness';
 	import type { PolarisInstance, PolarisMode } from '$lib/types';
 	import SandboxRow from './SandboxRow.svelte';
 	import { untrack } from 'svelte';
@@ -93,6 +95,15 @@
 			return aRunning - bRunning || a.name.localeCompare(b.name);
 		})
 	);
+
+	const harnesses = $derived(instance.containers.flatMap((c) => c.harnesses ?? []));
+
+	function harnessHint(harness: HarnessEndpoint): string {
+		if (!harness.hostPort) return 'Sandbox network address: reachable only from the server';
+		return isHarnessLoopbackOnly(harness)
+			? 'Published on localhost: reachable on the server or through an SSH tunnel'
+			: 'Published on the server: reachable from the network, without authentication';
+	}
 
 	const modeTargetIds = $derived(
 		instance.containers
@@ -346,6 +357,24 @@
 			{/if}
 		</div>
 	</div>
+
+	<!-- Test harness addresses -->
+	{#if expanded && harnesses.length > 0}
+		<div
+			class="flex flex-wrap items-center gap-x-5 gap-y-1.5 border-b border-[#d8dee9] px-5 py-2.5
+			       text-xs dark:border-[#4c566a]"
+		>
+			<span class="font-bold text-[#4c566a] dark:text-[#d8dee9]/80">AI harness</span>
+			{#each harnesses as harness (harness.kind)}
+				<span class="flex items-center gap-1.5" title={harnessHint(harness)}>
+					<span class="text-[#4c566a] dark:text-[#d8dee9]/60">{harness.label}</span>
+					<code class="font-mono text-[#2e3440] select-all dark:text-[#eceff4]">
+						{harnessAddress(harness, page.url.hostname)}
+					</code>
+				</span>
+			{/each}
+		</div>
+	{/if}
 
 	<!-- Container list -->
 	{#if expanded}

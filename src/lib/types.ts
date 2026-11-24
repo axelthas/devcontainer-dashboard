@@ -1,3 +1,5 @@
+import type { HarnessEndpoint } from './harness';
+
 export interface ContainerData {
 	id: string;
 	name: string;
@@ -16,6 +18,8 @@ export interface ContainerData {
 	composeConfigFiles?: string;
 	/** Address on the container's first network; only set while it is running */
 	ipAddress?: string;
+	/** Test harnesses the container's image declares; only known while it is running */
+	harnesses?: HarnessEndpoint[];
 }
 
 export interface RepositoryData {

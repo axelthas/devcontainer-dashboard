@@ -15,6 +15,7 @@ import {
 	getDefaultServices
 } from '$lib/server/polaris-manager';
 import { getNginxConfig } from '$lib/server/nginx-manager';
+import { findHarnessEndpoints } from '$lib/harness';
 import type { ContainerData } from '$lib/types';
 import type { PageServerLoad } from './$types';
 
@@ -90,6 +91,10 @@ export const load: PageServerLoad = async () => {
 			? basename(localWorkspacePath)
 			: cleanProjectName(rawName);
 
+		const ipAddress =
+			Object.values(c.NetworkSettings?.Networks ?? {}).find((n) => n.IPAddress)?.IPAddress ||
+			undefined;
+
 		containers.push({
 			id: c.Id.substring(0, 12),
 			name: rawName,
@@ -106,9 +111,8 @@ export const load: PageServerLoad = async () => {
 			composeProject,
 			composeWorkingDir: labels['com.docker.compose.project.working_dir'] ?? undefined,
 			composeConfigFiles: labels['com.docker.compose.project.config_files'] ?? undefined,
-			ipAddress:
-				Object.values(c.NetworkSettings?.Networks ?? {}).find((n) => n.IPAddress)?.IPAddress ||
-				undefined
+			ipAddress,
+			harnesses: findHarnessEndpoints(c.Ports, ipAddress)
 		});
 	}
 

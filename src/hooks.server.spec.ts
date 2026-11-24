@@ -11,6 +11,69 @@ function makeEvent(path: string, sessionToken?: string) {
 	};
 }
 
+describe('MCP route authentication', () => {
+	const resolve = async () => new Response('mcp');
+
+	function mcpEvent(authorization?: string, sessionToken?: string) {
+		return {
+			...makeEvent('/mcp', sessionToken),
+			request: new Request('http://localhost/mcp', {
+				method: 'POST',
+				headers: authorization ? { Authorization: authorization } : {}
+			})
+		} as never;
+	}
+
+	beforeEach(() => {
+		process.env.DASHBOARD_PASSWORD = 'test-password';
+		process.env.MCP_TOKEN = 'test-mcp-token';
+		resetAuthStateForTesting();
+	});
+
+	afterEach(() => {
+		delete process.env.DASHBOARD_PASSWORD;
+		delete process.env.MCP_TOKEN;
+		resetAuthStateForTesting();
+	});
+
+	it('allows the configured token', async () => {
+		const response = await handle({ event: mcpEvent('Bearer test-mcp-token'), resolve });
+		expect(await response.text()).toBe('mcp');
+	});
+
+	it('rejects a missing or wrong token', async () => {
+		for (const header of [undefined, 'Bearer wrong', 'test-mcp-token', 'Basic test-mcp-token']) {
+			const response = await handle({ event: mcpEvent(header), resolve });
+			expect(response.status).toBe(401);
+			expect(response.headers.get('www-authenticate')).toBe('Bearer');
+		}
+	});
+
+	it('does not accept a browser session', async () => {
+		const response = await handle({ event: mcpEvent(undefined, createSession()), resolve });
+		expect(response.status).toBe(401);
+	});
+
+	it('stays closed when no token is configured, even with a session', async () => {
+		delete process.env.MCP_TOKEN;
+		const response = await handle({ event: mcpEvent('Bearer ', createSession()), resolve });
+		expect(response.status).toBe(404);
+	});
+
+	it('keeps the MCP token away from the rest of the dashboard', async () => {
+		const response = await handle({
+			event: {
+				...makeEvent('/api/containers'),
+				request: new Request('http://localhost/api/containers', {
+					headers: { Authorization: 'Bearer test-mcp-token' }
+				})
+			} as never,
+			resolve
+		});
+		expect(response.status).toBe(401);
+	});
+});
+
 describe('authentication hook', () => {
 	beforeEach(() => {
 		process.env.DASHBOARD_PASSWORD = 'test-password';

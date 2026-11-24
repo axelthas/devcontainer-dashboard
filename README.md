@@ -84,25 +84,55 @@ The main server responsibilities are split across the app, Docker helpers, works
 
 ## Environment Variables
 
-| Variable                 | Default                        | Purpose                                                               |
-| ------------------------ | ------------------------------ | --------------------------------------------------------------------- |
-| DASHBOARD_PASSWORD       | required                       | Shared password required to access the dashboard                      |
-| WORKSPACE_ROOT           | /workspaces                    | Root directory scanned for local workspace discovery and repo actions |
-| HOST_HOSTNAME            | os.hostname()                  | Hostname displayed in the dashboard header                            |
-| VSCODE_SSH_HOST          | empty                          | SSH host used when building VS Code remote URIs                       |
-| PRESETS_FILE             | /data/presets.json             | JSON file containing bootstrap presets                                |
-| BOOTSTRAP_PROVIDERS_FILE | /data/bootstrap-providers.json | JSON file containing bootstrap provider definitions                   |
-| BUILD_LOG_DIR            | /data/build-logs               | Directory for logs of failed devcontainer builds and bootstrap runs   |
-| PORT                     | 3000                           | Port used by the custom Node server                                   |
-| DASHBOARD_BIND_ADDRESS   | 127.0.0.1                      | Host publication address for Compose and installer scripts            |
-| ORIGIN                   | empty                          | Public URL of the dashboard behind a reverse proxy                    |
-| PROTOCOL_HEADER          | empty                          | Trusted proxy header that carries the original protocol               |
-| ADDRESS_HEADER           | empty                          | Trusted proxy header that carries the client IP address               |
-| XFF_DEPTH                | 1                              | Number of trusted proxies when ADDRESS_HEADER is x-forwarded-for      |
+| Variable                 | Default                        | Purpose                                                                                                                |
+| ------------------------ | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| DASHBOARD_PASSWORD       | required                       | Shared password required to access the dashboard                                                                       |
+| WORKSPACE_ROOT           | /workspaces                    | Root directory scanned for local workspace discovery and repo actions                                                  |
+| HOST_HOSTNAME            | os.hostname()                  | Hostname displayed in the dashboard header                                                                             |
+| VSCODE_SSH_HOST          | empty                          | SSH host used when building VS Code remote URIs                                                                        |
+| PRESETS_FILE             | /data/presets.json             | JSON file containing bootstrap presets                                                                                 |
+| BOOTSTRAP_PROVIDERS_FILE | /data/bootstrap-providers.json | JSON file containing bootstrap provider definitions                                                                    |
+| BUILD_LOG_DIR            | /data/build-logs               | Directory for logs of failed devcontainer builds and bootstrap runs                                                    |
+| PORT                     | 3000                           | Port used by the custom Node server                                                                                    |
+| DASHBOARD_BIND_ADDRESS   | 127.0.0.1                      | Host publication address for Compose and installer scripts                                                             |
+| MCP_TOKEN                | empty                          | Bearer token for the read-only MCP endpoint at /mcp; empty keeps it off                                                |
+| POLARIS_SSH_JUMP         | empty                          | SSH hops MCP puts in container commands, for example `bastion,user@server`; empty gives commands for the server itself |
+| ORIGIN                   | empty                          | Public URL of the dashboard behind a reverse proxy                                                                     |
+| PROTOCOL_HEADER          | empty                          | Trusted proxy header that carries the original protocol                                                                |
+| ADDRESS_HEADER           | empty                          | Trusted proxy header that carries the client IP address                                                                |
+| XFF_DEPTH                | 1                              | Number of trusted proxies when ADDRESS_HEADER is x-forwarded-for                                                       |
 
 `DASHBOARD_PASSWORD` must be non-empty. Development and production startup fail closed when it is absent. A successful login creates an opaque in-memory session and an `HttpOnly`, `SameSite=Strict` cookie that lasts until the browser session ends. Logout, process restart, or password rotation invalidates the session.
 
 All dashboard pages, API routes, service views, and terminal WebSocket connections require the session. The configured password is removed from integrated-terminal environments. The login endpoint, required static assets, and the production readiness endpoint are public application resources.
+
+## MCP Endpoint for Agents
+
+Set `MCP_TOKEN` to serve a read-only MCP endpoint at `/mcp`. It lists Polaris instances and the addresses of their test harnesses, so agents do not need them written down. Generate a token with `openssl rand -hex 32`, then register the endpoint in GitHub Copilot, for example in `.vscode/mcp.json`:
+
+```json
+{
+	"servers": {
+		"polaris": {
+			"type": "http",
+			"url": "http://<host>:3000/mcp",
+			"headers": { "Authorization": "Bearer <token>" }
+		}
+	}
+}
+```
+
+| Tool             | Returns                                                                                                           |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `list_instances` | Each instance with its state and harness addresses                                                                |
+| `get_instance`   | One instance with its containers, their VNC, noVNC and supervisor addresses, and commands to log in and read logs |
+| `list_sources`   | Source types with their image tags and services                                                                   |
+
+The endpoint uses only this token: a dashboard session cannot open it, and the token cannot open the rest of the dashboard. Without `MCP_TOKEN` the route returns 404. Plain HTTP does not protect the token on a network, so use a trusted network, a tunnel or a TLS reverse proxy.
+
+For each running container, `get_instance` returns an `ssh` command, a `dockerExec` command and a `dockerLogs` command, with notes on where the logs are. The `ssh` command logs in as root over the sandbox network, so the container needs your public key in `/root/.ssh/authorized_keys`, which the images do not ship. `dockerExec` needs only access to the server. These commands give root in privileged containers, which is no more than the `docker` group on the server already allows.
+
+Harnesses are detected from the ports the `:mcp` images declare. Publish them on localhost to give each instance its own host port, for example `127.0.0.1::19777/tcp`. A returned address uses the host the MCP request came in on, so a harness published on localhost is reachable on the server or through an SSH tunnel. An unpublished harness returns its address on the sandbox network, reachable only from the server.
 
 ## Run Logs
 
@@ -118,6 +148,7 @@ A log can contain secrets that a build or bootstrap script prints. Logs are only
 | /service                      | Service iframe viewer opened from the dashboard                      |
 | /demo/playwright              | Playwright test target page                                          |
 | /healthz                      | Public production application readiness (GET or HEAD)                |
+| /mcp                          | Read-only MCP endpoint for agents; requires MCP_TOKEN                |
 | /api/containers               | Lists all visible containers and their port mappings                 |
 | /api/containers/[id]/[action] | Starts, stops, restarts, or deletes a container                      |
 | /api/presets                  | Returns bootstrap presets                                            |

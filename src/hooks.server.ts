@@ -1,4 +1,10 @@
-import { AUTH_COOKIE_NAME, assertAuthConfigured, isSessionValid } from '$lib/server/auth';
+import {
+	AUTH_COOKIE_NAME,
+	assertAuthConfigured,
+	isMcpAuthorized,
+	isMcpEnabled,
+	isSessionValid
+} from '$lib/server/auth';
 import type { Handle } from '@sveltejs/kit';
 
 const PUBLIC_PATHS = new Set(['/login', '/robots.txt']);
@@ -14,8 +20,26 @@ function unauthorizedApiResponse(): Response {
 	});
 }
 
+/** MCP clients authenticate with their own token: a browser session must not open this route. */
+function mcpAccessDenied(authorizationHeader: string | null): Response | null {
+	if (!isMcpEnabled()) {
+		return new Response(JSON.stringify({ message: 'MCP is disabled: MCP_TOKEN is not set' }), {
+			status: 404,
+			headers: { 'Content-Type': 'application/json' }
+		});
+	}
+	if (isMcpAuthorized(authorizationHeader)) return null;
+	const response = unauthorizedApiResponse();
+	response.headers.set('WWW-Authenticate', 'Bearer');
+	return response;
+}
+
 export const handle: Handle = async ({ event, resolve }) => {
 	assertAuthConfigured();
+
+	if (event.url.pathname === '/mcp') {
+		return mcpAccessDenied(event.request.headers.get('authorization')) ?? resolve(event);
+	}
 
 	if (isPublicPath(event.url.pathname)) return resolve(event);
 

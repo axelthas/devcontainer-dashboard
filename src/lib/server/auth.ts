@@ -160,6 +160,19 @@ export function isCookieHeaderAuthenticated(cookieHeader: string | undefined): b
 	return isSessionValid(sessionTokenFromCookieHeader(cookieHeader));
 }
 
+export function isMcpEnabled(): boolean {
+	return Boolean(process.env.MCP_TOKEN);
+}
+
+/** Checks an `Authorization: Bearer <token>` header against MCP_TOKEN. */
+export function isMcpAuthorized(authorizationHeader: string | null): boolean {
+	const expected = process.env.MCP_TOKEN;
+	const provided = authorizationHeader?.match(/^Bearer (.+)$/i)?.[1];
+	if (!expected || !provided) return false;
+	const digest = (value: string) => createHash('sha256').update(value).digest();
+	return timingSafeEqual(digest(provided), digest(expected));
+}
+
 export function resetAuthStateForTesting(): void {
 	authState.sessions.clear();
 	authState.loginAttempts.clear();

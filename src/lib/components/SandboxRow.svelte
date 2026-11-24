@@ -2,6 +2,7 @@
 	import type { ContainerData } from '$lib/types';
 	import { generateId } from '$lib/index';
 	import { buildContainerVscodeUri } from '$lib/vscode';
+	import { isHarnessPort } from '$lib/harness';
 	import ServiceButton from './ServiceButton.svelte';
 	import ActionControls from './ActionControls.svelte';
 
@@ -16,6 +17,11 @@
 	let { container, vscodeSshHost, onRefresh, onOpenTerminal, nginxDomain }: Props = $props();
 
 	const isRunning = $derived(container.state === 'running');
+
+	// Harnesses speak JSON-RPC, not HTTP: PolarisStack lists their addresses instead.
+	const servicePorts = $derived(
+		Object.fromEntries(Object.entries(container.ports).filter(([port]) => !isHarnessPort(port)))
+	);
 
 	const vscodeUri = $derived.by(() => {
 		return buildContainerVscodeUri(container, vscodeSshHost);
@@ -62,7 +68,7 @@
 
 	<!-- Exposed Services -->
 	<div class="flex flex-grow flex-wrap gap-2">
-		{#each Object.entries(container.ports) as [containerPort, hostPort] (containerPort)}
+		{#each Object.entries(servicePorts) as [containerPort, hostPort] (containerPort)}
 			<ServiceButton
 				{containerPort}
 				{hostPort}
@@ -71,7 +77,7 @@
 				containerName={container.name}
 				projectName={container.projectName}
 				workspacePath={container.localWorkspacePath}
-				allPorts={container.ports}
+				allPorts={servicePorts}
 				{nginxDomain}
 			/>
 		{/each}
