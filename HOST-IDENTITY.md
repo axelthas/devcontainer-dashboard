@@ -1,8 +1,8 @@
 # Host-matched production identity
 
 This is the deployment identity contract introduced for issue #18. It supersedes
-older examples that use `/home/ddash`, a fixed runtime user, or an unconditional
-SSH-agent mount.
+older examples that use `/home/ddash` or a fixed runtime user. The SSH transport
+contract is defined in [SSH-AGENT.md](SSH-AGENT.md) for issue #63.
 
 ## Contract
 
@@ -47,6 +47,7 @@ bash scripts/run-dashboard.sh --build \
   --non-interactive --password-file /path/to/password
 ```
 
+Export the existing Docker-host agent's `SSH_AUTH_SOCK` before either launcher mode.
 Build mode builds both application outputs through the Dockerfile, loads the
 image locally, and starts a separate instance on loopback port 3001. It does not
 publish, replace another instance, or use Vite preview. `--origin` still
@@ -68,33 +69,36 @@ the entire host home, or a parent such as `/home`. The entrypoint rejects this.
 The home directory itself is container-private; only selected resources are
 mounted below it. The workspace uses the same absolute path on both sides.
 
-To expose the host SSH directory:
+`--ssh-dir` and `--no-ssh-dir` have been removed. Do not mount the host `.ssh`
+directory, even read-only: a process can still read and extract private keys.
 
-```bash
-bash scripts/run-dashboard.sh --build --ssh-dir
-```
+The launcher requires `SSH_AUTH_SOCK` at its absolute Docker-host path and mounts
+the socket at the same path in DevHarbour. The entrypoint verifies connectivity
+as the configured non-root operator before hooks or server startup. A reachable
+agent with no identities is permitted, with an explicit diagnostic. Missing or
+inaccessible agents have no key-file fallback. No host socket permissions change.
 
-This mounts HOST_HOME/.ssh read-only at the same absolute path. The directory
-must already exist. Nothing creates an empty host SSH directory or copies keys
-into the image. Do not put private keys in build arguments or environment values.
+Managed devcontainer builds and rebuilds add the same agent at a dedicated target,
+set both container and remote environments, and verify access as the effective
+remote user. Existing containers require explicit recreation to acquire a mount.
+See [the SSH migration and lifecycle rules](SSH-AGENT.md) for Compose behavior,
+remote UID access, socket replacement, trust boundaries and acceptance checks.
 
-To forward an agent, export SSH_AUTH_SOCK to its absolute Docker-host path before
-running a launcher. The socket is mounted at the same path inside the dashboard.
-Unset SSH_AUTH_SOCK for no-agent operation. Agent access does not satisfy a
-devcontainer configuration that explicitly requires a `.ssh` directory bind.
-Agent permissions must allow the configured operator to connect.
+The optional bootstrap hook uses strict SSH host-key checking. Supply trusted
+server keys with `--ssh-known-hosts /absolute/host/known_hosts`, an image trust
+store, or an operator hook. The flag mounts only that file at
+`/etc/ssh/ssh_known_hosts` in the dashboard. It does not provide host-key trust to
+managed devcontainers automatically. The hook does not modify host SSH files or
+trust unauthenticated keyscan output.
 
-The optional bootstrap hook uses strict SSH host-key checking. Supply a trusted
-known_hosts through the selected read-only SSH directory. The bundled hook does
-not modify host SSH files, chmod a read-only mount, or trust unauthenticated
-keyscan output. For agent-only mode, prepare known_hosts before selecting the
-bundled hook, or run bootstrap manually after an operator hook establishes trust.
-
-Docker resolves sibling-container bind sources on the daemon host. Matching HOME
-fixes `${localEnv:HOME}` when the configured resource is actually present there.
-It does not fix a literal `/home/ddash/.ssh` in a repository configuration. Correct
-that configuration explicitly. Other host resources such as PulseAudio sockets,
-devices and required environment values still need deliberate configuration.
+Docker resolves sibling-container bind sources on the daemon host. The agent
+socket path must therefore be meaningful on that host. A proxy socket private to
+an outer VS Code devcontainer is not a valid substitute. Matching HOME fixes
+`${localEnv:HOME}` only when the configured resource exists at that host path.
+It does not fix a literal `/home/ddash/.ssh` bind in a repository configuration.
+Remove private-key directory mounts from those configurations explicitly. Other
+host resources such as PulseAudio sockets, devices and required environment
+values still need deliberate configuration.
 
 ## Storage and upgrades
 
@@ -119,24 +123,15 @@ bootstrap hook can reinstall the provider in the new container-private home.
 
 ## Validation
 
-Run the no-Docker regression suite:
+Run the no-Docker regressions:
 
 ```bash
 npm run test:deployment
+npm run test:ssh
 ```
 
-Run the real integration fixture on a trusted local Linux Docker host:
-
-```bash
-bash scripts/tests/container-smoke.sh
-```
-
-It requires a non-root operator with a `/home` home, Node 22, util-linux `script`,
-installed project dependencies and network access. It
-creates a temporary home under the operator's home with fake SSH data, checks
-numeric ownership, starts the compiled production server, tests login/terminal
-behavior, and starts a sibling devcontainer with a HOME-based bind. It removes
-only its own test containers, volumes and temporary files. Images remain cached.
-
-Mocked tests do not prove real privilege dropping or Docker behavior. Record
+Mocked tests do not prove real privilege dropping or Docker behavior. Use the
+native Linux acceptance checklist in [SSH-AGENT.md](SSH-AGENT.md), and record
 actual container and production checks separately from source-only checks.
+The legacy `container-smoke.sh` fixture requires migration away from its fake
+`.ssh` directory mounts before it can validate the new SSH contract.

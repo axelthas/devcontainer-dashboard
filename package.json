@@ -20,10 +20,11 @@
 		"test:compose": "node --experimental-strip-types --test scripts/tests/compose-sandbox.test.mjs scripts/tests/compose-query.test.mjs",
 		"test:terminal-engines": "node --experimental-strip-types --test scripts/tests/terminal-engines.test.mjs",
 		"test:deployment": "node --test scripts/tests/deployment.test.mjs scripts/tests/run-dashboard.test.mjs scripts/tests/bootstrap-hook.test.mjs scripts/tests/socket-symlink.test.mjs",
+		"test:ssh": "node --experimental-strip-types --test scripts/tests/devcontainer-agent.test.mjs scripts/tests/devcontainer-rebuild.test.mjs",
 		"test:production": "node scripts/tests/production-smoke.mjs",
 		"test:gateway": "node --test scripts/tests/service-gateway.test.mjs && npm run test:tailscale && npm run test:ai && npm run test:brain",
 		"test:tailscale": "node --experimental-strip-types --test scripts/tests/tailscale-*.test.mjs",
-		"test": "npm run test:deployment && npm run test:ai && npm run test:brain && npm run test:compose && npm run test:terminal-engines && npm run test:unit -- --run && npm run test:e2e",
+		"test": "npm run test:deployment && npm run test:ssh && npm run test:ai && npm run test:brain && npm run test:compose && npm run test:terminal-engines && npm run test:unit -- --run && npm run test:e2e",
 		"test:e2e": "playwright install && playwright test"
 	},
 	"devDependencies": {
