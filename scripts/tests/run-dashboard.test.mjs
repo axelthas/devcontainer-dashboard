@@ -90,7 +90,9 @@ if(args[0]==='inspect') console.log(args[2].includes('Health') ? (process.env.HE
 		PATH: `${bin}:${process.env.PATH}`,
 		FIXTURE_ROOT: dir,
 		CALL_LOG: log,
-		SSH_AUTH_SOCK: '',
+		// Socket existence and agent protocol are checked in the real entrypoint,
+		// not by this mocked Docker launcher fixture.
+		SSH_AUTH_SOCK: '/run/user/2345/agent',
 		SUDO_USER: ''
 	};
 	return {
@@ -220,7 +222,7 @@ test('registry mode: pulls the default image and runs attached with stable volum
 	assert.ok(!run.args.includes('ORIGIN'));
 });
 
-test('registry mode: image, port, bind address, hook and SSH directory flags', (t) => {
+test('registry mode: image, port, bind address, hook and known_hosts-only flags', (t) => {
 	const f = fixture(t);
 	const r = registry(f, [
 		'--image',
@@ -230,7 +232,8 @@ test('registry mode: image, port, bind address, hook and SSH directory flags', (
 		'--bind-address',
 		'0.0.0.0',
 		'--bootstrap',
-		'--ssh-dir'
+		'--ssh-known-hosts',
+		'/home/operator/.ssh/known_hosts'
 	]);
 	assert.equal(r.status, 0, r.stderr);
 	const pull = r.calls.find((c) => c.args[0] === 'pull');
@@ -240,12 +243,12 @@ test('registry mode: image, port, bind address, hook and SSH directory flags', (
 	assert.ok(run.args.includes('example.test/dashboard:dev'));
 	assert.equal(run.args.at(-1), 'dev-bootstrap');
 	assert.ok(
-		run.args.includes('type=bind,source=/home/operator/.ssh,target=/home/operator/.ssh,readonly')
+		run.args.includes('type=bind,source=/home/operator/.ssh/known_hosts,target=/etc/ssh/ssh_known_hosts,readonly')
 	);
 	assert.match(r.stdout, /dev-bootstrap: 1/);
 });
 
-test('registry mode: forwards an exported SSH agent socket read-only', (t) => {
+test('registry mode: forwards the required SSH agent socket read-only at its host path', (t) => {
 	const f = fixture(t);
 	const r = registry(f, [], { SSH_AUTH_SOCK: '/run/user/2345/agent' });
 	assert.equal(r.status, 0, r.stderr);
@@ -254,6 +257,21 @@ test('registry mode: forwards an exported SSH agent socket read-only', (t) => {
 			'type=bind,source=/run/user/2345/agent,target=/run/user/2345/agent,readonly'
 		)
 	);
+	assert.ok(runCall(r).args.includes('SSH_AUTH_SOCK=/run/user/2345/agent'));
+});
+
+test('missing host agent and removed directory flags fail before Docker calls', (t) => {
+	const f = fixture(t);
+	const missing = registry(f, [], { SSH_AUTH_SOCK: '' });
+	assert.notEqual(missing.status, 0);
+	assert.match(missing.stderr, /Export SSH_AUTH_SOCK/);
+	assert.equal(missing.calls.length, 0);
+	for (const flag of ['--ssh-dir', '--no-ssh-dir']) {
+		const result = registry(f, [flag]);
+		assert.notEqual(result.status, 0);
+		assert.match(result.stderr, /removed/);
+		assert.equal(result.calls.length, 0);
+	}
 });
 
 test('registry mode: interactive workspace prompt through a curl-piped PTY', async (t) => {
