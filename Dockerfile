@@ -48,9 +48,9 @@ RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-      -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
-    && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
-    && echo "deb [signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+      -o /usr/share/keyrings/github-cli.list.gpg \
+    && chmod go+r /usr/share/keyrings/github-cli.list.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/github-cli.list.gpg] https://cli.github.com/packages stable main" \
       > /etc/apt/sources.list.d/github-cli.list \
     && apt-get update && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/*
@@ -92,6 +92,7 @@ WORKDIR /app
 COPY --from=builder /app/build /app/build
 COPY --from=builder /app/node_modules /app/node_modules
 COPY --from=builder /app/package.json /app/package.json
+COPY scripts/devcontainer-agent.mjs /app/scripts/devcontainer-agent.mjs
 COPY --from=openchamber-ui /source/packages/web/dist /opt/openchamber-dist
 ENV OPENCHAMBER_DIST_DIR=/opt/openchamber-dist
 COPY plugins/tern-dev-bootstrap.sh /opt/dashboard/plugins/tern-dev-bootstrap.sh
