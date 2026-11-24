@@ -79,11 +79,35 @@ installation inputs. Reinstallation preserves configuration and data and refuses
 to overwrite unrelated commands. A local-source install includes your current CLI
 and launcher files, so review uncommitted changes first.
 
-On the first run, confirm the Docker-host identity, workspace and SSH-agent socket,
-then enter a hidden dashboard password or supply `--password-file`. A short setup
-path keeps advanced integrations optional. The CLI saves validated settings,
-starts a detached instance, checks the production listener and Docker API, and
-prints the URL. Later runs reuse the settings and container without another pull.
+On the first run, the Docker-host question defaults to **yes**. Confirm the host
+identity and workspace. For local-host setup, the CLI looks for a host-owned SSH
+agent in known provider locations, including `/run/user/<uid>/gcr/ssh` (also reached
+through `/var/run/user/<uid>/gcr/ssh` on many Linux hosts). It does not trust the
+session's `SSH_AUTH_SOCK`, which may point to SSH forwarding. Verified candidates
+are shown for confirmation; multiple candidates require a choice. Remote-host or
+unrecognized-agent setups require an explicit host socket path.
+
+Enter a hidden dashboard password or supply `--password-file`. The short setup
+path shows and saves the AI state volume (`dashboard_ai`, or `<instance>-ai`).
+Advanced setup explains every question and its accepted input, displays effective
+defaults, and asks only about settings for enabled features:
+
+- **Development bootstrap:** off by default. A yes/no switch for the bundled
+  development-tooling hook, not a script-path question.
+- **ClickUp Brain access:** off by default. When enabled, the MCP local port
+  defaults to **3100**. You still grant each container separately.
+- **Public Brain Funnel:** off by default and offered only with Brain and Tailscale
+  enabled. Its public HTTPS port defaults to **10000**. It exposes the
+  token-protected MCP endpoint, not the dashboard, and needs existing Tailscale
+  HTTPS, MagicDNS and Funnel permissions.
+
+Press Enter to accept a displayed default. In advanced value questions, `?` repeats
+the help and `-` clears an optional value. Invalid inputs are explained and retried.
+The CLI saves validated settings, starts a detached instance, checks the production
+listener and Docker API, and prints the URL. Later runs reuse settings and the
+container without another pull. To receive CLI fixes, repeat the install command;
+configuration is preserved. Run `devharbour configure` to review the updated wizard
+without starting or replacing an instance.
 
 ```bash
 devharbour                              # first-run setup, then reuse

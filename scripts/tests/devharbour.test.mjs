@@ -595,3 +595,198 @@ test('configuration paths are literal data, not shell expressions', (t) => {
 	assert.ok(launch.some((v) => v.includes('source=' + workspace)));
 	assert.equal(existsSync(join(root, 'never-execute')), false);
 });
+
+// Run the Python wizard in isolation, replacing only its terminal input boundary.
+function wizardProbe(f, body) {
+	const setup = `import importlib.util,json,sys\nfrom pathlib import Path\nspec=importlib.util.spec_from_file_location('cli',sys.argv[1]); c=importlib.util.module_from_spec(spec);spec.loader.exec_module(c)\npath=Path(sys.argv[2]); config=c.read_json(path); args=c.parser().parse_args(['configure','--config',str(path)])\nprompts=[]\ndef defaults(message,default=None,secret=False):\n prompts.append((message,default));return default\nc.ask=defaults\n`;
+	return spawnSync('python3', ['-c', setup + body, cli, f.config], {
+		env: f.env,
+		encoding: 'utf8',
+		timeout: 10000
+	});
+}
+
+test('Docker host question defaults to yes and persists the default AI volume', (t) => {
+	const f = fixture(t);
+	base(f);
+	ok(
+		wizardProbe(
+			f,
+			`args.ssh_agent_socket=config['settings']['ssh-agent-socket']\nconfig['settings'].pop('ai-state-volume',None)\nc.wizard(config,args)\nassert next(default for message,default in prompts if 'Is the Docker host' in message)=='yes'\nassert config['settings']['ai-state-volume']=='dashboard_ai'\n`
+		)
+	);
+});
+test('named instances save their own AI volume default', (t) => {
+	const f = fixture(t);
+	base(f);
+	ok(
+		wizardProbe(
+			f,
+			`config['instanceName']='review-instance'\nconfig['settings'].pop('ai-state-volume',None)\nargs.non_interactive=True\nc.wizard(config,args)\nassert config['settings']['ai-state-volume']=='review-instance-ai'\n`
+		)
+	);
+});
+test('advanced defaults explain switches and do not implicitly enable Brain or Funnel', (t) => {
+	const f = fixture(t);
+	base(f);
+	const r = wizardProbe(
+		f,
+		`c.advanced_settings(config,args)\ns=config['settings']\nassert s['bootstrap'] is False and s['brain'] is False\nassert 'brain-port' not in s and 'brain-funnel-port' not in s\nassert not any('Brain MCP local port' in message or 'Brain Funnel public HTTPS port' in message for message,_ in prompts)\nassert next(default for message,default in prompts if message.startswith('AI state volume'))=='dashboard_ai'\n`
+	);
+	ok(r);
+	assert.match(r.stdout, /yes\/no switch, not a script path/);
+	assert.match(r.stdout, /explicitly grant/);
+});
+test('enabling Brain shows and saves local port 3100 while Funnel stays off without Tailscale', (t) => {
+	const f = fixture(t);
+	base(f);
+	ok(
+		wizardProbe(
+			f,
+			`def answers(message,default=None,secret=False):\n prompts.append((message,default));return 'yes' if message.startswith('Enable ClickUp Brain access') else default\nc.ask=answers\nc.advanced_settings(config,args)\ns=config['settings']\nassert s['brain'] is True and s['brain-port']==3100\nassert 'brain-funnel-port' not in s\nassert next(default for message,default in prompts if message.startswith('Brain MCP local port'))==3100\nassert not any(message.startswith('Enable public Brain Funnel') for message,_ in prompts)\n`
+		)
+	);
+});
+test('Tailscale and public Brain Funnel show safe defaults and validate against the launcher', (t) => {
+	const f = fixture(t);
+	base(f);
+	const r = wizardProbe(
+		f,
+		`def answers(message,default=None,secret=False):\n prompts.append((message,default))\n if message.startswith(('Enable Tailscale HTTPS access','Enable ClickUp Brain access','Enable public Brain Funnel')): return 'yes'\n if message.startswith('External dashboard origin'): return 'https://node.example.ts.net'\n return default\nc.ask=answers\nc.advanced_settings(config,args)\ns=config['settings']\nassert s['brain-port']==3100 and s['brain-funnel-port']==10000\nassert s['tailscale-ports']=='8400-8499' and s['tailscale-gateway-port']==3003\nassert next(default for message,default in prompts if message.startswith('Brain Funnel public HTTPS port'))==10000\nresolved=c.normalized(config,path.parent);resolved.pop('health-timeout',None)\nc.run(c.launch_argv(config,resolved,'0'*64,'0'*64)+['--validate-only'])\n`
+	);
+	ok(r);
+	assert.match(r.stdout, /public internet/);
+	assert.match(r.stdout, /not the dashboard/);
+});
+test('invalid bootstrap yes/no input is explained and retried', (t) => {
+	const f = fixture(t);
+	base(f);
+	const r = wizardProbe(
+		f,
+		`answers=iter(['/some/bootstrap.sh','no'])\nc.ask=lambda *a,**k: next(answers)\nassert c.prompt_field(config['settings'],args,'bootstrap',default=False) is False\n`
+	);
+	ok(r);
+	assert.match(r.stdout, /Enter yes or no/);
+});
+test('Funnel port offers 10000, rejects unsupported ports and accepts Enter', (t) => {
+	const f = fixture(t);
+	base(f);
+	const r = wizardProbe(
+		f,
+		`answers=iter(['9999','10000'])\nc.ask=lambda *a,**k: next(answers)\nassert c.prompt_field(config['settings'],args,'brain-funnel-port',choices=[443,8443,10000])==10000\n`
+	);
+	ok(r);
+	assert.match(r.stdout, /Choose 443, 8443, 10000/);
+});
+test('guided defaults never overwrite explicit Brain flags or port values', (t) => {
+	const f = fixture(t);
+	base(f);
+	ok(
+		wizardProbe(
+			f,
+			`args=c.parser().parse_args(['configure','--config',str(path),'--brain','--brain-port','3200'])\n_,config=c.merge_config(path,args)\nc.advanced_settings(config,args)\nassert config['settings']['brain-port']==3200\nassert not any(message.startswith(('Enable ClickUp Brain access','Brain MCP local port')) for message,_ in prompts)\n`
+		)
+	);
+});
+test('turning Brain off removes saved enabling ports and skips their questions', (t) => {
+	const f = fixture(t);
+	base(f);
+	ok(
+		wizardProbe(
+			f,
+			`config['settings'].update({'brain':True,'brain-port':3200,'brain-token-file':'/host/token'})\ndef answers(message,default=None,secret=False):\n prompts.append((message,default));return 'no' if message.startswith('Enable ClickUp Brain access') else default\nc.ask=answers\nc.advanced_settings(config,args)\nassert config['settings']['brain'] is False\nassert 'brain-port' not in config['settings'] and 'brain-token-file' not in config['settings']\nassert not any(message.startswith('Brain MCP local port') for message,_ in prompts)\n`
+		)
+	);
+});
+
+test('host discovery ignores forwarded SSH_AUTH_SOCK and deduplicates /var/run-style aliases', (t) => {
+	const f = fixture(t);
+	base(f);
+	ok(
+		wizardProbe(
+			f,
+			`import os,socket,struct,threading\nroot=path.parent/'runtime';(root/'gcr').mkdir(parents=True); alias=path.parent/'runtime-alias';alias.symlink_to(root)\nagent=root/'gcr/ssh'; listener=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM);listener.bind(str(agent));listener.listen(1)\nrequests=[]\ndef respond():\n with listener.accept()[0] as connection:\n  requests.append(c.receive_exact(connection,5)); reply=bytes([12])+struct.pack('>I',0);connection.sendall(struct.pack('>I',len(reply))+reply)\nworker=threading.Thread(target=respond,daemon=True);worker.start()\nc.agent_process=lambda pid: 'gcr-ssh-agent'\nos.environ['SSH_AUTH_SOCK']='/tmp/ssh-forwarded/agent.123'\nfound,reason=c.discover_host_agents(os.getuid(),str(path.parent/'home'),[root,alias])\nworker.join(2);listener.close()\nassert reason is None and len(found)==1\nassert found[0]['path']==str(agent.resolve()) and found[0]['identities']==0\nassert requests==[struct.pack('>I',1)+bytes([11])]\nassert all('ssh-forwarded' not in item['path'] for item in found)\n`
+		)
+	);
+});
+test('a socket served by sshd is never autodiscovered as the host agent', (t) => {
+	const f = fixture(t);
+	base(f);
+	ok(
+		wizardProbe(
+			f,
+			`import os,socket,threading\nroot=path.parent/'runtime';(root/'gcr').mkdir(parents=True);agent=root/'gcr/ssh'\nlistener=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM);listener.bind(str(agent));listener.listen(1)\nreceived=[]\ndef respond():\n with listener.accept()[0] as connection: received.append(connection.recv(5))\nworker=threading.Thread(target=respond,daemon=True);worker.start()\nc.agent_process=lambda pid: 'sshd-session'\nfound,reason=c.discover_host_agents(os.getuid(),str(path.parent/'home'),[root])\nworker.join(2);listener.close()\nassert not found and received==[b'']\n`
+		)
+	);
+});
+test('agent discovery rejects missing, stale, non-socket and wrong-owner paths', (t) => {
+	const f = fixture(t);
+	base(f);
+	ok(
+		wizardProbe(
+			f,
+			`import os,socket\nroot=path.parent/'runtime';root.mkdir(); candidate=root/'agent'\nassert c.probe_host_agent(candidate,os.getuid(),[root])[0] is None\ncandidate.write_text('not a socket');assert c.probe_host_agent(candidate,os.getuid(),[root])[0] is None;candidate.unlink()\nlistener=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM);listener.bind(str(candidate));listener.close()\nassert c.probe_host_agent(candidate,os.getuid()+1,[root])[0] is None\nassert c.probe_host_agent(candidate,os.getuid(),[root])[0] is None\n`
+		)
+	);
+});
+test('known host-agent path cannot redirect discovery into a forwarded temporary socket', (t) => {
+	const f = fixture(t);
+	base(f);
+	ok(
+		wizardProbe(
+			f,
+			`import os,socket\nroot=path.parent/'runtime';(root/'gcr').mkdir(parents=True);outside=path.parent/'forwarded-agent'\nlistener=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM);listener.bind(str(outside));listener.listen(1)\n(root/'gcr/ssh').symlink_to(outside)\nfound,reason=c.discover_host_agents(os.getuid(),str(path.parent/'home'),[root]);listener.close()\nassert not found\n`
+		)
+	);
+});
+test('malformed agent protocol is rejected even for a recognized peer', (t) => {
+	const f = fixture(t);
+	base(f);
+	ok(
+		wizardProbe(
+			f,
+			`import os,socket,struct,threading\nroot=path.parent/'runtime';root.mkdir();agent=root/'ssh-agent.socket'\nlistener=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM);listener.bind(str(agent));listener.listen(1)\ndef respond():\n with listener.accept()[0] as connection:\n  c.receive_exact(connection,5);connection.sendall(struct.pack('>I',999999))\nworker=threading.Thread(target=respond,daemon=True);worker.start();c.agent_process=lambda pid: 'ssh-agent'\nassert c.probe_host_agent(agent,os.getuid(),[root])[0] is None\nworker.join(2);listener.close()\n`
+		)
+	);
+});
+test('multiple discovered host agents require a choice rather than selecting one silently', (t) => {
+	const f = fixture(t);
+	base(f);
+	ok(
+		wizardProbe(
+			f,
+			`config['settings'].pop('ssh-agent-socket')\nc.discover_host_agents=lambda *a: ([{'path':'/run/user/2345/gcr/ssh','provider':'gcr-ssh-agent','identities':1},{'path':'/run/user/2345/ssh-agent.socket','provider':'ssh-agent','identities':2}],None)\ndef answer(message,default=None,secret=False):\n assert default is None; return '2'\nc.ask=answer\nc.choose_agent(config['settings'],args,True)\nassert config['settings']['ssh-agent-socket']=='/run/user/2345/ssh-agent.socket'\n`
+		)
+	);
+});
+test('one verified host agent is offered as the default, not the saved session socket', (t) => {
+	const f = fixture(t);
+	base(f);
+	ok(
+		wizardProbe(
+			f,
+			`config['settings']['ssh-agent-socket']='/tmp/ssh-forwarded/agent.123'\nc.discover_host_agents=lambda *a: ([{'path':'/run/user/2345/gcr/ssh','provider':'gcr-ssh-agent','identities':0}],None)\ndef answer(message,default=None,secret=False):\n assert default=='/run/user/2345/gcr/ssh';return default\nc.ask=answer\nc.choose_agent(config['settings'],args,True)\nassert config['settings']['ssh-agent-socket']=='/run/user/2345/gcr/ssh'\n`
+		)
+	);
+});
+test('remote-host setup and explicit socket arguments never probe the local host agent', (t) => {
+	const f = fixture(t);
+	base(f);
+	ok(
+		wizardProbe(
+			f,
+			`def forbidden(*a): raise AssertionError('local discovery is forbidden')\nc.discover_host_agents=forbidden\nc.ask=lambda *a,**k: '/run/user/2345/gcr/ssh'\nc.choose_agent(config['settings'],args,False)\nargs.ssh_agent_socket='/explicit/host/socket'\nc.choose_agent(config['settings'],args,True)\n`
+		)
+	);
+});
+
+test('a disposable real OpenSSH agent is discoverable even with protected process metadata', (t) => {
+	const f = fixture(t);
+	base(f);
+	ok(
+		wizardProbe(
+			f,
+			`import os,socket,subprocess,tempfile,time\nwith tempfile.TemporaryDirectory(prefix='dh-agent-fixture-') as directory:\n root=Path(directory); agent=root/'ssh-agent.socket'\n process=subprocess.Popen(['ssh-agent','-D','-a',str(agent)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)\n try:\n  for _ in range(100):\n   if agent.exists(): break\n   time.sleep(0.02)\n  found,reason=c.probe_host_agent(agent,os.getuid(),[root])\n  assert found is not None,reason\n  assert found['provider']=='ssh-agent' and found['identities']==0\n finally:\n  process.terminate();process.wait(timeout=5)\n`
+		)
+	);
+});

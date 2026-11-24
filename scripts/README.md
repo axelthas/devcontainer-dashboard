@@ -347,6 +347,84 @@ configuration. They reject setting changes. `--help` and `--version` need neithe
 Docker nor configuration. There is no automatic image refresh. A missing selected
 image is pulled on creation; existing image tags are not pulled again implicitly.
 
+### Guided setup and effective defaults
+
+The local Docker-host question defaults to **yes**. Choose no inside a container
+or when supplying another host's paths. Identity suggestions are shown for
+confirmation, then passed explicitly to the launcher. The saved AI state volume
+is displayed even on the short setup path: `dashboard_ai` for the default instance,
+or `<instance>-ai` for another managed instance. A checkout build keeps its separate
+per-build volume behavior unless explicitly overridden.
+
+Advanced questions are grouped by dashboard/AI settings, development bootstrap,
+remote access, and ClickUp Brain. Each question explains its purpose and accepted
+input. Booleans use yes/no with a visible default; invalid values are retried.
+Optional string values display `not set` when there is no meaningful automatic
+value. Enter accepts the shown value, `?` repeats value-question help, and `-`
+clears an optional value. Explicit CLI arguments are displayed rather than
+prompted over. Existing saved values take precedence over default suggestions.
+
+Effective values offered by their active sections:
+
+- Dashboard port **3000** (isolated builds **3001**); AI interface port **3002**;
+  bind address **127.0.0.1**; Docker socket **/var/run/docker.sock**.
+- Readiness timeout **180 seconds**; restart policy **always**.
+- Development bootstrap **no**: a yes/no switch for installing/running the bundled
+  development-bootstrap hook. It can require Git access and trusted known_hosts.
+- Tailscale HTTPS **no**; when enabled, daemon socket
+  **/var/run/tailscale/tailscaled.sock**, service range **8400-8499**, and internal
+  gateway port **3003**. An actual HTTPS origin must be entered, not invented.
+- ClickUp Brain access **no**; when enabled, local MCP port **3100**. Leave its token
+  file unset to generate/reuse the private retained-volume token. Container grants
+  remain separate and are never created by the wizard.
+- Public Brain Funnel **no**, offered only when Brain and Tailscale are enabled;
+  public HTTPS port **10000**, with allowed values 443, 8443 or 10000. This publishes
+  only the token-protected MCP endpoint to the public internet. Existing tailnet
+  HTTPS, MagicDNS and Funnel permission are prerequisites.
+
+A disabled feature does not acquire port/token settings just because defaults
+exist. This matters because the launcher treats an explicit Brain port or token
+file as enablement. Turning off a feature removes its inactive saved controls;
+contradictory explicit CLI inputs fail rather than being silently overwritten.
+
+#### Host SSH-agent discovery
+
+Interactive setup on the local Docker host ignores `SSH_AUTH_SOCK` and does not
+scan temporary `/tmp/ssh-*` session sockets. It checks the selected host UID's
+stable provider paths under `/run/user/<uid>` and `/var/run/user/<uid>`: `gcr/ssh`,
+`openssh_agent`, `ssh-agent.socket`, `ssh-agent`, `keyring/ssh`, and
+`gnupg/S.gpg-agent.ssh`. It also checks the selected home directory's
+`.ssh/agent.sock` and `.gnupg/S.gpg-agent.ssh`. These cover common provider
+conventions, not every distribution or custom service.
+
+Discovery resolves/deduplicates aliases, requires an owned Unix socket within the
+selected runtime/home roots, checks Linux peer UID and process identity, and reads
+a bounded SSH-agent identities response. It accepts recognized OpenSSH/GCR/GPG/
+GNOME providers and existing systemd socket activation at known runtime paths.
+The executable is preferred; a protected non-dumpable agent can require its kernel
+process name instead. SSH daemon peers and unrecognized proxies are not auto-picked.
+These checks are provider identification, not attestation against malicious code
+already running as the same user.
+
+No keys are loaded and no signing request is sent. The discovery does not create a
+replacement agent or alter permissions. Connecting an existing systemd socket can
+activate its already-configured host-agent service. The temporary sockets created
+by SSH forwarding are never used as automatic defaults. A reachable empty agent
+is shown as zero loaded identities, not mistaken for an unreachable socket.
+
+One verified candidate is suggested for confirmation. Multiple candidates are
+listed and require a choice unless the saved selection is among them. No match
+means an explicit manual host path is needed; there is no forwarded-environment
+fallback. Inspection of another UID, another host or an inaccessible process may
+prevent discovery. Explicit `--ssh-agent-socket` values are preserved and bypass
+autodiscovery. The container startup and reused-instance checks still validate the
+selected agent as the configured non-root operator.
+
+Repeat the installer to get CLI updates without overwriting configuration. Use
+`devharbour configure` to revisit the wizard and socket discovery; it saves settings
+without touching containers. The next run separately reviews any required
+container replacement.
+
 ### Version 1 JSON schema
 
 The default path is `${XDG_CONFIG_HOME:-$HOME/.config}/devharbour/config.json`.
@@ -397,9 +475,8 @@ substitutions are not expanded. An absolute Docker-host path names a path on tha
 host even when the CLI runs elsewhere. Password/env files are client-local inputs;
 agent, known_hosts, workspace, Docker, Tailscale and Brain-token binds are host
 inputs. The application still requires the supported Docker-host socket model;
-this CLI does not add generic remote-daemon support. Guided setup does not infer
-host identity unless the operator explicitly selects this machine and confirms
-each proposed value. For another host it disables local workspace creation.
+this CLI does not add generic remote-daemon support. Guided setup defaults to this machine, but still asks the operator to confirm
+the host identity values before passing them explicitly to the launcher. For another host it disables local workspace creation.
 
 ### Private files and unattended use
 
@@ -477,6 +554,9 @@ same argument builder and refuse an existing container name.
 ### Validation limits
 
 Run `npm run test:cli` for isolated config, installer, PTY, failure-path and mocked
-Docker regressions. These do not prove real Docker mounts, SSH authentication,
+Docker regressions. The suite requires Python 3.9+, Bash, util-linux `script`, and
+OpenSSH `ssh-agent` for an empty disposable agent fixture; it never uses the
+operator's agent or keys. Discovery tests also use disposable Unix sockets with
+controlled peer-provider metadata. These do not prove real Docker mounts, SSH authentication,
 image compatibility, production WebSockets or restart behavior. Real-Docker
 acceptance must use disposable resources, never existing operator data.

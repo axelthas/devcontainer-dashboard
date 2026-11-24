@@ -15,6 +15,8 @@ from pathlib import Path
 import pwd
 import re
 import secrets
+import socket
+import struct
 import stat
 import subprocess
 import sys
@@ -218,9 +220,339 @@ def merge_config(path, args):
     return old, config
 
 
-def wizard(config, args):
-    """Collect required settings and advanced settings without overwriting CLI values."""
+def agent_candidates(uid, home, runtime_roots=None):
+    """Enumerate stable provider paths, never session environment or /tmp/ssh-* sockets."""
+    roots = runtime_roots if runtime_roots is not None else [Path('/run/user') / str(uid), Path('/var/run/user') / str(uid)]
+    suffixes = ['gcr/ssh', 'openssh_agent', 'ssh-agent.socket', 'ssh-agent', 'keyring/ssh', 'gnupg/S.gpg-agent.ssh']
+    paths = [Path(root) / suffix for root in roots for suffix in suffixes]
+    paths.extend([Path(home) / '.ssh/agent.sock', Path(home) / '.gnupg/S.gpg-agent.ssh'])
+    return paths, [Path(root).resolve() for root in roots] + [Path(home).resolve()]
+
+
+def agent_process(pid):
+    """Identify the kernel peer, not inherited environment values or command arguments.
+
+    OpenSSH agents are deliberately non-dumpable on Linux, which can deny even
+    their owner access to /proc/PID/exe. The kernel comm name remains readable.
+    Socket ownership, peer UID and the SSH identities protocol are checked too.
+    This identifies a provider, not an attestation against malicious same-UID code.
+    """
+    try:
+        return Path(os.readlink('/proc/' + str(pid) + '/exe')).name
+    except OSError:
+        try:
+            name = Path('/proc/' + str(pid) + '/comm').read_text().strip()
+            return 'gnome-keyring-daemon' if name == 'gnome-keyring-d' else name
+        except OSError:
+            return None
+
+
+def receive_exact(connection, size):
+    """Read a bounded agent frame, rejecting disconnects and stalled peers."""
+    result = bytearray()
+    while len(result) < size:
+        block = connection.recv(size - len(result))
+        if not block:
+            raise ValueError('Agent disconnected')
+        result.extend(block)
+    return bytes(result)
+
+
+def probe_host_agent(path, uid, trusted_roots):
+    """Check path/peer ownership, provider identity and read-only SSH identities protocol.
+
+    This never requests a signature, loads keys, chmods a socket or starts a new
+    agent process. Connecting an existing systemd socket may activate its existing
+    configured host-agent service. That is not creation of a replacement agent.
+    """
+    try:
+        canonical = Path(path).resolve(strict=True)
+        if not any(canonical.is_relative_to(root) for root in trusted_roots):
+            return None, 'outside the selected host user paths'
+        info = canonical.stat()
+        if not stat.S_ISSOCK(info.st_mode) or info.st_uid != uid:
+            return None, 'not a socket owned by the selected host user'
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+            connection.settimeout(0.5)
+            connection.connect(str(canonical))
+            pid, peer_uid, _ = struct.unpack('3i', connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize('3i')))
+            if peer_uid != uid:
+                return None, 'peer belongs to another user'
+            provider = agent_process(pid)
+            allowed = {'ssh-agent', 'gcr-ssh-agent', 'gpg-agent', 'gnome-keyring-daemon'}
+            # A systemd-owned listening socket can be inherited by its agent.
+            systemd_path = any(canonical == (root / suffix).resolve() for root in trusted_roots[:2] for suffix in ['gcr/ssh', 'openssh_agent', 'ssh-agent.socket', 'gnupg/S.gpg-agent.ssh'])
+            if provider not in allowed and not (provider == 'systemd' and systemd_path):
+                return None, 'peer is not an identified host agent (SSH forwarding is not selected)'
+            connection.sendall(struct.pack('>I', 1) + bytes([11]))
+            length = struct.unpack('>I', receive_exact(connection, 4))[0]
+            if not 5 <= length <= 262144:
+                return None, 'invalid agent response length'
+            reply = receive_exact(connection, length)
+            if reply[0] != 12:
+                return None, 'peer did not return SSH agent identities'
+            count = struct.unpack('>I', reply[1:5])[0]
+            offset = 5
+            for _ in range(count):
+                for _ in range(2):
+                    if offset + 4 > length:
+                        return None, 'incomplete identity response'
+                    size = struct.unpack('>I', reply[offset:offset + 4])[0]
+                    offset += 4 + size
+                    if offset > length:
+                        return None, 'incomplete identity response'
+            if offset != length:
+                return None, 'unexpected identity response data'
+            return {'path': str(canonical), 'provider': provider, 'identities': count}, None
+    except (OSError, ValueError, RuntimeError, struct.error):
+        return None, 'socket missing, stale, inaccessible or not responding'
+
+
+def discover_host_agents(uid, home, runtime_roots=None):
+    """Return verified, canonical, deduplicated candidates for this host's operator."""
+    paths, roots = agent_candidates(uid, home, runtime_roots)
+    found, checked, rejected = [], set(), []
+    if uid != os.getuid():
+        return [], 'Cannot inspect another host user safely; enter its host socket explicitly.'
+    for path in paths:
+        try:
+            canonical = str(path.resolve())
+        except (OSError, RuntimeError):
+            continue
+        if canonical in checked:
+            continue
+        checked.add(canonical)
+        candidate, reason = probe_host_agent(path, uid, roots)
+        if candidate:
+            found.append(candidate)
+        elif path.exists() or path.is_symlink():
+            rejected.append(str(path) + ': ' + reason)
+    return found, '; '.join(rejected) if rejected and not found else None
+
+
+def yes_no(message, default=False):
+    """Offer yes/no defaults and retry unclear answers instead of treating them as false."""
+    while True:
+        answer = str(ask(message + ' (yes/no)', 'yes' if default else 'no')).lower()
+        if answer in {'yes', 'y', 'true', '1'}:
+            return True
+        if answer in {'no', 'n', 'false', '0'}:
+            return False
+        print('Enter yes or no. Press Enter to accept the displayed default.')
+
+
+def choose_agent(settings, args, local_host):
+    """Offer a verified host socket, or an explicit manual path when discovery is not possible."""
+    if hasattr(args, 'ssh_agent_socket'):
+        return
+    if 'ssh-agent-socket' in settings and args.command != 'configure':
+        return
+    print('SSH agent: shares authentication/signing access, not private-key files.')
+    print('Session SSH_AUTH_SOCK is ignored: an SSH login can point it at a forwarded agent.')
+    default = settings.get('ssh-agent-socket')
+    if local_host:
+        agents, reason = discover_host_agents(settings['host-uid'], settings['host-home'])
+        if reason:
+            print(reason)
+        if agents:
+            if default:
+                try:
+                    default = str(Path(default).resolve())
+                except (OSError, RuntimeError):
+                    default = None
+            print('Verified host agents:')
+            for number, agent in enumerate(agents, 1):
+                print(' ', str(number) + '.', agent['path'], '(' + agent['provider'] + ', ' + str(agent['identities']) + ' loaded identities)')
+            if len(agents) == 1:
+                default = agents[0]['path']
+            elif default not in {agent['path'] for agent in agents}:
+                default = None
+            while True:
+                answer = ask('Docker-host ssh-agent-socket (number or absolute host path)', default)
+                if answer and str(answer).isdigit():
+                    number = int(answer)
+                    if 1 <= number <= len(agents):
+                        settings['ssh-agent-socket'] = agents[number - 1]['path']
+                        return
+                    print('Choose one of the listed numbers, or enter an absolute path.')
+                    continue
+                if answer and str(answer).startswith('/'):
+                    settings['ssh-agent-socket'] = answer
+                    return
+                print('Enter a listed number or an absolute path.')
+        default = None
+        print('No verified host agent was discovered. Enter an explicit host path.')
+        print('Common locations include /run/user/<uid>/gcr/ssh and /run/user/<uid>/ssh-agent.socket.')
+        print('Do not use a temporary /tmp/ssh-*/agent.* forwarded-session socket.')
+    else:
+        print('This is another host: local discovery is disabled; enter its host-owned agent path.')
+    while True:
+        answer = ask('Docker-host ssh-agent-socket (absolute host path)', default)
+        if answer and str(answer).startswith('/'):
+            settings['ssh-agent-socket'] = answer
+            return
+        print('An absolute Docker-host socket path is required.')
+
+
+
+# Only active wizard sections use these defaults. An unconditional Brain port
+# would otherwise implicitly enable Brain in the shared launcher.
+WIZARD_DEFAULTS = {
+    **DEFAULTS, 'brain-port': 3100, 'brain-funnel-port': 10000,
+    'tailscale-socket': '/var/run/tailscale/tailscaled.sock',
+    'tailscale-ports': '8400-8499', 'tailscale-gateway-port': 3003,
+    'health-timeout': 180, 'env-file': [],
+}
+FIELD_GUIDANCE = {
+    'port': ('Dashboard port', 'Browser port on the Docker host. Enter a number from 1 to 65535; 3000 is the normal default.'),
+    'ai-port': ('AI interface port', 'Host port for the bundled OpenChamber AI interface. It must differ from the dashboard port.'),
+    'ai-state-volume': ('AI state volume', 'Docker named volume for retained AI settings and state. Enter a volume name, not a directory. Keep it to retain state between container replacements.'),
+    'image': ('DevHarbour image', 'Published Docker image reference, optionally with :tag or @digest. A missing image is pulled; an existing tag is not refreshed automatically.'),
+    'bind-address': ('Dashboard bind address', '127.0.0.1 restricts access to this host. 0.0.0.0 exposes all IPv4 interfaces and needs explicit exposure approval. Tailscale mode requires 127.0.0.1.'),
+    'socket': ('Docker socket path', 'Existing Unix socket path on the Docker host. The dashboard receives full Docker operator access through it.'),
+    'host-name': ('Host display name', 'Optional label shown in DevHarbour, for example workstation. Leave unset for the application default.'),
+    'vscode-ssh-host': ('VS Code SSH host', 'Optional SSH configuration alias or hostname for VS Code Remote SSH, for example my-workstation.'),
+    'env-file': ('Additional environment files', 'Enter a JSON list of client-local Docker env-file paths, for example ["development.env"]. [] means none. Values are not shell expressions; protect files containing secrets.'),
+    'health-timeout': ('Readiness timeout', 'Maximum seconds to wait for application readiness. Enter an integer from 1 to 86400.'),
+    'no-create-workspace': ('Skip local workspace creation', 'Choose yes when the CLI cannot create paths on the actual Docker host, such as inside another container. The workspace must already exist on the host.'),
+    'bootstrap': ('Enable development bootstrap', 'Installs/runs the bundled dev-bootstrap startup hook to prepare development tooling inside DevHarbour. This is a yes/no switch, not a script path. It can need Git access and trusted host keys. Leave off unless you use this integration.'),
+    'ssh-known-hosts': ('Trusted SSH known_hosts file', 'Optional absolute Docker-host path to a trusted known_hosts file. Only this file is mounted read-only, never private keys. Needed if bootstrap Git hosts are not otherwise trusted.'),
+    'tailscale-socket': ('Tailscale daemon socket', 'Existing host tailscaled socket. Access grants broad control of host Tailscale settings. Tailscale must already be installed and configured.'),
+    'origin': ('External dashboard origin', 'Exact external HTTP(S) origin without a path, for example https://node.tailnet.ts.net. Tailscale requires an https:// node name ending in .ts.net. Leave unset for local HTTP.'),
+    'tailscale-ports': ('Tailscale service HTTPS port range', 'Write FIRST-LAST. Default 8400-8499, at most 256 ports. Must not overlap dashboard, gateway, Brain or Funnel ports.'),
+    'tailscale-gateway-port': ('Tailscale internal gateway port', 'Host-loopback proxy port for the service gateway. It must differ from dashboard and allocated service ports.'),
+    'tailscale-allow-wildcard-bindings': ('Proxy services bound to all interfaces', 'Opt in to HTTPS proxying for services already bound to 0.0.0.0 or ::. Their original exposed ports stay open. Usually leave off.'),
+    'gateway': ('Enable authenticated service gateway', 'Optional authenticated path-based proxy for container web services. Tailscale HTTPS uses its own gateway mode; do not enable both.'),
+    'gateway-host': ('Service gateway upstream host', 'Optional upstream host override for the path-based service gateway. Usually leave unset for the application default.'),
+    'gateway-ports': ('Service protocol overrides', 'Optional comma-separated policy, for example 8080:http,8443:https,9000:off. Omit for the existing service defaults.'),
+    'brain': ('Enable ClickUp Brain access', 'Starts a separate token-protected MCP endpoint. Brain can run shell commands only in containers you explicitly grant in DevHarbour. This does not grant access by itself. Enter yes or no; leave off if you do not use Brain.'),
+    'brain-port': ('Brain MCP local port', 'Local token-protected MCP listener, separate from dashboard and AI. Default 3100. Public ClickUp access normally also needs Brain Funnel.'),
+    'brain-token-file': ('Existing Brain token file', 'Optional absolute Docker-host file with a 32 to 512 character token, mounted read-only. Leave unset to generate/reuse a private token in the retained data volume.'),
+    'brain-funnel': ('Enable public Brain Funnel', 'Publishes ONLY the token-protected Brain MCP endpoint to the public internet with Tailscale Funnel, not the dashboard. Requires Tailscale HTTPS, MagicDNS and Funnel permission already configured. Usually leave off unless connecting cloud-hosted ClickUp Brain.'),
+    'brain-funnel-port': ('Brain Funnel public HTTPS port', 'Choose 443, 8443 or 10000. Default 10000 avoids dashboard HTTPS port 443 and service range 8400-8499. Separate from local Brain port 3100.'),
+}
+DEPENDENT_SETTINGS = {
+    'brain': ['brain-port', 'brain-token-file', 'brain-funnel', 'brain-funnel-port'],
+    'brain-funnel': ['brain-funnel-port'],
+    'tailscale-socket': ['tailscale-ports', 'tailscale-gateway-port', 'tailscale-allow-wildcard-bindings', 'brain-funnel', 'brain-funnel-port'],
+    'gateway': ['gateway-host'],
+}
+
+
+def disable_dependents(settings, args, key):
+    """Remove inactive saved controls without silently overriding explicit CLI inputs."""
+    for dependent in DEPENDENT_SETTINGS.get(key, []):
+        if dependent.replace('-', '_') in vars(args):
+            raise CliError('Cannot disable ' + key + ' while --' + dependent + ' is explicitly supplied')
+        settings.pop(dependent, None)
+
+
+def prompt_field(settings, args, key, default=None, required=False, choices=None):
+    """Explain one setting, show its effective default and retry invalid typed input."""
+    label, description = FIELD_GUIDANCE[key]
+    print(description)
+    if key.replace('-', '_') in vars(args):
+        print(label + ':', json.dumps(settings[key]), '(supplied by argument)')
+        return settings[key]
+    current = settings.get(key, default if default is not None else WIZARD_DEFAULTS.get(key))
+    if key in BOOLEANS:
+        value = yes_no(label, bool(current))
+        if not value:
+            disable_dependents(settings, args, key)
+        settings[key] = value
+        return value
+    while True:
+        shown = json.dumps(current) if key == 'env-file' else current if current is not None else 'not set'
+        answer = ask(label + (' (required; ? for help)' if required else " (Enter keeps default; '-' unsets; ? for help)"), shown)
+        if answer == '?':
+            print(description)
+            continue
+        if answer == '-' or (current is None and answer == 'not set'):
+            if required:
+                print('This value is required for the selected feature.')
+                continue
+            settings.pop(key, None)
+            return None
+        try:
+            value = int(answer) if key in NUMBERS else json.loads(answer) if key == 'env-file' else answer
+            validate_types({key: value})
+            if key in NUMBERS and not 1 <= value <= (86400 if key == 'health-timeout' else 65535):
+                raise ValueError('Out of range')
+            if choices is not None and value not in choices:
+                raise ValueError('Unsupported choice')
+            if key == 'tailscale-ports':
+                match = re.fullmatch(r'([1-9][0-9]*)-([1-9][0-9]*)', value)
+                if not match or not 1 <= int(match[1]) <= int(match[2]) <= 65535 or int(match[2]) - int(match[1]) >= 256:
+                    raise ValueError('Invalid port range')
+            settings[key] = value
+            return value
+        except (ValueError, TypeError, CliError):
+            print('Invalid value.' + (' Choose ' + ', '.join(map(str, choices)) + '.' if choices else ' ' + description))
+
+
+def advanced_settings(config, args):
+    """Group dependent questions by operator goal instead of alphabetized flags."""
     settings = config['settings']
+    print('\nDashboard and retained AI state')
+    keys = ['port', 'ai-port', 'bind-address', 'socket', 'host-name', 'vscode-ssh-host', 'env-file', 'no-create-workspace', 'health-timeout']
+    if args.command != 'build':
+        keys.insert(2, 'ai-state-volume')
+        keys.insert(3, 'image')
+    for key in keys:
+        prompt_field(settings, args, key, default=3001 if key == 'port' and args.command == 'build' else None)
+    print('Restart policy: always restarts on Docker start, even after manual stop; unless-stopped respects manual stop; no disables automatic restart; on-failure retries failed exits.')
+    if not hasattr(args, 'restart_policy'):
+        while True:
+            policy = ask('Container restart policy (always/unless-stopped/on-failure/no)', config['restartPolicy'])
+            if policy in {'always', 'unless-stopped', 'on-failure', 'no'}:
+                config['restartPolicy'] = policy
+                break
+            print('Choose always, unless-stopped, on-failure or no.')
+    print('\nDevelopment bootstrap and SSH trust')
+    prompt_field(settings, args, 'bootstrap', default=False)
+    prompt_field(settings, args, 'ssh-known-hosts')
+    print('\nRemote access and service proxy')
+    if hasattr(args, 'tailscale_socket'):
+        tailscale = True
+    else:
+        print('Tailscale HTTPS offers private tailnet access and HTTPS service URLs. It requires existing host tailscaled and grants broad control through its socket.')
+        tailscale = yes_no('Enable Tailscale HTTPS access', bool(settings.get('tailscale-socket')))
+    if tailscale:
+        if settings.get('gateway') or hasattr(args, 'gateway'):
+            if hasattr(args, 'gateway'):
+                raise CliError('Tailscale cannot be combined with explicit --gateway')
+            settings['gateway'] = False
+            disable_dependents(settings, args, 'gateway')
+        for key in ['tailscale-socket', 'origin', 'tailscale-ports', 'tailscale-gateway-port', 'tailscale-allow-wildcard-bindings']:
+            prompt_field(settings, args, key, required=key in {'tailscale-socket', 'origin'})
+    else:
+        disable_dependents(settings, args, 'tailscale-socket')
+        settings.pop('tailscale-socket', None)
+        prompt_field(settings, args, 'origin')
+        if prompt_field(settings, args, 'gateway', default=False):
+            prompt_field(settings, args, 'gateway-host')
+    if tailscale or settings.get('gateway'):
+        prompt_field(settings, args, 'gateway-ports')
+    print('\nClickUp Brain')
+    brain_default = bool(settings.get('brain') or settings.get('brain-funnel') or 'brain-port' in settings or 'brain-token-file' in settings)
+    if prompt_field(settings, args, 'brain', default=brain_default):
+        prompt_field(settings, args, 'brain-port')
+        prompt_field(settings, args, 'brain-token-file')
+        if tailscale:
+            if prompt_field(settings, args, 'brain-funnel', default=False):
+                prompt_field(settings, args, 'brain-funnel-port', choices=[443, 8443, 10000])
+        else:
+            print('Brain Funnel is off: enable Tailscale HTTPS first to make the MCP endpoint public.')
+    else:
+        print('Brain is off. Local-port, token and public-Funnel questions are skipped.')
+
+
+def wizard(config, args):
+    """Guide setup with explained defaults and confirmed host identity/socket inputs."""
+    settings = config['settings']
+    managed = args.command != 'build' and 'source-checkout' not in settings
+    if managed:
+        settings.setdefault('ai-state-volume', resource_names(config)[2])
     missing = REQUIRED - settings.keys()
     pending = None
     if args.non_interactive:
@@ -230,44 +562,46 @@ def wizard(config, args):
     first = bool(missing)
     if first:
         print('DevHarbour grants full Docker and terminal operator access. Use a trusted Linux host.')
+        print('Press Enter to accept a displayed default. Optional integrations default to no.')
+    local_host = False
     suggestions = {}
-    local_host = first and str(ask('Is the Docker host this machine? (yes/no)', 'no')).lower() == 'yes'
-    if first and not local_host:
-        settings.setdefault('no-create-workspace', True)
-    if local_host:
-        account = pwd.getpwuid(os.getuid())
-        suggestions = {'host-user': account.pw_name, 'host-uid': account.pw_uid, 'host-gid': account.pw_gid, 'host-home': account.pw_dir}
-    for key in ['host-user', 'host-uid', 'host-gid', 'host-home', 'ssh-agent-socket']:
+    if first or args.command == 'configure':
+        print('Choose yes when this CLI runs on the actual Linux Docker host. Choose no inside another container or when entering another host\'s paths.')
+        local_host = yes_no('Is the Docker host this machine?', True)
+        if not local_host:
+            settings.setdefault('no-create-workspace', True)
+        else:
+            account = pwd.getpwuid(os.getuid())
+            suggestions = {'host-user': account.pw_name, 'host-uid': account.pw_uid, 'host-gid': account.pw_gid, 'host-home': account.pw_dir}
+    identity_help = {'host-user': 'Non-root account that owns the host workspaces.', 'host-uid': 'Numeric user ID of that account on the Docker host.', 'host-gid': 'Numeric primary group ID of that account on the Docker host.', 'host-home': 'Absolute home directory of that account on the Docker host.'}
+    for key in ['host-user', 'host-uid', 'host-gid', 'host-home']:
         if key not in settings:
-            answer = ask('Docker-host ' + key, suggestions.get(key))
-            if not answer:
-                raise CliError('Required setting: ' + key)
-            try:
-                settings[key] = int(answer) if key in NUMBERS else answer
-            except ValueError:
-                raise CliError('Expected an integer for ' + key) from None
+            print(identity_help[key])
+            while True:
+                answer = ask('Docker-host ' + key, suggestions.get(key))
+                try:
+                    if not answer:
+                        raise ValueError('Required')
+                    value = int(answer) if key in NUMBERS else answer
+                    if key in NUMBERS and not 1 <= value <= 2147483647:
+                        raise ValueError('Invalid ID')
+                    settings[key] = value
+                    break
+                except (ValueError, TypeError):
+                    print('Enter a positive non-root number.' if key in NUMBERS else 'This host identity value is required.')
+    choose_agent(settings, args, local_host)
     if 'workspace' not in settings:
-        settings['workspace'] = ask('Workspace directory on Docker host', settings['host-home'] + '/ddash-workspace')
+        print('Workspace directory on the Docker host: repositories here are writable by DevHarbour.')
+        settings['workspace'] = ask('Workspace directory on Docker host', settings['host-home'] + ('/ddash-production-workspace' if args.command == 'build' else '/ddash-workspace'))
+    if managed:
+        print('AI state volume:', settings['ai-state-volume'], '(retains AI settings/state; a Docker volume name, not a directory)')
     if 'password-file' not in settings:
+        print('Choose a shared dashboard login password. It is entered without echo and saved in a separate private file, not JSON.')
         pending = ask('New dashboard password', secret=True)
         if not pending or pending != ask('Repeat dashboard password', secret=True):
             raise CliError('Passwords must be nonempty and match')
-    if (first or args.command == 'configure') and str(ask('Configure advanced settings? (yes/no)', 'no')).lower() == 'yes':
-        explicit = vars(args)
-        for key in sorted((STRINGS | NUMBERS | BOOLEANS | {'env-file'}) - REQUIRED - {'workspace', 'source-checkout', 'platform', 'name'}):
-            if key.replace('-', '_') in explicit:
-                continue
-            current = settings.get(key, DEFAULTS.get(key))
-            answer = ask(key + " (blank keeps current; '-' clears)", json.dumps(current) if key == 'env-file' and current else current)
-            if answer == '-':
-                settings.pop(key, None)
-            elif answer is not None and answer != '':
-                try:
-                    if key in BOOLEANS and str(answer).lower() not in {'true', 'false', 'yes', 'no', '1', '0'}:
-                        raise ValueError('Expected yes/no')
-                    settings[key] = (str(answer).lower() in {'true', 'yes', '1'}) if key in BOOLEANS else int(answer) if key in NUMBERS else json.loads(answer) if key == 'env-file' else answer
-                except (ValueError, TypeError):
-                    raise CliError('Invalid input for ' + key) from None
+    if (first or args.command == 'configure') and yes_no('Configure advanced settings?', False):
+        advanced_settings(config, args)
     return pending
 
 
