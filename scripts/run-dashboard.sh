@@ -12,7 +12,7 @@ fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 usage() {
   cat <<'HELP'
 Usage: bash scripts/run-dashboard.sh [options]
-Registry mode pulls and runs attached; build mode verifies this checkout.
+Registry mode pulls and runs attached as devharbour; build mode verifies this checkout.
 Required options (both modes):
   --host-user NAME         Non-root Docker-host operator account name.
   --host-uid UID           Docker-host operator UID.
@@ -68,7 +68,7 @@ Other options:
   --image REF              Registry image (default ghcr.io/axelthas/devcontainer-dashboard:latest).
   --build                  Build and run this checkout; never publish an image.
   --platform VALUE         Buildx platform (build only).
-  --name NAME              Test container name (build only).
+  --name NAME              Test container name (build only; default devharbour-local-*).
   --health-timeout SECONDS Readiness deadline (build only, default 180).
   --help, -h               Show help without required arguments.
 
@@ -118,9 +118,6 @@ parse_arguments() {
           --password) PASSWORD=$2 ;;
           --password-file) PASSWORD_FILE=$2 ;;
           --env-file) ENV_FILES+=("$2") ;;
-          --brain-token-file) BRAIN=1; BRAIN_TOKEN_FILE=$2 ;;
-          --brain-port) BRAIN=1; BRAIN_PORT=$2 ;;
-          --brain-funnel-port) BRAIN_FUNNEL_PORT=$2 ;;
           --host-user) HOST_USER=$2 ;;
           --host-uid) HOST_UID=$2 ;;
           --host-gid) HOST_GID=$2 ;;
@@ -138,6 +135,9 @@ parse_arguments() {
           --tailscale-socket) TAILSCALE_SOCKET=$2 ;;
           --tailscale-ports) TAILSCALE_PORTS=$2 ;;
           --tailscale-gateway-port) TAILSCALE_GATEWAY_PORT=$2 ;;
+          --brain-token-file) BRAIN_TOKEN_FILE=$2 ;;
+          --brain-port) BRAIN_PORT=$2 ;;
+          --brain-funnel-port) BRAIN_FUNNEL_PORT=$2 ;;
         esac
         shift 2 ;;
       --validate-only) VALIDATE_ONLY=1; shift ;;
@@ -393,13 +393,13 @@ prepare_checkout() {
   script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
   REPO_ROOT=$(git -C "$script_dir" rev-parse --show-toplevel 2>/dev/null) || fail 'Build mode requires a git checkout'
   cd -- "$REPO_ROOT"
-  [[ -f Dockerfile ]] || fail "No Dockerfile at checkout root: $REPO_ROOT"
+  [[ -f Dockerfile ]] || fail 'No Dockerfile at checkout root: $REPO_ROOT'
   REVISION=$(git rev-parse HEAD)
   BRANCH=$(git symbolic-ref --quiet --short HEAD || printf 'detached HEAD')
   DIRTY=false
   [[ -z "$(git status --porcelain --untracked-files=normal)" ]] || DIRTY=true
   HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-180}"
-  TEST_NAME="${TEST_NAME:-ddash-local-${REVISION:0:12}-$(date +%s)-$$}"
+  TEST_NAME="${TEST_NAME:-devharbour-local-${REVISION:0:12}-$(date +%s)-$$}"
   IMAGE="devcontainer-dashboard:$TEST_NAME"
   check_daemon
   docker buildx version >/dev/null || fail 'Docker Buildx is required'
@@ -507,7 +507,7 @@ run_registry() {
   echo 'Ctrl+C stops the container; the dashboard_data and ddash_zsh_data volumes persist.'
   exec docker run --rm "${ARGS[@]}" "${PUBLICATION[@]}" \
     --volume dashboard_data:/data --volume ddash_zsh_data:/dashboard-history \
-    --name devcontainer-dashboard "$IMAGE" "${HOOK[@]}"
+    --name devharbour "$IMAGE" "${HOOK[@]}"
 }
 
 # Start one retained instance using the same mounts, environment and publication.
@@ -588,8 +588,10 @@ main() {
   if [[ "$MODE" == build ]]; then prepare_checkout; else prepare_registry; fi
   prepare_arguments
   print_plan
-  if [[ "$MODE" == build ]]; then run_build
-  elif [[ -n "$MANAGED_NAME" ]]; then run_managed
-  else run_registry; fi
+  if [[ -n "$MANAGED_NAME" ]]; then run_managed
+  elif [[ "$MODE" == build ]]; then run_build
+  else run_registry
+  fi
 }
+
 main "$@"
