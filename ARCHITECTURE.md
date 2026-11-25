@@ -4,8 +4,15 @@ _Last updated: 2026-08-11_
 
 This document is a living architecture reference for DevHarbour (formerly Devcontainer Dashboard). It follows the structure of the architecture.md template, but it is tailored to this repository’s actual runtime, data flow, and deployment model.
 
-The name change is visual only. Existing deployment identifiers, configuration keys,
-saved browser settings, volumes, and the MCP server identifier remain compatible.
+New CLI and direct registry launches use the container name `devharbour`.
+Isolated checkout builds default to unique `devharbour-local-*` names. Existing
+saved configurations keep their name until an explicit save-only legacy migration
+with `devharbour configure --instance-name devharbour`. This does not rename or
+remove a Docker container. Both default names use the existing `dashboard_data`,
+`ddash_zsh_data` and `dashboard_ai` volumes; reusing retained volumes needs the
+normal adoption review, and volumes attached to another container are refused.
+Repository/image references, configuration keys, saved browser settings and the
+MCP server identifier remain compatible.
 
 ## 1. Project Structure
 
@@ -25,18 +32,14 @@ saved browser settings, volumes, and the MCP server identifier remain compatible
 │   ├── lib/
 │   │   ├── components/
 │   │   ├── server/
-│   │   ├── types.ts
 │   │   └── portConfig.ts
 │   └── routes/
 │       ├── +layout.svelte
 │       ├── +page.server.ts
-│       ├── +page.svelte
 │       ├── api/
 │       │   ├── containers/
-│       │   ├── presets/
 │       │   ├── workspaces/
 │       │   ├── bootstrap/
-│       │   ├── repos/
 │       │   └── devcontainer/build/
 │       ├── demo/
 │       └── service/
@@ -69,7 +72,7 @@ Key source areas:
 [Git repositories] <---------> [Dashboard Server]
 ```
 
-The dashboard server is the central orchestration layer. It authenticates browser sessions, reads Docker state, scans the workspace tree, queries git metadata, tracks bootstrap and build sessions in memory, and serves both SSR and client API requests.
+The dashboard server is the central orchestration layer. It authenticates browser sessions, reads Docker state, scans the workspace tree, queries git metadata, tracks bootstrap and devcontainer build sessions in memory, and serves both SSR and client API requests.
 
 ## 3. Core Components
 
@@ -79,7 +82,7 @@ Name: Dashboard UI
 
 Description: The main SvelteKit user interface that displays containers, workspaces, bootstrap controls, and service launch actions. It renders initial state from SSR and then refreshes container state from the API.
 
-Technologies: Svelte 5 runes, SvelteKit, Tailwind CSS v4, lucide-svelte, @xterm/xterm
+Technologies: Svelte 5 runes, SvelteKit, Tailwind CSS v4, lucide-svelte
 
 Deployment: Served by the custom Node server produced from the SvelteKit build and the separate server compilation step.
 
@@ -97,7 +100,7 @@ Deployment: Runs from [src/server.ts](src/server.ts) after `npm run build` and `
 
 Name: Docker State Access
 
-Description: Reads container state, exposed ports, image metadata, labels, and compose grouping from the local Docker daemon. It also executes container lifecycle actions such as start, stop, restart, and delete.
+Description: Reads container state, exposed ports, image metadata, labels, and compose grouping that the dashboard displays and controls.
 
 Technologies: dockerode, Docker socket (`/var/run/docker.sock`)
 
@@ -109,15 +112,15 @@ Name: Workspace Scanner
 
 Description: Scans the configured workspace root for task directories and git repositories, then merges those repositories with active bootstrap and devcontainer build sessions.
 
-Technologies: Node filesystem APIs, git helpers, in-memory session stores
+Technologies: Node filesystem APIs, git helpers, process execution wrappers
 
-Deployment: Server-side only. The workspace root is controlled by `WORKSPACE_ROOT`.
+Deployment: Local runtime dependency. The workspace root is controlled by `WORKSPACE_ROOT`.
 
 ### 3.5 Bootstrap and Build Session Tracking
 
 Name: Bootstrap/Build Orchestrators
 
-Description: Tracks bootstrap runs and devcontainer builds in memory so the UI can show progress immediately, even before a filesystem artifact appears.
+Description: Tracks bootstrap runs and devcontainer build sessions in memory so the UI can show progress immediately, even before a filesystem artifact appears.
 
 Technologies: Node runtime state, filesystem reads for provider/preset JSON, git helpers, process execution wrappers
 
@@ -143,7 +146,7 @@ Type: Filesystem
 
 Purpose: Stores task directories, repositories, `.devcontainer` definitions, `.solution-metadata.json`, and generated workspace content.
 
-Key Schemas/Collections: directory tree, git repositories, devcontainer markers, solution metadata, bootstrap outputs
+Key Schemas/Collections: task/repo path layout, devcontainer config folders, solution metadata files
 
 ### 4.3 Bootstrap Provider JSON
 
@@ -153,7 +156,7 @@ Type: JSON document
 
 Purpose: Lists configured bootstrap providers and their commands. If absent, the server can fall back to `~/.devbootstrap`.
 
-Key Schemas/Collections: provider id, provider name, repo path, update/rerun commands, optional metadata file
+Key Schemas/Collections: provider id, name, repo path, update/rerun commands, optional metadata file
 
 ### 4.4 Presets JSON
 
@@ -167,7 +170,7 @@ Key Schemas/Collections: preset id, name, command, interactive flag, optional vi
 
 ### 4.5 In-Memory Operation State
 
-Name: Active bootstrap runs and devcontainer builds
+Name: Active bootstrap runs and devcontainer build sessions
 
 Type: Process memory
 
@@ -234,7 +237,7 @@ Container runtime notes:
 
 ## 7. Security Considerations
 
-Authentication: A required shared password is validated by [src/lib/server/auth.ts](src/lib/server/auth.ts). [src/hooks.server.ts](src/hooks.server.ts) protects rendered pages and HTTP APIs, while the terminal server independently validates the same session cookie and request origin before accepting a WebSocket upgrade. Login creates an opaque process-local session; the password is never stored in browser JavaScript or sent in a URL.
+Authentication: A required shared password is validated by [src/lib/server/auth.ts](src/lib/server/auth.ts). [src/hooks.server.ts](src/hooks.server.ts) protects rendered pages and HTTP APIs, while [src/lib/server/terminal.ts](src/lib/server/terminal.ts) gates WebSocket upgrades. Login creates an opaque process-local session; the password is never stored in browser JavaScript or sent in a URL.
 
 Authorization: Every authenticated user has full operator access. Route handlers additionally validate container actions, workspace paths, and repository paths before mutating state. Workspace and repo endpoints reject paths outside `WORKSPACE_ROOT`.
 
@@ -245,7 +248,6 @@ Key Security Practices:
 - Restrict Docker socket access to trusted users.
 - Require a strong `DASHBOARD_PASSWORD`; startup fails closed when it is missing or empty.
 - Keep the password out of terminal child-process environments, logs, URLs, and generated Compose files.
-- Validate path inputs before touching the filesystem.
 - Use HTTPS and preferably reverse-proxy OIDC/SSO for any access beyond localhost or another trusted private path. The shared password does not provide per-user identity, MFA, or auditing.
 - Treat bootstrap provider commands and preset commands as operator-controlled inputs.
 
@@ -255,24 +257,25 @@ Local Setup:
 
 - Install dependencies with `npm install`.
 - Start the dev server with `npm run dev`.
-- Use `npm run check`, `npm run lint`, `npm run test:unit`, and `npm run test:e2e` to verify changes.
+- Use `npm run check`, `npm run lint`, `npm run test:unit -- --run`, and `npm run test:e2e` to verify changes.
 
-Testing Frameworks: Vitest, Playwright, vitest-browser-svelte
+Testing Frameworks: Vitest, Playwright
 
 Code Quality Tools: Prettier, ESLint, svelte-check
 
 Relevant conventions:
 
 - Svelte 5 runes are required across components.
-- Client code should not import from `src/lib/server/`.
-- `expect.requireAssertions` is enabled in tests, so every test needs at least one assertion.
+- `expect.requireAssertions` is enabled for Vitest tests, so each test must make assertions.
+- E2E tests run against a built app on port 4173.
+- Keep client components free of server-only imports and use current repository conventions.
 
 ## 9. Future Considerations / Roadmap
 
 - Expand the bootstrap and repo metadata surfaces if additional provider types are introduced.
 - Consider stronger operator authentication if the dashboard is ever exposed beyond a trusted local environment.
 - Add more automated coverage around route contracts and workspace merge behavior as the API surface grows.
-- Keep the server entry point and terminal upgrade flow aligned with SvelteKit and Node runtime changes.
+- Keep the server entry point and runtime tests aligned with SvelteKit and Docker deployment changes.
 
 ## 10. Project Identification
 
