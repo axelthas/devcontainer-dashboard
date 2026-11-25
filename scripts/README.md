@@ -18,11 +18,12 @@ mode must not source repository files or require a checkout.
 The installed `devharbour` command calls it for managed deployment; direct
 launcher usage remains supported as described below.
 
-- Default (registry) mode pulls the selected image and runs it attached in the
-  foreground with the stable `dashboard_data` and `ddash_zsh_data` named volumes.
+- Default (registry) mode pulls the selected image and runs it attached as
+  `devharbour`, with the stable `dashboard_data` and `ddash_zsh_data` named volumes.
   Ctrl+C stops the container; the volumes persist.
 - `--build` builds this checkout with Docker Buildx, loads the image, creates a
-  uniquely named test instance on host loopback, waits for the image healthcheck,
+  uniquely named `devharbour-local-*` test instance on host loopback (unless
+  `--name` is supplied), waits for the image healthcheck,
   and checks HTTP responses inside the container. Containers and volumes remain
   on success or failure for inspection. It never publishes an image or replaces
   another instance.
@@ -532,7 +533,7 @@ fields, unknown setting keys and unsupported versions fail.
 ```json
 {
 	"schemaVersion": 1,
-	"instanceName": "devcontainer-dashboard",
+	"instanceName": "devharbour",
 	"restartPolicy": "always",
 	"settings": {
 		"host-user": "operator",
@@ -568,9 +569,10 @@ revisions are verified before building. Managed local images save their immutabl
 image ID in `settings.image` after successful build, before the instance lifecycle.
 
 - `schemaVersion` is the integer `1`.
-- `instanceName` is an immutable lowercase container name (letters, digits, dot,
-  underscore or hyphen; 1 to 80 characters, starting with a letter or digit).
-  Select a new config and instance name for an extra instance.
+- `instanceName` defaults to `devharbour` and is an immutable lowercase container
+  name (letters, digits, dot, underscore or hyphen; 1 to 80 characters, starting
+  with a letter or digit). The one exception is the explicit, save-only legacy
+  migration below. Select a new config and instance name for an extra instance.
 - `restartPolicy` is `always`, `unless-stopped`, `on-failure` or `no`. The default
   `always` matches the policy proposed in PR #43. With `always`, a manual stop does
   not keep an instance stopped through Docker restart. The direct launcher remains
@@ -659,6 +661,33 @@ attached to another container are refused even with adoption. The default instan
 preserves `dashboard_data`, `ddash_zsh_data` and `dashboard_ai`; extra named
 instances use `<name>-data`, `<name>-history` and `<name>-ai`. An explicit
 `ai-state-volume` retains the existing launcher override.
+
+#### Migrate the legacy default name
+
+New configurations use `devharbour`. Existing saved configurations are not
+rewritten on installation or ordinary runs. Both `devharbour` and the legacy
+`devcontainer-dashboard` default map to the same three retained volumes above.
+Repository/image references, MCP identifiers and storage keys are unchanged.
+Custom instance names remain immutable and keep separate volume mappings.
+
+1. Reinstall the CLI from the updated branch or commit.
+2. Back up the saved configuration and review the old container's mounts and
+   writable-layer data before any container removal.
+3. Run `devharbour configure --instance-name devharbour` (add `--config PATH`
+   if needed). This changes only a saved `devcontainer-dashboard` default to
+   `devharbour`; other saved-name changes are refused. It makes no Docker calls.
+4. Separately review the old container's retirement. A stopped container still
+   holds its volumes. Remove it only after preserving required writable-layer
+   data, without removing the retained volumes. The CLI does not do this as part
+   of the name change and will refuse shared volumes while it still exists.
+5. Run `devharbour --adopt` and approve reuse of the reviewed retained volumes.
+   New container creation is separate from the save-only configuration change.
+
+The migration is not allowed through `run`, `build`, `status`, `logs` or `stop`.
+It does not rename a Docker container, touch another installation, delete state,
+change credentials or copy data. Last-applied state remains unchanged until a
+successful subsequent launch. A collision with an existing `devharbour` container
+still follows the normal ownership and explicit adoption/replacement checks.
 
 The CLI does not provision host boot ordering, auto-update an image/CLI, delete
 installation data, or silently rebuild a devcontainer. Existing direct launcher
