@@ -125,10 +125,10 @@ npm run test             # deployment + unit + e2e combined
 | `src/lib/server/docker.ts`                | Dockerode client singleton                                                                     |
 | `src/lib/server/terminal.ts`              | WebSocket PTY server (attaches to Vite dev or production HTTP server)                          |
 | `src/lib/server/workspaces.ts`            | Scans `WORKSPACE_ROOT` for task/repo pairs with `.devcontainer`                                |
-| `src/lib/server/bootstrap.ts`             | Loads bootstrap providers and resolves the active provider info                                |
+| `src/lib/server/bootstrap.ts`             | Loads bootstrap providers and resolves the active provider                                     |
 | `src/lib/server/bootstrapRuns.ts`         | Tracks bootstrap run sessions in memory                                                        |
 | `src/lib/server/devcontainerBuilds.ts`    | Tracks active devcontainer build sessions in memory                                            |
-| `src/lib/types.ts`                        | Shared data models and session state shapes                                                     |
+| `src/lib/types.ts`                        | Shared interfaces: `ContainerData`, `LocalWorkspaceData`, `BootstrapPreset`, `TerminalSession` |
 | `src/lib/portConfig.ts`                   | Port-to-label/icon mapping for known services                                                  |
 | `src/lib/serviceTargets.ts`               | Client-safe service identity, viewer hrefs, proxy paths, and embed profiles                    |
 | `src/lib/server/serviceGateway.ts`        | Streaming gateway core: auth, origin checks, cookie scoping, redirects, upgrades               |
@@ -177,7 +177,9 @@ export const GET: RequestHandler = async () => {
 };
 
 export const POST: RequestHandler = async ({ params, request }) => {
-	// ...
+	// Validate input
+	if (!valid) throw error(400, 'Invalid input');
+	// Perform action
 	return json({ success: true });
 };
 ```
@@ -201,7 +203,9 @@ Important:
 
 - `expect.requireAssertions` is enabled: every test MUST contain at least one assertion
 - E2E tests: Playwright files match `**/*.e2e.{ts,js}`
-- E2E tests: Playwright uses `npm run build && npm run build:server && PORT=4173 npm start` as webServer
+- Example tests in `src/lib/vitest-examples/` demonstrate both patterns
+- When changing server routes, validate the request/response contract with a focused test if one already exists nearby.
+- When changing Svelte components, run the Svelte MCP autofixer before finalizing and keep runes syntax consistent.
 - `test:deployment` uses Node's test runner with mocked privileged commands and a real temporary Unix socket. It requires no npm dependencies.
 - `test:production` exercises the compiled custom server, HTTP login, WebSocket authorization, and PTY output. `SMOKE_BASE_URL` targets a disposable external container.
 - `test:gateway` runs disposable HTTP/upgrade regressions against the compiled gateway module in `build/lib/server/serviceGateway.js`; `GATEWAY_MODULE_URL` can point at an isolated transpiled build when project dependencies are unavailable.
