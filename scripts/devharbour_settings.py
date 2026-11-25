@@ -20,6 +20,7 @@ import time
 
 import devharbour as cli
 import devharbour_env as env
+from devharbour_identity import ApplyIdentityError
 from devharbour_source import SourceError, validate_source
 from devharbour_quickstart import address
 from devharbour_schema import SCHEMA, PROPERTIES, validate
@@ -338,6 +339,8 @@ if __name__ == '__main__':
         main()
     except SettingsError as error:
         print(json.dumps({'ok': False, 'message': str(error), 'status': error.status}))
+    except ApplyIdentityError as error:
+        print(json.dumps({'ok': False, 'message': str(error), 'status': 409}))
     except cli.CliError:
         print(json.dumps({'ok': False, 'message': 'Configuration is busy, invalid or not private. Check it on the host and retry.', 'status': 409}))
     except (ValueError, env.EnvError, SourceError):

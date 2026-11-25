@@ -25,7 +25,7 @@ cli.atomic_json(path, config)
 current = {'Id':'c'*64,'Image':'sha256:'+'a'*64,'Config':{'Labels':{cli.LABEL_OWNER:hashlib.sha256(str(path).encode()).hexdigest()}},
 'HostConfig':{},'Mounts':[{'Type':'bind','Source':'/var/run/docker.sock','Destination':'/var/run/docker.sock'}], 'State':{'Status':'running'}}
 patch('devharbour_apply.cli.inspect', return_value=current).start()
-patch('devharbour_apply.socket.gethostname', return_value='c'*12).start()
+patch('devharbour_apply.verify_self').start()
 `;
 /** Run only a small deterministic Python integration scenario. */
 function scenario(code) {
@@ -62,7 +62,7 @@ test('queue refuses another current instance', () =>
 	scenario(`
 review=settings.apply_review(path,config,{})
 current['Id']='d'*64
-with patch('devharbour_apply.socket.gethostname',return_value='d'*12):
+with patch('devharbour_apply.verify_self'):
  try: settings.apply_queue(path,config,{'token':review['token'],'confirmRecreate':True})
  except settings.SettingsError: pass
  else: raise AssertionError('changed instance accepted')
@@ -216,3 +216,8 @@ with patch('devharbour_apply.cli.run',side_effect=run), patch('devharbour_apply.
 assert not any(argv[:2] in [['docker','stop'],['docker','rm']] for argv in calls)
 assert apply.status(path,reconcile=False)['phase']=='failed'
 `));
+
+test('identity checks accept custom hostnames and reject other containers', () => {
+	const result = spawnSync('python3', ['scripts/tests/identity.test.py'], { encoding: 'utf8' });
+	assert.equal(result.status, 0, result.stderr);
+});

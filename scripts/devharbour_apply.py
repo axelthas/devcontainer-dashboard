@@ -9,11 +9,11 @@ import hashlib
 import os
 from pathlib import Path
 import re
-import socket
 import sys
 import time
 
 import devharbour as cli
+from devharbour_identity import verify_self
 
 ACTIVE = {'queued', 'validate', 'image', 'recreate', 'health'}
 MESSAGES = {'queued': 'Starting independent worker', 'validate': 'Validating reviewed configuration',
@@ -66,8 +66,8 @@ def owned_instance(path, config, require_self=False):
     owner = hashlib.sha256(str(path).encode()).hexdigest()
     if not current or (current.get('Config', {}).get('Labels') or {}).get(cli.LABEL_OWNER) != owner:
         raise cli.CliError('The configured instance is missing or not owned; use the host CLI')
-    if require_self and (not re.fullmatch(r'[a-f0-9]{12,64}', socket.gethostname()) or not current['Id'].startswith(socket.gethostname())):
-        raise cli.CliError('Web recreation is available only inside its own managed container')
+    if require_self:
+        verify_self(current['Id'])
     return current
 
 
