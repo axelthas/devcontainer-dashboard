@@ -4,9 +4,10 @@
 	 * usable on the left. It has no overlay and needs no dismissal; Close collapses the split.
 	 * The endpoint details and the Brain setup instructions live here as well.
 	 */
-	import { Ban, BrainCircuit, Globe, Radio, X } from 'lucide-svelte';
+	import { Ban, Bell, BellOff, BrainCircuit, Clock, Globe, Radio, X } from 'lucide-svelte';
 	import type { BrainAccess } from '$lib/brainAccess.svelte';
 	import { buildActivity } from '$lib/brainActivity';
+	import { isEndingSoon } from '$lib/brainAlerts';
 	import { errorMessage } from '$lib/requests';
 	import BrainActivity from './BrainActivity.svelte';
 
@@ -29,7 +30,8 @@
 		'execute',
 		'read_output',
 		'write_stdin',
-		'cancel_execution'
+		'cancel_execution',
+		'request_more_time'
 	];
 	const PRESETS: [string, number][] = [
 		['⅓', 1 / 3],
@@ -38,6 +40,14 @@
 	];
 	const status = $derived(access.status);
 	const running = $derived(buildActivity(status).running);
+	const ending = $derived(
+		(status?.grants ?? []).filter((grant) => isEndingSoon(grant, access.now)).length
+	);
+	const NOTIFY_TITLES = {
+		default: 'Notify me when Brain access ends soon or Brain asks for more time',
+		granted: 'Notifications are on for ending grants and time requests',
+		denied: 'The browser blocks notifications from this dashboard. Allow them in the site settings.'
+	} as const;
 	let failure = $state('');
 	let revoking = $state(false);
 
@@ -72,7 +82,33 @@
 				<Radio size={12} class="animate-pulse" />{running} running
 			</span>
 		{/if}
+		{#if ending}
+			<span
+				class="flex items-center gap-1.5 rounded-full border border-[#ebcb8b]/60 bg-[#ebcb8b]/20 px-2 py-0.5 text-xs font-medium text-[#9a6b00] dark:text-[#ebcb8b]"
+				data-testid="brain-ending-count"
+			>
+				<Clock size={12} />{ending} ending soon
+			</span>
+		{/if}
 		<div class="ml-auto flex items-center gap-1">
+			{#if status?.enabled && access.notifications !== 'unsupported'}
+				<button
+					type="button"
+					onclick={() => void access.enableNotifications()}
+					disabled={access.notifications !== 'default'}
+					title={NOTIFY_TITLES[access.notifications]}
+					aria-label={NOTIFY_TITLES[access.notifications]}
+					class="flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs text-[#4c566a] enabled:hover:bg-[#d8dee9] dark:text-[#d8dee9]/70 dark:enabled:hover:bg-[#434c5e]"
+				>
+					{#if access.notifications === 'denied'}
+						<BellOff size={14} />Blocked
+					{:else if access.notifications === 'granted'}
+						<Bell size={14} class="text-[#5e81ac] dark:text-[#88c0d0]" />On
+					{:else}
+						<Bell size={14} />Notify me
+					{/if}
+				</button>
+			{/if}
 			{#if status?.enabled}
 				<details class="relative">
 					<summary
@@ -101,8 +137,9 @@
 							{/each}
 						</p>
 						<p class="text-[#4c566a] dark:text-[#d8dee9]/60">
-							Brain cannot create grants. Commands can reach everything available inside a granted
-							container, including its mounted sockets, credentials and networks.
+							Brain cannot create or extend grants; it can only ask for more time. Commands can
+							reach everything available inside a granted container, including its mounted sockets,
+							credentials and networks.
 						</p>
 					</div>
 				</details>

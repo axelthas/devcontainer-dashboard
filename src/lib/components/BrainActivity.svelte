@@ -7,9 +7,25 @@
 	 */
 	import type { Attachment } from 'svelte/attachments';
 	import { SvelteSet } from 'svelte/reactivity';
-	import { ChevronDown, ShieldAlert, SquareTerminal, TriangleAlert } from 'lucide-svelte';
-	import { buildActivity, isRunningStep, type BrainActivityGroup } from '$lib/brainActivity';
+	import {
+		BrainCircuit,
+		ChevronDown,
+		Clock,
+		ClockPlus,
+		ShieldAlert,
+		SquareTerminal,
+		TriangleAlert
+	} from 'lucide-svelte';
+	import {
+		buildActivity,
+		grantEventText,
+		isRunningStep,
+		timelineOf,
+		type BrainActivityGroup
+	} from '$lib/brainActivity';
 	import { formatRemaining, type BrainAccess } from '$lib/brainAccess.svelte';
+	import { clockTime, durationLabel, formatCountdown, isEndingSoon } from '$lib/brainAlerts';
+	import { BRAIN_GRANT_MINUTES, type BrainGrantMinutes } from '$lib/brainTypes';
 	import { errorMessage } from '$lib/requests';
 	import BrainCommandStep from './BrainCommandStep.svelte';
 
@@ -30,6 +46,18 @@
 	let working = $state('');
 	let failure = $state('');
 	const collapsed = new SvelteSet<string>();
+	/** Grant whose Extend menu is open */
+	let extendMenu = $state<string | null>(null);
+	const anyEnding = $derived(
+		activity.groups.some((group) => group.grant && isEndingSoon(group.grant, access.now))
+	);
+
+	// Status polls run every few seconds; the countdown of an ending grant ticks every second.
+	$effect(() => {
+		if (!anyEnding) return;
+		const timer = setInterval(() => access.tick(), 1000);
+		return () => clearInterval(timer);
+	});
 	/** The group that a container row asked for shows expanded and passes every filter. */
 	const focused = $derived(access.focusRequest?.grantId ?? null);
 
@@ -89,6 +117,30 @@
 		}
 	}
 
+	/** Extend from the menu, the warning or Brain's request. Asks for notifications once. */
+	function extendBy(grantId: string, minutes: BrainGrantMinutes) {
+		extendMenu = null;
+		void access.enableNotifications();
+		void act(`extend:${grantId}`, () => access.extend(grantId, minutes));
+	}
+
+	/** `+15 min`, `+1 hour`, `+4 hours`. */
+	function shortLabel(minutes: number): string {
+		if (minutes < 60) return `+${minutes} min`;
+		return minutes === 60 ? '+1 hour' : `+${minutes / 60} hours`;
+	}
+
+	/** End time after an extension: the minutes are added to the current end. */
+	function endAfter(expiresAt: string, minutes: number): string {
+		return clockTime(Date.parse(expiresAt) + minutes * 60_000);
+	}
+
+	/** A click outside the open Extend menu, or Escape, closes it. */
+	function closeMenuOutside(event: MouseEvent) {
+		if (extendMenu && !(event.target as Element | null)?.closest('[data-extend-menu]'))
+			extendMenu = null;
+	}
+
 	function toggle(grantId: string) {
 		if (collapsed.has(grantId)) collapsed.delete(grantId);
 		else collapsed.add(grantId);
@@ -107,12 +159,22 @@
 		return total > 0 ? Math.min(1, Math.max(0, left / total)) : 0;
 	}
 
+	/** Durations offered in the ending warning; the menu offers all of them. */
+	const QUICK: BrainGrantMinutes[] = [15, 60];
+
 	const FILTERS: [Filter, string][] = [
 		['all', 'All'],
 		['running', 'Running'],
 		['problems', 'Problems']
 	];
 </script>
+
+<svelte:window
+	onclick={closeMenuOutside}
+	onkeydown={(event) => {
+		if (event.key === 'Escape') extendMenu = null;
+	}}
+/>
 
 <div class="grid min-w-0 grid-cols-1 content-start gap-4">
 	<div class="flex flex-wrap items-center gap-1" role="group" aria-label="Show commands">
@@ -146,6 +208,7 @@
 
 	{#each visible as group (group.grantId)}
 		{@const open = !collapsed.has(group.grantId) || group.grantId === focused}
+		{@const ending = Boolean(group.grant && isEndingSoon(group.grant, access.now))}
 		<section
 			{@attach scrollWhenFocused(group.grantId)}
 			onpointerenter={() => onHoverGrant?.(group.grant?.containerId ?? null)}
@@ -154,7 +217,9 @@
 			class="min-w-0 scroll-mt-3 rounded-xl border bg-white shadow-sm transition-[border-color,box-shadow] dark:bg-[#3b4252] {focused ===
 			group.grantId
 				? 'border-[#b48ead] ring-2 ring-[#b48ead]/25'
-				: 'border-[#d8dee9] dark:border-[#4c566a]'} {group.grant ? '' : 'opacity-70'}"
+				: ending
+					? 'border-[#ebcb8b]'
+					: 'border-[#d8dee9] dark:border-[#4c566a]'} {group.grant ? '' : 'opacity-70'}"
 		>
 			<header
 				class="flex items-start gap-3 border-b border-[#d8dee9] px-4 py-3 dark:border-[#4c566a]"
@@ -195,11 +260,17 @@
 								aria-hidden="true"
 							>
 								<span
-									class="block h-full rounded-full bg-[#b48ead]"
+									class="block h-full rounded-full transition-[width] duration-700 {ending
+										? 'bg-[#ebcb8b]'
+										: 'bg-[#b48ead]'}"
 									style:width={`${remainingShare(group) * 100}%`}
 								></span>
 							</span>
-							<span>{formatRemaining(group.grant.expiresAt, access.now)} left</span>
+							<span class={ending ? 'font-semibold text-[#9a6b00] dark:text-[#ebcb8b]' : ''}
+								>{formatRemaining(group.grant.expiresAt, access.now)} left · ends {clockTime(
+									group.grant.expiresAt
+								)}</span
+							>
 						{:else}
 							<span>Grant ended</span>
 						{/if}
@@ -234,30 +305,206 @@
 				</div>
 				{#if group.grant}
 					{@const grant = group.grant}
-					<button
-						type="button"
-						disabled={Boolean(working)}
-						onclick={() => void act(grant.id, () => access.revoke(grant.id))}
-						class="shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-[#bf616a] transition-colors hover:bg-[#bf616a]/10 disabled:opacity-50"
-					>
-						Revoke
-					</button>
+					<div class="relative flex shrink-0 items-center gap-1" data-extend-menu>
+						<button
+							type="button"
+							aria-haspopup="menu"
+							aria-expanded={extendMenu === grant.id}
+							disabled={Boolean(working)}
+							onclick={() => (extendMenu = extendMenu === grant.id ? null : grant.id)}
+							class="flex items-center gap-1 rounded-lg border px-2 py-1 text-xs font-medium transition-colors disabled:opacity-50 {ending
+								? 'border-[#5e81ac] bg-[#5e81ac] text-white hover:opacity-90 dark:border-[#88c0d0] dark:bg-[#88c0d0] dark:text-[#2e3440]'
+								: 'border-[#d8dee9] text-[#2e3440] hover:bg-[#e5e9f0] dark:border-[#4c566a] dark:text-[#eceff4] dark:hover:bg-[#434c5e]'}"
+						>
+							<ClockPlus size={12} />Extend<ChevronDown size={12} />
+						</button>
+						<button
+							type="button"
+							disabled={Boolean(working)}
+							onclick={() => void act(grant.id, () => access.revoke(grant.id))}
+							class="rounded-lg px-2 py-1 text-xs font-medium text-[#bf616a] transition-colors hover:bg-[#bf616a]/10 disabled:opacity-50"
+						>
+							Revoke
+						</button>
+						{#if extendMenu === grant.id}
+							<div
+								role="menu"
+								aria-label={`Extend access to ${group.containerName}`}
+								class="absolute top-full right-0 z-20 mt-1 grid w-64 gap-0.5 rounded-lg border border-[#d8dee9] bg-white p-1.5 text-xs shadow-xl dark:border-[#4c566a] dark:bg-[#3b4252]"
+							>
+								<p class="px-2 pt-1 pb-1.5 font-semibold text-[#4c566a] dark:text-[#d8dee9]/70">
+									Extend access
+								</p>
+								{#each BRAIN_GRANT_MINUTES as minutes (minutes)}
+									{@const asked = grant.timeRequest?.minutes === minutes}
+									<button
+										type="button"
+										role="menuitem"
+										onclick={() => extendBy(grant.id, minutes)}
+										class="grid grid-cols-[1fr_auto] items-baseline gap-x-3 rounded-md px-2 py-1.5 text-left hover:bg-[#e5e9f0] dark:hover:bg-[#434c5e] {asked
+											? 'bg-[#b48ead]/10'
+											: ''}"
+									>
+										<span class="text-sm font-semibold text-[#2e3440] dark:text-[#eceff4]"
+											>{shortLabel(minutes)}</span
+										>
+										<span class="text-[#4c566a] tabular-nums dark:text-[#d8dee9]/60"
+											>until {endAfter(grant.expiresAt, minutes)}</span
+										>
+										{#if asked}<span class="col-span-2 text-[#86587f] dark:text-[#b48ead]"
+												>Brain asked for this</span
+											>{/if}
+									</button>
+								{/each}
+								<p class="px-2 pt-1.5 pb-1 leading-snug text-[#4c566a] dark:text-[#d8dee9]/60">
+									Same container run, user and reach. Running commands continue.
+								</p>
+							</div>
+						{/if}
+					</div>
 				{/if}
 			</header>
 
+			{#if group.grant && ending}
+				{@const grant = group.grant}
+				<div
+					role="status"
+					class="flex flex-wrap items-center gap-2 border-b border-[#ebcb8b]/50 bg-[#ebcb8b]/20 px-4 py-2 text-xs text-[#2e3440] dark:bg-[#ebcb8b]/10 dark:text-[#eceff4]"
+					data-testid="brain-ending"
+				>
+					<Clock size={14} class="shrink-0 text-[#9a6b00] dark:text-[#ebcb8b]" />
+					<span class="min-w-0 flex-1">
+						Access ends in
+						<strong class="text-[#9a6b00] tabular-nums dark:text-[#ebcb8b]"
+							>{formatCountdown(grant.expiresAt, access.now)}</strong
+						>.
+						{group.running
+							? `${group.running} running ${group.running === 1 ? 'command stops' : 'commands stop'} at ${clockTime(grant.expiresAt)}.`
+							: 'Brain loses access then.'}
+					</span>
+					{#each QUICK as minutes (minutes)}
+						<button
+							type="button"
+							disabled={Boolean(working)}
+							onclick={() => extendBy(grant.id, minutes)}
+							class="rounded-lg border border-[#ebcb8b] px-2 py-0.5 font-semibold text-[#9a6b00] hover:bg-[#ebcb8b]/20 disabled:opacity-50 dark:text-[#ebcb8b]"
+						>
+							{shortLabel(minutes)}
+						</button>
+					{/each}
+				</div>
+			{/if}
+
+			{#if group.grant?.timeRequest}
+				{@const grant = group.grant}
+				{@const request = group.grant.timeRequest}
+				<div
+					class="mx-4 mt-3 grid min-w-0 gap-2 rounded-lg border border-[#b48ead]/50 bg-[#b48ead]/10 px-3 py-2.5 text-xs"
+					data-testid="brain-time-request"
+				>
+					<p
+						class="flex items-center gap-2 text-sm font-semibold text-[#86587f] dark:text-[#b48ead]"
+					>
+						<BrainCircuit size={14} class="shrink-0" />Brain asks for {durationLabel(
+							request.minutes
+						)} more
+						<time
+							datetime={request.at}
+							class="ml-auto font-mono text-xs font-normal text-[#4c566a] dark:text-[#d8dee9]/60"
+							>{timeOf(request.at)}</time
+						>
+					</p>
+					<p class="text-sm [overflow-wrap:anywhere] text-[#2e3440] dark:text-[#eceff4]">
+						{request.reason}
+					</p>
+					<div class="flex flex-wrap gap-1.5">
+						<button
+							type="button"
+							disabled={Boolean(working)}
+							onclick={() => extendBy(grant.id, request.minutes)}
+							class="rounded-lg bg-[#5e81ac] px-2.5 py-1 font-semibold text-white hover:opacity-90 disabled:opacity-50 dark:bg-[#88c0d0] dark:text-[#2e3440]"
+						>
+							Extend by {durationLabel(request.minutes)} · until {endAfter(
+								grant.expiresAt,
+								request.minutes
+							)}
+						</button>
+						<button
+							type="button"
+							data-extend-menu
+							disabled={Boolean(working)}
+							onclick={() => (extendMenu = grant.id)}
+							class="rounded-lg border border-[#d8dee9] px-2.5 py-1 font-semibold hover:bg-[#e5e9f0] disabled:opacity-50 dark:border-[#4c566a] dark:hover:bg-[#434c5e]"
+						>
+							Other duration
+						</button>
+						<button
+							type="button"
+							disabled={Boolean(working)}
+							onclick={() =>
+								void act(`dismiss:${grant.id}`, () => access.dismissTimeRequest(grant.id))}
+							class="rounded-lg border border-[#d8dee9] px-2.5 py-1 font-semibold hover:bg-[#e5e9f0] disabled:opacity-50 dark:border-[#4c566a] dark:hover:bg-[#434c5e]"
+						>
+							Dismiss
+						</button>
+					</div>
+					<p class="text-[#4c566a] dark:text-[#d8dee9]/60">
+						Brain cannot extend access itself. Dismiss tells Brain no.
+					</p>
+				</div>
+			{/if}
+
 			{#if open}
 				{@const steps = stepsShown(group)}
-				{#if steps.length}
+				{@const timeline = timelineOf(steps, filter === 'running' ? [] : group.events)}
+				{#if timeline.length}
 					<ol
 						class="relative min-w-0 px-4 pt-4 before:absolute before:top-6 before:bottom-8 before:left-[21.5px] before:w-px before:bg-[#d8dee9] dark:before:bg-[#4c566a]"
 					>
-						{#each steps as step (step.key)}
-							<BrainCommandStep
-								{step}
-								{onOpenTerminal}
-								working={working === step.executionId}
-								onStop={(id) => void act(id, () => access.stop(id))}
-							/>
+						{#each timeline as item (item.key)}
+							{#if item.kind === 'step'}
+								<BrainCommandStep
+									step={item.step}
+									{onOpenTerminal}
+									working={working === item.step.executionId}
+									onStop={(id) => void act(id, () => access.stop(id))}
+								/>
+							{:else}
+								{@const text = grantEventText(item.entry)}
+								<li class="relative flex gap-3" data-brain-event={item.entry.tool}>
+									<span
+										class="relative mt-1 flex size-3 shrink-0 items-center justify-center"
+										aria-hidden="true"
+									>
+										{#if item.entry.tool === 'request_more_time'}
+											<BrainCircuit
+												size={13}
+												class="rounded-full bg-white text-[#b48ead] ring-4 ring-white dark:bg-[#3b4252] dark:ring-[#3b4252]"
+											/>
+										{:else}
+											<ClockPlus
+												size={13}
+												class="rounded-full bg-white text-[#b48ead] ring-4 ring-white dark:bg-[#3b4252] dark:ring-[#3b4252]"
+											/>
+										{/if}
+									</span>
+									<div class="min-w-0 flex-1 pb-4">
+										<p class="text-sm text-[#86587f] dark:text-[#b48ead]">{text.title}</p>
+										{#if text.detail}
+											<p
+												class="mt-0.5 text-xs [overflow-wrap:anywhere] text-[#4c566a] dark:text-[#d8dee9]/60"
+											>
+												{text.detail}
+											</p>
+										{/if}
+									</div>
+									<time
+										datetime={item.at}
+										class="shrink-0 font-mono text-xs text-[#4c566a] dark:text-[#d8dee9]/60"
+										>{timeOf(item.at)}</time
+									>
+								</li>
+							{/if}
 						{/each}
 					</ol>
 				{:else}

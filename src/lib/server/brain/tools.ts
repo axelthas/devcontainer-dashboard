@@ -1,14 +1,22 @@
 /**
  * The MCP tools that Brain sees. The tool set is fixed: grants change which targets
  * `list_targets` returns, never which tools exist. There are no tools for grants, Docker,
- * networks or the host, so Brain cannot widen its own access.
+ * networks or the host, so Brain cannot widen its own access. `request_more_time` only asks
+ * the operator for an extension; it never changes a grant.
  *
  * `open_shell` starts a persistent shell; `execute` with its `shell_id` types a command into
  * it. Without `shell_id`, `execute` starts one process per call, as before.
  */
-import type { BrainExecution } from './state.js';
+import { BRAIN_GRANT_MINUTES, type BrainGrantMinutes } from '../../brainTypes.js';
+import type { BrainExecution, BrainGrant } from './state.js';
 import { GOAL_LIMIT, brainState, recordAudit } from './state.js';
-import { BrainAccessError, grantView, liveGrant, pruneExpiredGrants } from './access.js';
+import {
+	BrainAccessError,
+	grantView,
+	liveGrant,
+	pruneExpiredGrants,
+	requestTime
+} from './access.js';
 import {
 	BrainExecutionError,
 	EXECUTION_LIMITS,
@@ -178,6 +186,33 @@ export const BRAIN_TOOLS: ToolDefinition[] = [
 			additionalProperties: false
 		},
 		annotations: { destructiveHint: true, idempotentHint: true, openWorldHint: false }
+	},
+	{
+		name: 'request_more_time',
+		title: 'Ask for more time',
+		description:
+			'Ask the operator to extend your access to one target before it expires, for example when a long build or test run would stop at the end of the grant. Give the minutes that you need and one short sentence that tells the operator why. This only sends a request: your access does not change until the operator extends the grant, and the operator can dismiss it. A new request replaces your earlier request for the same target. list_targets reports expires_at, seconds_left and time_request with status pending or dismissed; after an extension, expires_at is later and time_request is gone.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				target_id: { ...id, description: 'target_id from list_targets' },
+				minutes: {
+					type: 'integer',
+					enum: [...BRAIN_GRANT_MINUTES],
+					description: 'Minutes to add to the current end of the grant'
+				},
+				reason: {
+					type: 'string',
+					minLength: 1,
+					maxLength: GOAL_LIMIT,
+					description:
+						'One short sentence for the operator: why you need more time. Example: "The full browser suite needs about 30 more minutes."'
+				}
+			},
+			required: ['target_id', 'minutes', 'reason'],
+			additionalProperties: false
+		},
+		annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false }
 	}
 ];
 
@@ -265,7 +300,8 @@ function outputResult(execution: BrainExecution, cursor?: number) {
 			cursor: page.cursor,
 			next_cursor: page.nextCursor,
 			truncated_before: page.truncatedBefore,
-			more_output: page.more
+			more_output: page.more,
+			...grantExpiry(execution.grantId)
 		};
 	}
 	const view = readOutput(execution, cursor);
@@ -281,7 +317,8 @@ function outputResult(execution: BrainExecution, cursor?: number) {
 		cursor: view.cursor,
 		next_cursor: view.nextCursor,
 		truncated_before: view.truncatedBefore,
-		more_output: view.more
+		more_output: view.more,
+		...grantExpiry(execution.grantId)
 	};
 }
 
@@ -295,6 +332,34 @@ function linkExecution(links: AuditLinks, executionId: string): void {
 	links.executionId = execution.id;
 	const current = execution.shell?.current;
 	if (current) links.commandId = current.id;
+}
+
+/** Seconds until a grant ends, never negative. */
+function secondsLeft(grant: BrainGrant, now = Date.now()): number {
+	return Math.max(0, Math.floor((grant.expiresAt - now) / 1000));
+}
+
+/** Brain's time request in the tool result shape. */
+function timeRequestResult(grant: BrainGrant) {
+	const request = grant.timeRequest;
+	if (!request) return {};
+	return {
+		time_request: {
+			status: request.status,
+			minutes: request.minutes,
+			requested_at: new Date(request.at).toISOString()
+		}
+	};
+}
+
+/** End of the grant that an execution uses, so Brain notices an extension or a near end. */
+function grantExpiry(grantId: string) {
+	const grant = brainState.grants.get(grantId);
+	if (!grant) return {};
+	return {
+		grant_expires_at: new Date(grant.expiresAt).toISOString(),
+		grant_seconds_left: secondsLeft(grant)
+	};
 }
 
 /** Wrap structured data in an MCP tool result. */
@@ -353,6 +418,7 @@ interface AuditLinks {
 	executionId?: string;
 	commandId?: string;
 	goal?: string;
+	grantId?: string;
 }
 
 /** Read the required goal of an `execute` call. */
@@ -387,6 +453,8 @@ async function runTool(
 				...(view.intent ? { intent: view.intent } : {}),
 				...(view.workdir ? { workdir: view.workdir } : {}),
 				expires_at: view.expiresAt,
+				seconds_left: secondsLeft(grant),
+				...timeRequestResult(grant),
 				running_executions: view.runningExecutions,
 				shells: shellsOf(grant.id).map((execution) => {
 					const shell = shellView(shellOf(execution));
@@ -477,7 +545,8 @@ async function runTool(
 				cursor: page.cursor,
 				next_cursor: page.nextCursor,
 				truncated_before: page.truncatedBefore,
-				more_output: page.more
+				more_output: page.more,
+				...grantExpiry(execution.grantId)
 			});
 		}
 		describe(brainState.grants.get(targetId)?.containerName ?? targetId, command);
@@ -528,6 +597,34 @@ async function runTool(
 		const execution = await ownedExecution(executionId);
 		const status = await stopExecutionForBrain(execution);
 		return success({ execution_id: execution.id, status, confirmed: status === 'stopped' });
+	}
+	if (name === 'request_more_time') {
+		const args = argumentsOf(input, ['target_id', 'minutes', 'reason']);
+		const targetId = text(args, 'target_id', true, 64);
+		const reason = text(args, 'reason', false, GOAL_LIMIT)?.trim();
+		const minutes = args.minutes;
+		describe(
+			brainState.grants.get(targetId)?.containerName ?? targetId,
+			`${String(minutes)} minutes: ${reason ?? ''}`
+		);
+		if (!BRAIN_GRANT_MINUTES.includes(minutes as BrainGrantMinutes))
+			throw new ToolInputError(`minutes must be one of ${BRAIN_GRANT_MINUTES.join(', ')}`);
+		if (!reason)
+			throw new ToolInputError(
+				'reason is required: one short sentence that tells the operator why you need more time'
+			);
+		const grant = await liveGrant(targetId);
+		links.grantId = grant.id;
+		requestTime(grant, minutes as BrainGrantMinutes, reason);
+		return success({
+			target_id: grant.id,
+			status: 'pending',
+			minutes,
+			expires_at: new Date(grant.expiresAt).toISOString(),
+			seconds_left: secondsLeft(grant),
+			message:
+				'The operator sees the request. Access changes only if the operator extends the grant.'
+		});
 	}
 	throw new ToolInputError(`Unknown tool: ${name}`);
 }

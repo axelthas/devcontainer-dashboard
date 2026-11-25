@@ -13,6 +13,7 @@ import type {
 	BrainGrantView,
 	BrainStatus
 } from './brainTypes';
+import { durationLabel } from './brainAlerts';
 
 /** One command: a one-off execution, or one command that Brain typed into a shell. */
 export interface BrainStep {
@@ -54,6 +55,8 @@ export interface BrainActivityGroup {
 	shells: BrainShellSummary[];
 	/** Refused or failed calls in this container that started no command, newest first */
 	refused: BrainAuditEntry[];
+	/** Extensions, Brain's time requests and their dismissals, oldest first */
+	events: BrainAuditEntry[];
 	running: number;
 	/** Start time of the newest step, for ordering the groups */
 	latest: string;
@@ -149,6 +152,27 @@ function stepsOf(execution: BrainExecutionView): BrainStep[] {
 	];
 }
 
+/** Grant decisions that show in the timeline of their group. */
+export const GRANT_EVENT_TOOLS = new Set(['extend', 'request_more_time', 'dismiss_time_request']);
+
+/** One timeline item: a command, or an extension or time request between commands. */
+export type BrainTimelineItem =
+	| { kind: 'step'; key: string; at: string; step: BrainStep }
+	| { kind: 'event'; key: string; at: string; entry: BrainAuditEntry };
+
+/** Steps and grant events of a group in time order. */
+export function timelineOf(steps: BrainStep[], events: BrainAuditEntry[]): BrainTimelineItem[] {
+	return [
+		...steps.map((step) => ({ kind: 'step' as const, key: step.key, at: step.startedAt, step })),
+		...events.map((entry) => ({
+			kind: 'event' as const,
+			key: `event:${entry.at}:${entry.tool}`,
+			at: entry.at,
+			entry
+		}))
+	].sort((a, b) => a.at.localeCompare(b.at));
+}
+
 /** The `execute` call that started a step is the step itself, not part of its trail. */
 function startedStep(entry: BrainAuditEntry): boolean {
 	return entry.tool === 'execute' && entry.outcome === 'ok';
@@ -168,6 +192,7 @@ export function buildActivity(status: BrainStatus | null): BrainActivity {
 				steps: [],
 				shells: [],
 				refused: [],
+				events: [],
 				running: 0,
 				latest: ''
 			};
@@ -203,6 +228,10 @@ export function buildActivity(status: BrainStatus | null): BrainActivity {
 	const outside: BrainAuditEntry[] = [];
 	// The audit log is newest first; trails read oldest first, so walk it backwards.
 	for (const entry of [...status.audit].reverse()) {
+		if (entry.grantId && entry.outcome === 'ok' && GRANT_EVENT_TOOLS.has(entry.tool)) {
+			groups.get(entry.grantId)?.events.push(entry);
+			continue;
+		}
 		if (entry.executionId) {
 			// A shell call without a command, such as open_shell, belongs to no step.
 			const step = entry.commandId
@@ -234,4 +263,26 @@ export function buildActivity(status: BrainStatus | null): BrainActivity {
 			Number(Boolean(b.grant)) - Number(Boolean(a.grant)) || b.latest.localeCompare(a.latest)
 	);
 	return { groups: ordered, outside, running };
+}
+
+/** Operator wording of a grant event in the timeline: a title and an optional detail. */
+export function grantEventText(entry: BrainAuditEntry): { title: string; detail?: string } {
+	const minutes = Number(/^(?:by )?(\d+) minutes/.exec(entry.detail)?.[1] ?? NaN);
+	const amount = Number.isFinite(minutes) ? durationLabel(minutes) : 'more time';
+	if (entry.tool === 'extend') {
+		const end = /ends (\S+)$/.exec(entry.detail)?.[1];
+		const at = end ? Date.parse(end) : NaN;
+		return {
+			title: `You extended access by ${amount}`,
+			detail: Number.isFinite(at)
+				? `Ends ${new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+				: undefined
+		};
+	}
+	if (entry.tool === 'request_more_time')
+		return {
+			title: `Brain asked for ${amount} more`,
+			detail: entry.detail.replace(/^\d+ minutes: /, '') || undefined
+		};
+	return { title: `You dismissed Brain's request for ${amount} more` };
 }

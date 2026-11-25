@@ -34,8 +34,8 @@
 				--yellow: #ebcb8b;
 				--green: #a3be8c;
 				--purple: #b48ead;
-				--sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Segoe UI', Roboto,
-					sans-serif;
+				--sans:
+					-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Segoe UI', Roboto, sans-serif;
 				--mono: ui-monospace, 'JetBrains Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
 			}
 			body {
@@ -1271,8 +1271,6 @@
 			const MINUTE = 60_000;
 			/** Grant durations that the dashboard already offers (BRAIN_GRANT_MINUTES). */
 			const DURATIONS = [15, 60, 240];
-			/** Access never runs further ahead of now than the longest grant. */
-			const CEILING_MINUTES = 240;
 			/** The warning starts this many minutes before the end. */
 			const WARNING_MINUTES = 5;
 
@@ -1386,15 +1384,10 @@
 
 			/* ---------- Grant rules (the proposed server behaviour) ---------- */
 
-			/** End time after an extension: add to the current end, never past the ceiling. */
-			function extendedEnd(grant, minutes, t = now()) {
-				return Math.min(
-					Math.max(grant.expiresAt, t) + minutes * MINUTE,
-					t + CEILING_MINUTES * MINUTE
-				);
+			/** End time after an extension: the minutes are added to the current end. */
+			function extendedEnd(grant, minutes) {
+				return grant.expiresAt + minutes * MINUTE;
 			}
-			/** True when the ceiling shortens the extension. */
-			const isCapped = (g, m, t) => extendedEnd(g, m, t) < Math.max(g.expiresAt, t) + m * MINUTE;
 			const isEnded = (g, t = now()) => g.expiresAt <= t;
 			const isEnding = (g, t = now()) =>
 				!isEnded(g, t) && g.expiresAt - t <= WARNING_MINUTES * MINUTE;
@@ -1479,7 +1472,7 @@
 			const NOTES = [
 				[
 					'Only the operator extends access',
-					'Extend sits next to Revoke on every active grant. It offers the existing grant durations and adds them to the current end time. Access never runs more than 4 hours ahead of now.'
+					'Extend sits next to Revoke on every active grant. It offers the existing grant durations and adds them to the current end time. There is no upper limit.'
 				],
 				[
 					'Warning before the end',
@@ -1487,10 +1480,10 @@
 				],
 				[
 					'Visible with the pane closed',
-					'The Brain chip on the container row turns amber, so the warning reaches you when the Brain pane is closed.'
+					'The Brain chip on the container row turns amber, and a browser notification fires, so the warning reaches you when the Brain pane or the tab is closed.'
 				],
 				[
-					'Brain can ask, not extend (optional)',
+					'Brain can ask, not extend',
 					'A new MCP tool lets Brain ask for more time and give a reason. The request only shows here. Nothing changes until you choose a duration. Brain still cannot create, extend or widen grants.'
 				],
 				[
@@ -1608,7 +1601,6 @@
 					const sel = g.request && g.request.minutes === m;
 					return `<button class="opt ${sel ? 'sel' : ''}" role="menuitem" data-extend="${g.id}:${m}">
 						<b>${short(m)}</b><span>until ${clock(extendedEnd(g, m, t))}</span>
-						${isCapped(g, m, t) ? '<small>Shortened: access runs at most 4 hours ahead</small>' : ''}
 						${sel ? '<small class="asked">Brain asked for this</small>' : ''}
 					</button>`;
 				}).join('');
@@ -1777,7 +1769,7 @@
 					const sel = ui.sheetChoice === m;
 					const asked = g.request && g.request.minutes === m;
 					return `<div class="mrow choice ${sel ? 'sel' : ''}" data-choice="${m}"><span class="mt"><b>${label(m)} more</b>
-						<small>Until ${clock(extendedEnd(g, m, t))}${isCapped(g, m, t) ? ' · 4-hour limit' : ''}${asked ? ' · Brain asked for this' : ''}</small></span>
+						<small>Until ${clock(extendedEnd(g, m, t))}${asked ? ' · Brain asked for this' : ''}</small></span>
 						${sel ? `<span class="tick">${icon('check')}</span>` : ''}</div>`;
 				}).join('');
 				return `<div class="scrim"></div><div class="sheet"><div class="grab"></div>

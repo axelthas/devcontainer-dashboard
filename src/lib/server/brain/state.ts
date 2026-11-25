@@ -11,7 +11,8 @@ import type {
 	BrainExecutionKind,
 	BrainExecutionStatus,
 	BrainExposure,
-	BrainTargetKind
+	BrainTargetKind,
+	BrainTimeRequest
 } from '../../brainTypes.js';
 import docker from '../docker.js';
 
@@ -35,9 +36,12 @@ export interface BrainGrant {
 	localFolder?: string;
 	exposure: BrainExposure[];
 	createdAt: number;
+	/** The operator can move this later with an extension; Brain cannot. */
 	expiresAt: number;
 	/** The broader task Brain last supplied for this grant. */
 	intent?: string;
+	/** Brain's latest request for more time. An extension clears it. */
+	timeRequest?: Omit<BrainTimeRequest, 'at'> & { at: number };
 }
 
 /** One command that Brain typed into a shell. Cursors are absolute output offsets. */

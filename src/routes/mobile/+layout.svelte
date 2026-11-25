@@ -13,6 +13,7 @@
 	import MTabBar from '$lib/components/mobile/MTabBar.svelte';
 	import MBrainStrip from '$lib/components/mobile/MBrainStrip.svelte';
 	import { buildActivity } from '$lib/brainActivity';
+	import { isEndingSoon } from '$lib/brainAlerts';
 	import { untrack, type Snippet } from 'svelte';
 
 	interface Props {
@@ -62,6 +63,10 @@
 		return null;
 	});
 	const brainRunning = $derived(buildActivity(brain.status).running > 0);
+	/** The Brain strip shows while a command runs or a grant ends soon. */
+	const brainStrip = $derived(
+		brainRunning || (brain.status?.grants ?? []).some((grant) => isEndingSoon(grant, brain.now))
+	);
 	const fullscreen = $derived(
 		FULL_SCREEN.some((prefix) => (page.route.id ?? '').startsWith(prefix))
 	);
@@ -92,7 +97,7 @@
 	<div
 		class={fullscreen
 			? ''
-			: brainRunning && section !== 'brain'
+			: brainStrip && section !== 'brain'
 				? 'pb-[calc(156px+env(safe-area-inset-bottom))]'
 				: 'pb-[calc(76px+env(safe-area-inset-bottom))]'}
 		style:padding-left="env(safe-area-inset-left)"

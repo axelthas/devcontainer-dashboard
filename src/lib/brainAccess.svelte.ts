@@ -8,11 +8,14 @@ import type {
 	BrainController,
 	BrainExecutionStatus,
 	BrainExecutionView,
+	BrainGrantExtension,
+	BrainGrantMinutes,
 	BrainGrantRequest,
 	BrainGrantView,
 	BrainStatus,
 	BrainTargetPreview
 } from '$lib/brainTypes';
+import { brainAlerts } from '$lib/brainAlerts';
 import { errorMessage, latestRequest, requestJson } from '$lib/requests';
 
 const CONTEXT_KEY = Symbol('brain-access');
@@ -33,8 +36,19 @@ export function isRunningStatus(status: BrainExecutionStatus): boolean {
 	return status === 'running' || status === 'stopping';
 }
 
+/** Browser notification permission, or `unsupported` without the API or a secure context. */
+export type BrainNotificationState = NotificationPermission | 'unsupported';
+
+function notificationState(): BrainNotificationState {
+	return typeof Notification === 'undefined' || !globalThis.isSecureContext
+		? 'unsupported'
+		: Notification.permission;
+}
+
 export class BrainAccess {
 	status = $state<BrainStatus | null>(null);
+	/** Whether ending grants and Brain's time requests raise browser notifications */
+	notifications = $state<BrainNotificationState>(notificationState());
 	error = $state('');
 	/** Clock for grant countdowns; `refresh` advances it */
 	now = $state(Date.now());
@@ -50,6 +64,9 @@ export class BrainAccess {
 	 * Brain pane shows each command's goal, status and output without one.
 	 */
 	readonly #opened = new SvelteSet<string>();
+	/** Alert keys that already raised a notification in this page session */
+	// eslint-disable-next-line svelte/prefer-svelte-reactivity -- bookkeeping only; nothing renders from it
+	readonly #alerted = new Set<string>();
 	#focusTimer: ReturnType<typeof setTimeout> | undefined;
 	#focusVersion = 0;
 
@@ -105,10 +122,51 @@ export class BrainAccess {
 				(value) => {
 					this.status = value;
 					this.error = '';
+					this.#raiseAlerts();
 				}
 			);
 		} catch (cause) {
 			this.error = `Brain access status may be outdated. ${errorMessage(cause)}`;
+		}
+	}
+
+	/** Advance the countdown clock without a status read, for live warnings. */
+	tick(): void {
+		this.now = Date.now();
+	}
+
+	/**
+	 * Ask for notification permission. Browsers allow the prompt only after an operator
+	 * action, so the Grant, Extend and notification buttons call this.
+	 */
+	async enableNotifications(): Promise<void> {
+		if (this.notifications !== 'default') return;
+		try {
+			this.notifications = await Notification.requestPermission();
+		} catch {
+			this.notifications = notificationState();
+		}
+		this.#raiseAlerts();
+	}
+
+	/** Notify once per ending grant and per time request. A click shows that grant. */
+	#raiseAlerts(): void {
+		if (this.notifications !== 'granted') return;
+		for (const alert of brainAlerts(this.status, Date.now())) {
+			if (this.#alerted.has(alert.key)) continue;
+			this.#alerted.add(alert.key);
+			try {
+				const notification = new Notification(alert.title, { body: alert.body, tag: alert.key });
+				notification.onclick = () => {
+					window.focus();
+					this.focus(alert.grantId);
+					notification.close();
+				};
+			} catch {
+				// Some mobile browsers allow notifications only from a service worker.
+				this.notifications = 'unsupported';
+				return;
+			}
 		}
 	}
 
@@ -128,6 +186,25 @@ export class BrainAccess {
 
 	async revoke(grantId: string): Promise<void> {
 		await requestJson(`/api/brain/grants/${encodeURIComponent(grantId)}`, { method: 'DELETE' });
+		await this.refresh();
+	}
+
+	/** Add time to the current end of a grant. */
+	async extend(grantId: string, minutes: BrainGrantMinutes): Promise<void> {
+		const body: BrainGrantExtension = { minutes };
+		await requestJson(`/api/brain/grants/${encodeURIComponent(grantId)}`, {
+			method: 'PATCH',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(body)
+		});
+		await this.refresh();
+	}
+
+	/** Dismiss Brain's pending request for more time. The grant does not change. */
+	async dismissTimeRequest(grantId: string): Promise<void> {
+		await requestJson(`/api/brain/grants/${encodeURIComponent(grantId)}/time-request`, {
+			method: 'DELETE'
+		});
 		await this.refresh();
 	}
 

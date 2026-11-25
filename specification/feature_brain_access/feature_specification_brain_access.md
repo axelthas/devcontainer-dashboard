@@ -6,7 +6,7 @@ The dashboard can give an MCP client, ClickUp Brain, shell access to individual 
 
 - A grant gives arbitrary commands as the container user. It also gives everything that the container reaches: mounts, credentials, networks and sockets.
 - A container with the Docker socket mounted can control every container on the host. The grant dialog marks this as a danger. The operator must accept it explicitly.
-- Brain cannot create, extend or widen grants. The MCP endpoint has no tools for grants, Docker, networks or the host.
+- Brain cannot create, extend or widen grants. The MCP endpoint has no tools for grants, Docker, networks or the host. Brain can ask for more time with `request_more_time`; only the operator extends a grant.
 - The MCP endpoint has its own listener and its own bearer token. Publishing it does not publish the dashboard UI, its cookies or its other routes.
 - The dashboard password does not give MCP access, and the MCP token does not give dashboard access.
 
@@ -29,7 +29,7 @@ Operator browser
 | --------------------------------------------- | ---------------------------------------------------------------------- |
 | `src/lib/server/brain/gateway.ts`             | Configuration, listener, bearer authentication and request limits      |
 | `src/lib/server/brain/mcp.ts`                 | JSON-RPC: `initialize`, `ping`, `tools/list`, `tools/call`             |
-| `src/lib/server/brain/tools.ts`               | The six tools, argument validation and the audit log entries           |
+| `src/lib/server/brain/tools.ts`               | The seven tools, argument validation and the audit log entries         |
 | `src/lib/server/brain/access.ts`              | Grant lifecycle, expiry, revocation and container-run checks           |
 | `src/lib/server/brain/executions.ts`          | Docker exec runtime, output retention, stdin and verified cancellation |
 | `src/lib/server/brain/shells.ts`              | Persistent shells: start script, prompt markers, typed commands        |
@@ -41,6 +41,7 @@ Operator browser
 | `src/lib/brainAccess.svelte.ts`               | Browser state, provided as context by the dashboard page               |
 | `src/lib/components/BrainAccessButton.svelte` | Grant control on devcontainer rows, cards and service rows             |
 | `src/lib/brainActivity.ts`                    | Group retained commands and calls by container                         |
+| `src/lib/brainAlerts.ts`                      | Ending-grant and time-request rules for warnings and notifications     |
 | `src/lib/components/BrainPane.svelte`         | Desktop split pane: endpoint, grants and Brain activity                |
 | `src/lib/components/BrainActivity.svelte`     | Container groups and their command timelines in the desktop pane       |
 | `src/routes/mobile/brain/+page.svelte`        | Mobile Brain tab: native grouped list of commands, newest first        |
@@ -160,18 +161,49 @@ A grant ends when:
 
 When a grant ends, its running commands receive TERM, then KILL. Brain also loses access to the output of its earlier commands. The operator can still read retained output in the panel.
 
+## Grant extension
+
+The operator can extend a live grant, so a long build or test run does not stop at the end of the grant.
+
+1. The operator selects **Extend** on the grant and selects 15 minutes, 1 hour or 4 hours. On a phone, **Extend access** opens a sheet with the same durations.
+2. The dashboard sends `PATCH /api/brain/grants/[id]` with `{ "minutes": 15 | 60 | 240 }`.
+3. The server checks the grant against live Docker state, as for every MCP call. It refuses an ended grant (404) and a container that stopped, restarted or was removed (410).
+4. The server adds the minutes to the current end of the grant. There is no upper limit. The user, the start directory and the reach do not change, so the grant needs no new review.
+5. The audit log records `extend` with the duration and the new end. The Brain activity view shows it in the timeline of the container.
+
+Five minutes before a grant ends (`BRAIN_GRANT_WARNING_MINUTES`), the dashboard warns the operator:
+
+- The container group shows a live countdown, the number of running commands that stop, and quick +15 min and +1 hour buttons. The time bar and the container chip turn amber, and the pane header shows `N ending soon`.
+- On a phone, the live strip above the tab bar shows the countdown. A tap opens the **Extend access** sheet.
+- A browser notification fires once per end time. An extension sets a new end time, so the warning can fire again before the new end.
+
+### Brain's time request
+
+Brain calls `request_more_time` with `target_id`, `minutes` (15, 60 or 240) and a `reason` of at most 200 characters. The request grants nothing:
+
+- The server stores one request per grant. A new request replaces the previous one.
+- The container group shows the request with **Extend by**, **Other duration** and **Dismiss**. A browser notification fires once per request.
+- An extension clears the request. **Dismiss** (`DELETE /api/brain/grants/[id]/time-request`) marks it `dismissed` and records `dismiss_time_request`.
+- `list_targets` returns `seconds_left` and `time_request` with `status` `pending` or `dismissed`. After an extension, `time_request` is absent and `expires_at` is later.
+- `execute`, `read_output` and `open_shell` results include `grant_expires_at` and `grant_seconds_left`, so Brain notices an extension or a near end without another `list_targets` call.
+
+### Browser notifications
+
+The browser asks for permission only after an operator action: **Grant Brain**, **Extend**, or **Notify me** in the Brain pane header. The header shows **On** or **Blocked** after the decision. Notifications need a secure context (HTTPS or `localhost`). Without the Notification API, the button does not show and the dashboard warnings remain. A click on a notification focuses the dashboard and the container group. Notification state is per page session: a reload can show a warning again.
+
 ## Tools
 
-| Tool               | Purpose                                                                              |
-| ------------------ | ------------------------------------------------------------------------------------ |
-| `list_targets`     | List granted containers with name, kind, Compose service, workspace, user and expiry |
-| `open_shell`       | Start a persistent shell in one target and wait for its first prompt                 |
-| `execute`          | Run a command in a shell, or start one process. Wait up to `wait_seconds` (20, ≤60). |
-| `read_output`      | Read output from an absolute cursor, optionally after waiting for new output         |
-| `write_stdin`      | Write to an interactive command, optionally followed by end-of-file                  |
-| `cancel_execution` | Stop a command or close a shell, and report whether the stop was confirmed           |
+| Tool                | Purpose                                                                               |
+| ------------------- | ------------------------------------------------------------------------------------- |
+| `list_targets`      | List granted containers with name, kind, Compose service, workspace, user and expiry  |
+| `open_shell`        | Start a persistent shell in one target and wait for its first prompt                  |
+| `execute`           | Run a command in a shell, or start one process. Wait up to `wait_seconds` (20, ≤60).  |
+| `read_output`       | Read output from an absolute cursor, optionally after waiting for new output          |
+| `write_stdin`       | Write to an interactive command, optionally followed by end-of-file                   |
+| `cancel_execution`  | Stop a command or close a shell, and report whether the stop was confirmed            |
+| `request_more_time` | Ask the operator to extend a grant, with minutes and a reason. Changes nothing itself |
 
-`list_targets` also lists the open shells of each target: `shell_id`, name, `ready`, `busy`, controller and working directory.
+`list_targets` also lists the open shells of each target: `shell_id`, name, `ready`, `busy`, controller and working directory. It also returns `seconds_left` and, after a `request_more_time` call, `time_request`.
 
 Every `execute` call requires a non-blank `goal` of at most 200 characters. The goal describes what the command should accomplish. The command is refused if its goal is missing or invalid. This changes the MCP tool contract: clients must refresh their tool schemas and supply `goal` before upgrading.
 

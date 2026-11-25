@@ -5,18 +5,24 @@
 	 * command screen; a terminal opens only when the operator asks for one there.
 	 */
 	import type { Attachment } from 'svelte/attachments';
-	import { ShieldAlert, TriangleAlert } from 'lucide-svelte';
+	import { BrainCircuit, Check, Clock, ClockPlus, ShieldAlert, TriangleAlert } from 'lucide-svelte';
 	import { resolve } from '$app/paths';
+	import { page } from '$app/state';
 	import { formatRemaining, useBrainAccess } from '$lib/brainAccess.svelte';
 	import {
 		buildActivity,
+		grantEventText,
 		headline,
 		isRunningStep,
 		stepOutcome,
 		stepResult,
+		timelineOf,
 		type BrainActivityGroup,
 		type BrainStep
 	} from '$lib/brainActivity';
+	import { clockTime, durationLabel, formatCountdown, isEndingSoon } from '$lib/brainAlerts';
+	import { BRAIN_GRANT_MINUTES, type BrainGrantMinutes } from '$lib/brainTypes';
+	import MButton from '$lib/components/mobile/MButton.svelte';
 	import { errorMessage } from '$lib/requests';
 	import MBrainStepIcon, { tone as stepTone } from '$lib/components/mobile/MBrainStepIcon.svelte';
 	import MConfirm from '$lib/components/mobile/MConfirm.svelte';
@@ -31,6 +37,77 @@
 	const activity = $derived(buildActivity(brain?.status ?? null));
 	let filter = $state<Filter>('all');
 	let revoking = $state<BrainActivityGroup | null>(null);
+	/** Grant whose Extend access sheet is open, and the selected duration */
+	let extending = $state<string | null>(null);
+	let choice = $state<BrainGrantMinutes>(60);
+	const extendGrant = $derived(
+		brain?.status?.grants.find((grant) => grant.id === extending) ?? null
+	);
+	const anyEnding = $derived(
+		(brain?.status?.grants ?? []).some((grant) => isEndingSoon(grant, brain?.now ?? Date.now()))
+	);
+
+	// Status polls run every five seconds; an ending grant's countdown ticks every second.
+	$effect(() => {
+		if (!anyEnding || !brain) return;
+		const timer = setInterval(() => brain.tick(), 1000);
+		return () => clearInterval(timer);
+	});
+
+	/** The `?extend=` link that already opened the sheet; status polls must not reopen it. */
+	let handledLink = '';
+
+	// The Brain strip's Extend button links here with ?extend=<grant>.
+	$effect(() => {
+		const requested = page.url.searchParams.get('extend') ?? '';
+		if (!requested || requested === handledLink) return;
+		if (!brain?.status?.grants.some((grant) => grant.id === requested)) return;
+		handledLink = requested;
+		openExtend(requested);
+	});
+
+	/** Open the sheet with Brain's requested duration, else one hour. */
+	function openExtend(grantId: string) {
+		const grant = brain?.status?.grants.find((item) => item.id === grantId);
+		choice = grant?.timeRequest?.minutes ?? 60;
+		failure = '';
+		extending = grantId;
+	}
+
+	/** Extend by the selected duration; asks for notifications once. */
+	async function confirmExtend(minutes: BrainGrantMinutes = choice) {
+		const grantId = extending;
+		if (!grantId || !brain || busy) return;
+		busy = true;
+		failure = '';
+		void brain.enableNotifications();
+		try {
+			await brain.extend(grantId, minutes);
+			extending = null;
+		} catch (cause) {
+			failure = errorMessage(cause);
+		} finally {
+			busy = false;
+		}
+	}
+
+	/** Answer Brain's request directly from its row. */
+	async function answerRequest(grantId: string, minutes: BrainGrantMinutes | null) {
+		if (!brain || busy) return;
+		busy = true;
+		failure = '';
+		try {
+			if (minutes === null) await brain.dismissTimeRequest(grantId);
+			else {
+				void brain.enableNotifications();
+				await brain.extend(grantId, minutes);
+			}
+		} catch (cause) {
+			failure = errorMessage(cause);
+		} finally {
+			busy = false;
+		}
+	}
 	let busy = $state(false);
 	let failure = $state('');
 	/** The group that the Brain strip asked for passes every filter. */
@@ -136,6 +213,55 @@
 				data-brain-group={group.containerName}
 			>
 				<MGroup title={group.containerName} footer={footerOf(group)}>
+					{#if group.grant && isEndingSoon(group.grant, brain.now)}
+						<MRow
+							title={`Access ends in ${formatCountdown(group.grant.expiresAt, brain.now)}`}
+							subtitle={group.running
+								? `${group.running} running ${group.running === 1 ? 'command stops' : 'commands stop'} at ${clockTime(group.grant.expiresAt)}`
+								: `Brain loses access at ${clockTime(group.grant.expiresAt)}`}
+							tone="bg-m-warn/15 text-m-warn"
+							testid="brain-ending"
+						>
+							{#snippet icon()}<Clock size={16} aria-hidden="true" />{/snippet}
+						</MRow>
+					{/if}
+					{#if group.grant?.timeRequest}
+						{@const grant = group.grant}
+						{@const request = group.grant.timeRequest}
+						<div class="grid gap-3 bg-m-brain/10 px-4 py-3" data-testid="brain-time-request">
+							<p class="flex items-center gap-2 text-[17px] font-semibold text-m-brain">
+								<BrainCircuit size={18} aria-hidden="true" />Brain asks for {durationLabel(
+									request.minutes
+								)} more
+							</p>
+							<p class="text-[15px] leading-snug [overflow-wrap:anywhere]">{request.reason}</p>
+							<div class="grid grid-cols-2 gap-2">
+								<MButton
+									disabled={busy}
+									onclick={() => void answerRequest(grant.id, request.minutes)}
+									>Extend {durationLabel(request.minutes)}</MButton
+								>
+								<MButton
+									tone="plain"
+									disabled={busy}
+									onclick={() => void answerRequest(grant.id, null)}>Not now</MButton
+								>
+							</div>
+						</div>
+					{/if}
+					{#if group.grant}
+						{@const grant = group.grant}
+						<MRow
+							title="Extend access"
+							subtitle={`Ends ${clockTime(grant.expiresAt)}`}
+							onclick={() => openExtend(grant.id)}
+							chevron
+							tone="bg-m-frost text-m-on-frost"
+							testid="brain-extend"
+						>
+							{#snippet icon()}<ClockPlus size={16} aria-hidden="true" />{/snippet}
+						</MRow>
+					{/if}
 					{#if group.grant?.intent}
 						<p
 							class="px-4 py-3 text-[15px] leading-snug [overflow-wrap:anywhere]"
@@ -146,16 +272,34 @@
 							>
 						</p>
 					{/if}
-					{#each steps as step (step.key)}
-						<MRow
-							title={step.goal ?? headline(step.command)}
-							subtitle={`${stepResult(step)} · ${timeOf(step.startedAt)}${step.shellName ? ` · shell ${step.shellName}` : ''}`}
-							href={stepHref(step)}
-							tone={stepTone(stepOutcome(step))}
-							testid="brain-step"
-						>
-							{#snippet icon()}<MBrainStepIcon outcome={stepOutcome(step)} />{/snippet}
-						</MRow>
+					{#each timelineOf(steps, filter === 'running' ? [] : group.events).reverse() as item (item.key)}
+						{#if item.kind === 'step'}
+							{@const step = item.step}
+							<MRow
+								title={step.goal ?? headline(step.command)}
+								subtitle={`${stepResult(step)} · ${timeOf(step.startedAt)}${step.shellName ? ` · shell ${step.shellName}` : ''}`}
+								href={stepHref(step)}
+								tone={stepTone(stepOutcome(step))}
+								testid="brain-step"
+							>
+								{#snippet icon()}<MBrainStepIcon outcome={stepOutcome(step)} />{/snippet}
+							</MRow>
+						{:else}
+							{@const text = grantEventText(item.entry)}
+							<MRow
+								title={text.title}
+								subtitle={text.detail ? `${text.detail} · ${timeOf(item.at)}` : timeOf(item.at)}
+								tone="bg-m-brain/15 text-m-brain"
+								testid="brain-event"
+							>
+								{#snippet icon()}
+									{#if item.entry.tool === 'request_more_time'}<BrainCircuit
+											size={16}
+											aria-hidden="true"
+										/>{:else}<ClockPlus size={16} aria-hidden="true" />{/if}
+								{/snippet}
+							</MRow>
+						{/if}
 					{:else}
 						<p class="px-4 py-3 text-[15px] text-m-dim">
 							{filter === 'running' ? 'No running commands.' : 'No commands yet.'}
@@ -194,6 +338,50 @@
 		{/if}
 	{/if}
 </div>
+
+<MSheet
+	open={extendGrant !== null}
+	title="Extend access"
+	onClose={() => (extending = null)}
+	closeDisabled={busy}
+	testid="brain-extend-sheet"
+>
+	{#if extendGrant}
+		<p class="px-8 pb-4 text-[15px] leading-snug text-m-dim">
+			{extendGrant.containerName} · as {extendGrant.user}. Access ends at {clockTime(
+				extendGrant.expiresAt
+			)}.
+		</p>
+		<MGroup>
+			{#each BRAIN_GRANT_MINUTES as minutes (minutes)}
+				<MRow
+					title={`${durationLabel(minutes)} more`}
+					subtitle={`Until ${clockTime(Date.parse(extendGrant.expiresAt) + minutes * 60_000)}${extendGrant.timeRequest?.minutes === minutes ? ' · Brain asked for this' : ''}`}
+					onclick={() => (choice = minutes)}
+					testid="brain-extend-choice"
+				>
+					{#snippet trailing()}
+						{#if choice === minutes}<Check
+								size={20}
+								class="shrink-0 text-m-frost"
+								aria-label="Selected"
+							/>{/if}
+					{/snippet}
+				</MRow>
+			{/each}
+		</MGroup>
+		{#if failure}<p role="alert" class="px-8 pb-3 text-[15px] text-m-stop">{failure}</p>{/if}
+		<div class="grid gap-2 px-4 pb-2">
+			<MButton disabled={busy} onclick={() => void confirmExtend()} testid="brain-extend-confirm"
+				>Extend by {durationLabel(choice)}</MButton
+			>
+			<MButton tone="plain" disabled={busy} onclick={() => (extending = null)}>Cancel</MButton>
+		</div>
+		<p class="px-8 pt-2 pb-4 text-[13px] leading-snug text-m-dim">
+			Keeps the same container run, user and reach. Running commands continue.
+		</p>
+	{/if}
+</MSheet>
 
 <MSheet open={revoking !== null} title="Revoke" onClose={() => (revoking = null)}>
 	<MConfirm

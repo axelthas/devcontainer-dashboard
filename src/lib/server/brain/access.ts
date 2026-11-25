@@ -2,6 +2,9 @@
  * Grant lifecycle. Only the authenticated dashboard creates grants; the MCP endpoint can only
  * use them. A grant ends on expiry, on revocation, or when its container run ends: a stop,
  * restart or rebuild produces a new `StartedAt` or container ID, which never matches.
+ *
+ * Only the operator extends a grant. Brain can ask for more time with `request_more_time`;
+ * the request is shown to the operator and changes nothing by itself.
  */
 import { randomBytes } from 'node:crypto';
 import {
@@ -89,6 +92,77 @@ export function createGrant(
 	return grant;
 }
 
+/**
+ * Add time to the current end of a live grant, for the operator's Extend action. The grant
+ * keeps its container run, user and reach, so no new review is needed. A pending time
+ * request from Brain is answered by the extension and cleared.
+ */
+export async function extendGrant(
+	id: string,
+	minutes: BrainGrantMinutes,
+	now = Date.now()
+): Promise<BrainGrant> {
+	if (!BRAIN_GRANT_MINUTES.includes(minutes))
+		throw new BrainAccessError(`Choose ${BRAIN_GRANT_MINUTES.join(', ')} minutes`, 400);
+	pruneExpiredGrants(now);
+	if (!brainState.grants.has(id))
+		throw new BrainAccessError('The grant has already ended. Grant access again.', 404);
+	let grant: BrainGrant;
+	try {
+		grant = await liveGrant(id, now);
+	} catch (cause) {
+		// liveGrant words its refusal for Brain; the operator needs the dashboard wording.
+		if (cause instanceof BrainAccessError && cause.status === 410)
+			throw new BrainAccessError(
+				'The container stopped, restarted or was removed, so the grant ended. Grant access again.',
+				410
+			);
+		throw cause;
+	}
+	grant.expiresAt += minutes * 60_000;
+	grant.timeRequest = undefined;
+	recordAudit(
+		{
+			tool: 'extend',
+			target: grant.containerName,
+			grantId: grant.id,
+			detail: `by ${minutes} minutes, ends ${new Date(grant.expiresAt).toISOString()}`,
+			outcome: 'ok'
+		},
+		now
+	);
+	return grant;
+}
+
+/** Store Brain's request for more time. It replaces an earlier request and grants nothing. */
+export function requestTime(
+	grant: BrainGrant,
+	minutes: BrainGrantMinutes,
+	reason: string,
+	now = Date.now()
+): void {
+	grant.timeRequest = { minutes, reason, at: now, status: 'pending' };
+}
+
+/** Dismiss Brain's pending request. Brain sees the dismissal in `list_targets`. */
+export function dismissTimeRequest(id: string, now = Date.now()): boolean {
+	pruneExpiredGrants(now);
+	const grant = brainState.grants.get(id);
+	if (grant?.timeRequest?.status !== 'pending') return false;
+	grant.timeRequest.status = 'dismissed';
+	recordAudit(
+		{
+			tool: 'dismiss_time_request',
+			target: grant.containerName,
+			grantId: grant.id,
+			detail: `${grant.timeRequest.minutes} minutes`,
+			outcome: 'ok'
+		},
+		now
+	);
+	return true;
+}
+
 /** Return the grant while it still applies to the same running container run; end it otherwise. */
 export async function liveGrant(id: string, now = Date.now()): Promise<BrainGrant> {
 	pruneExpiredGrants(now);
@@ -127,6 +201,9 @@ export function grantView(grant: BrainGrant): BrainGrantView {
 	return {
 		id: grant.id,
 		intent: grant.intent,
+		...(grant.timeRequest?.status === 'pending'
+			? { timeRequest: { ...grant.timeRequest, at: new Date(grant.timeRequest.at).toISOString() } }
+			: {}),
 		containerId: grant.containerId.slice(0, 12),
 		containerName: grant.containerName,
 		kind: grant.kind,
