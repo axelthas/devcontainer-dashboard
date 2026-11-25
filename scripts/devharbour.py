@@ -70,7 +70,7 @@ def parser():
     result.add_argument('--source-ref', default=argparse.SUPPRESS, help='Branch/tag/commit for a managed local build')
     result.add_argument('--rebuild', action='store_true', help='Rebuild a selected local source image after review')
     result.add_argument('--build', action='store_true', dest='build_mode', help='Run an isolated checkout build')
-    result.add_argument('--instance-name', default=argparse.SUPPRESS)
+    result.add_argument('--instance-name', default=argparse.SUPPRESS, help='New instance name; configure may explicitly migrate devcontainer-dashboard to devharbour')
     result.add_argument('--restart-policy', choices=['always', 'unless-stopped', 'on-failure', 'no'], default=argparse.SUPPRESS)
     result.add_argument('--clear', action='append', default=[], metavar='KEY', help='Remove a saved optional setting; repeatable')
     for key in sorted(STRINGS):
@@ -183,7 +183,7 @@ def merge_config(path, args):
     old = read_json(path) if path.exists() or path.is_symlink() else None
     if old is None and (path.exists() or path.is_symlink()):
         raise CliError('Unsupported config schema: null is not a configuration')
-    config = json.loads(json.dumps(old)) if old is not None else {'schemaVersion': 1, 'instanceName': 'devcontainer-dashboard', 'restartPolicy': 'always', 'settings': {}}
+    config = json.loads(json.dumps(old)) if old is not None else {'schemaVersion': 1, 'instanceName': 'devharbour', 'restartPolicy': 'always', 'settings': {}}
     if not isinstance(config, dict) or not {'schemaVersion', 'instanceName', 'restartPolicy', 'settings'} <= set(config) or set(config) - {'schemaVersion', 'instanceName', 'restartPolicy', 'settings', 'source'} or type(config.get('schemaVersion')) is not int or config['schemaVersion'] != 1 or not isinstance(config['settings'], dict):
         raise CliError('Unsupported config schema; expected schemaVersion 1 with instanceName, restartPolicy and settings')
     from devharbour_source import validate_source, SourceError
@@ -229,7 +229,12 @@ def merge_config(path, args):
     if hasattr(args, 'restart_policy'):
         config['restartPolicy'] = args.restart_policy
     if old and config['instanceName'] != old['instanceName']:
-        raise CliError('instanceName is immutable; use a new --config for a separate instance')
+        # Only the legacy default can migrate, and only in an explicit save-only
+        # command. No container is renamed, removed, adopted or started here.
+        migration = (args.command == 'configure' and old['instanceName'] == 'devcontainer-dashboard'
+                     and getattr(args, 'instance_name', None) == 'devharbour')
+        if not migration:
+            raise CliError('instanceName is immutable; only configure --instance-name devharbour can migrate the legacy default')
     validate_types(config['settings'])
     return old, config
 
@@ -409,7 +414,7 @@ def resource_names(config):
         raise CliError('Invalid instanceName')
     if not isinstance(config['restartPolicy'], str) or config['restartPolicy'] not in {'always', 'unless-stopped', 'on-failure', 'no'}:
         raise CliError('Invalid restartPolicy')
-    return ('dashboard_data', 'ddash_zsh_data', 'dashboard_ai') if name == 'devcontainer-dashboard' else (name + '-data', name + '-history', name + '-ai')
+    return ('dashboard_data', 'ddash_zsh_data', 'dashboard_ai') if name in {'devharbour', 'devcontainer-dashboard'} else (name + '-data', name + '-history', name + '-ai')
 
 
 def launch_argv(config, settings, owner, fingerprint, build=False):
