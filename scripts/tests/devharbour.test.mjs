@@ -164,6 +164,7 @@ test('configure persists explicit typed inputs without Docker or secret values',
 	base(f);
 	const c = f.read();
 	assert.equal(c.schemaVersion, 1);
+	assert.equal(c.instanceName, 'devharbour');
 	assert.equal(c.settings['host-uid'], 2345);
 	assert.equal(c.settings['password-file'], f.password);
 	assert.equal(readFileSync(f.config, 'utf8').includes(secret), false);
@@ -255,6 +256,10 @@ test('first run creates one detached owned instance and verifies application and
 	ok(f.exec(f.identity));
 	const calls = f.calls();
 	const launch = calls.find((a) => a[0] === 'run');
+	assert.equal(launch[launch.indexOf('--name') + 1], 'devharbour');
+	assert.ok(launch.includes('dashboard_data:/data'));
+	assert.ok(launch.includes('ddash_zsh_data:/dashboard-history'));
+	assert.ok(launch.includes('type=volume,source=dashboard_ai,target=/dashboard-ai'));
 	assert.ok(launch.includes('--detach'));
 	assert.ok(launch.includes('--restart'));
 	assert.ok(launch.includes('always'));
@@ -709,4 +714,47 @@ test('new unattended setups pass the default env file when it exists next to the
 	writeFileSync(join(f.dir, 'devcontainer.env'), 'TERN_USE_CCACHE=1\n', { mode: 0o600 });
 	ok(f.exec(['configure', ...f.identity]));
 	assert.deepEqual(f.read().settings['env-file'], [join(f.dir, 'devcontainer.env')]);
+});
+
+test('legacy default is retained until explicit save-only migration', (t) => {
+	const f = fixture(t);
+	base(f);
+	const legacy = f.read();
+	legacy.instanceName = 'devcontainer-dashboard';
+	f.save(legacy);
+	ok(f.exec(['configure']));
+	assert.equal(f.read().instanceName, 'devcontainer-dashboard');
+	ok(f.exec(['configure', '--instance-name', 'devharbour']));
+	assert.deepEqual(f.read(), { ...legacy, instanceName: 'devharbour' });
+	assert.deepEqual(f.calls(), []);
+});
+
+test('legacy migration cannot be combined with run or management commands', (t) => {
+	const f = fixture(t);
+	base(f);
+	const legacy = f.read();
+	legacy.instanceName = 'devcontainer-dashboard';
+	f.save(legacy);
+	const before = readFileSync(f.config, 'utf8');
+	for (const command of ['run', 'status', 'logs', 'stop', 'build'])
+		fails(f.exec([command, '--instance-name', 'devharbour']), /instanceName is immutable/);
+	assert.equal(readFileSync(f.config, 'utf8'), before);
+	assert.deepEqual(f.calls(), []);
+});
+
+test('custom names are immutable and legacy volume mappings stay compatible', (t) => {
+	const f = fixture(t);
+	base(f);
+	fails(f.exec(['configure', '--instance-name', 'other']), /instanceName is immutable/);
+	ok(
+		wizardProbe(
+			f,
+			`expected=('dashboard_data','ddash_zsh_data','dashboard_ai')\nfor name in ('devharbour','devcontainer-dashboard'):\n config['instanceName']=name\n assert c.resource_names(config)==expected\nconfig['instanceName']='separate'\nassert c.resource_names(config)==('separate-data','separate-history','separate-ai')\n`
+		)
+	);
+	const custom = f.read();
+	custom.instanceName = 'separate';
+	f.save(custom);
+	fails(f.exec(['configure', '--instance-name', 'devharbour']), /instanceName is immutable/);
+	assert.equal(f.read().instanceName, 'separate');
 });
