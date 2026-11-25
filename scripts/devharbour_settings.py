@@ -1,8 +1,9 @@
 """Authenticated web Settings persistence, invoked by the Node server over stdin.
 
-Reuse the host CLI's validators, flock and atomic writes. Never run Docker or
-return secret contents. Saves change desired state only. Environment and password
-replacement use immutable private files, published by one atomic config update.
+Reuse the host CLI's validators, flock and atomic writes. Never return secret
+contents. Save-only operations change desired state; explicit apply review/queue
+operations supervise a separate CLI worker through Docker. Environment/password
+replacement uses immutable files published by one atomic config update.
 """
 import argparse
 import copy
@@ -15,6 +16,7 @@ import re
 import shlex
 import subprocess
 import sys
+import time
 
 import devharbour as cli
 import devharbour_env as env
@@ -133,7 +135,7 @@ def validate_deployment(config, path):
         raise SettingsError('Invalid deployment combination or unavailable environment file. Check ports, origins, Tailscale/MCP dependencies and file paths. Nothing was saved.')
 
 
-def save_config(path, old, payload):
+def save_config(path, old, payload, publish=True):
     """Validate all edited data and publish only the desired JSON."""
     config = payload.get('config')
     if not isinstance(config, dict):
@@ -166,7 +168,8 @@ def save_config(path, old, payload):
     if managed_input:
         bounded_read(managed_input)
         env.read(managed_input)
-    cli.atomic_json(path, config)
+    if publish:
+        cli.atomic_json(path, config)
     return config
 
 
@@ -218,6 +221,76 @@ def replace_private_input(path, config, payload, password=False):
             new_path.unlink()
 
 
+def apply_review(path, config, payload):
+    """Validate a candidate without saving it and bind a short-lived review token."""
+    import devharbour_apply as apply
+    from devharbour_quickstart import address
+    active = apply.status(path)
+    if active and active['phase'] in apply.ACTIVE:
+        raise SettingsError('An apply operation is already active.', 409)
+    current = apply.owned_instance(path, config, require_self=True)
+    candidate = save_config(path, config, {'config': payload.get('config', config), 'allowExposure': True}, publish=False)
+    requested = cli.normalized(candidate, path.parent)
+    state_path = path.with_name(path.name + '.state.json')
+    state = cli.read_json(state_path) if state_path.exists() else {}
+    previous = state.get('deployment', {})
+    changes = []
+    for key in sorted(set(previous) | set(requested)):
+        if key not in {'instanceName', 'restartPolicy'} and previous.get(key) != requested.get(key):
+            changes.append({'key': key, 'before': previous.get(key), 'after': requested.get(key)})
+    if previous.get('restartPolicy') != candidate['restartPolicy']:
+        changes.append({'key': 'restartPolicy', 'before': previous.get('restartPolicy'), 'after': candidate['restartPolicy']})
+    if candidate.get('source', {}).get('mode') == 'build':
+        changes.append({'key': 'source', 'before': 'Running image: ' + current['Image'], 'after': candidate['source']})
+    inputs = [key for key in [requested['password-file'], *requested.get('env-file', [])]
+              if state.get('inputDigests', {}).get(key) != cli.file_digest(key)]
+    if inputs:
+        changes.append({'key': 'private inputs', 'before': 'Previously applied files', 'after': 'Credentials or environment changed (values hidden)'})
+    exposure = any(apply_value != cli.exposed(previous).get(key) for key, apply_value in cli.exposed(requested).items())
+    token = secrets.token_hex(16)
+    review = {'token': token, 'expiresAt': int(time.time()) + 600, 'revision': revision(path, config),
+              'config': candidate, 'fingerprint': cli.desired_fingerprint(candidate, requested),
+              'containerId': current['Id'], 'requiresExposure': exposure,
+              'previousUrl': address(previous) if previous else None, 'targetUrl': address(requested), 'changes': changes}
+    cli.atomic_json(path.with_name(path.name + '.review.json'), review)
+    return {key: review[key] for key in ('token', 'expiresAt', 'revision', 'requiresExposure', 'previousUrl', 'targetUrl', 'changes')}
+
+
+def apply_queue(path, config, payload):
+    """Save the exact approved candidate and start an independent same-image worker."""
+    import devharbour_apply as apply
+    active = apply.status(path)
+    if active and active['phase'] in apply.ACTIVE:
+        raise SettingsError('An apply operation is already active.', 409)
+    review = cli.read_json(path.with_name(path.name + '.review.json'))
+    if (payload.get('token') != review['token'] or time.time() > review['expiresAt']
+            or revision(path, config) != review['revision'] or payload.get('confirmRecreate') is not True):
+        raise SettingsError('Review expired or configuration changed. Review again.', 409)
+    if review['requiresExposure'] and payload.get('allowExposure') is not True:
+        raise SettingsError('Explicit remote-access approval is required.', 409)
+    current = apply.owned_instance(path, config, require_self=True)
+    if current['Id'] != review['containerId']:
+        raise SettingsError('Reviewed container changed. Review again.', 409)
+    desired = review['config']
+    validate_deployment(desired, path)
+    if cli.desired_fingerprint(desired, cli.normalized(desired, path.parent)) != review['fingerprint']:
+        raise SettingsError('Reviewed input files changed. Review again.', 409)
+    identifier = secrets.token_hex(16)
+    now = int(time.time())
+    record = {'id': identifier, 'helperName': 'devharbour-apply-' + identifier, 'phase': 'queued',
+              'startedAt': now, 'updatedAt': now, 'message': apply.MESSAGES['queued'],
+              'containerId': current['Id'], 'targetUrl': review['targetUrl'], 'previousUrl': review['previousUrl']}
+    argv = apply.helper_arguments(path, record, desired, current)
+    cli.atomic_json(path, desired)
+    record['revision'] = revision(path, desired)
+    cli.atomic_json(apply.ledger(path), record)
+    result = cli.run(argv, capture=True, check=False)
+    if result.returncode:
+        apply.advance(path, identifier, 'failed')
+        raise SettingsError('Settings were saved, but the independent worker could not start. Use host devharbour apply.', 409)
+    return {'operation': apply.public(record)}
+
+
 def main():
     """Dispatch one bounded JSON request against the fixed mounted config path."""
     parser = argparse.ArgumentParser()
@@ -233,13 +306,23 @@ def main():
     if not isinstance(payload, dict):
         raise SettingsError('A JSON object is required.')
     operation = payload.get('operation', 'read')
-    if operation not in {'read', 'save', 'environment', 'password'}:
+    if operation not in {'read', 'save', 'environment', 'password', 'apply-review', 'apply-queue', 'apply-status'}:
         raise SettingsError('Unknown Settings operation.')
     # Fail if the mount is absent. Do not create a new private config accidentally.
     if not path.is_file():
         raise SettingsError('Managed configuration is unavailable. Recreate with the updated host CLI.', 409)
-    with cli.config_lock(path):
+    if operation == 'apply-status':
+        import devharbour_apply as apply
+        print(json.dumps({'ok': True, 'data': {'operation': apply.public(apply.status(path))}}))
+        return
+    with cli.config_lock(path, shared=operation == 'read', timeout=0.75):
         config = document(path)
+        if operation in {'apply-review', 'apply-queue'}:
+            if operation == 'apply-review' and payload.get('revision') != revision(path, config):
+                raise SettingsError('Settings changed. Reload before reviewing.', 409)
+            result = apply_review(path, config, payload) if operation == 'apply-review' else apply_queue(path, config, payload)
+            print(json.dumps({'ok': True, 'data': result}))
+            return
         if operation != 'read':
             if payload.get('revision') != revision(path, config):
                 raise SettingsError('Settings changed on the host. Reload before saving.', 409)

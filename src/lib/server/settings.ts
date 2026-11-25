@@ -17,9 +17,9 @@ export class SettingsError extends Error {
 }
 
 /** Invoke one persistence operation without forwarding secrets into command arguments. */
-export async function settingsOperation(
+export async function settingsOperation<T = SettingsSnapshot>(
 	payload: Record<string, unknown>
-): Promise<SettingsSnapshot> {
+): Promise<T> {
 	const config = process.env.DEVHARBOUR_CONFIG;
 	if (!config || !config.startsWith('/'))
 		throw new SettingsError(
@@ -77,7 +77,7 @@ export async function settingsOperation(
 				result.message,
 				[400, 409, 413].includes(result.status) ? result.status : 400
 			);
-		return result.data as SettingsSnapshot;
+		return result.data as T;
 	} finally {
 		active--;
 	}

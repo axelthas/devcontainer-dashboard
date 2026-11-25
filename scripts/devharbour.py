@@ -126,17 +126,22 @@ def atomic_json(path, value):
 
 
 @contextlib.contextmanager
-def config_lock(path):
+def config_lock(path, *, shared=False, timeout=0):
     """Serialize this config's read/modify/write and lifecycle operations."""
     private_directory(path.parent)
     lock = path.with_name(path.name + '.lock')
     fd = os.open(lock, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
     try:
         check_private(lock)
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            raise CliError('Another devharbour command is using this config') from None
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                fcntl.flock(fd, (fcntl.LOCK_SH if shared else fcntl.LOCK_EX) | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise CliError('Another devharbour command is using this config') from None
+                time.sleep(min(0.025, max(0, deadline - time.monotonic())))
         yield
     finally:
         os.close(fd)
@@ -588,6 +593,9 @@ def ensure_instance(config, settings, args, owner, fingerprint, applied):
     """Reuse owned instances and require reviewed replacement/adoption; keep volumes."""
     name = config['instanceName']
     container = inspect(name)
+    expected = getattr(args, 'expected_container', None)
+    if expected is not None and (not container or container['Id'] != expected):
+        raise CliError('Reviewed container changed before replacement; no action taken')
     if container:
         labels = container.get('Config', {}).get('Labels') or {}
         owned = labels.get(LABEL_OWNER) == owner
@@ -631,8 +639,8 @@ def ensure_instance(config, settings, args, owner, fingerprint, applied):
     run(launch_argv(config, settings, owner, fingerprint, config_path=args.config))
 
 
-def main():
-    """Validate and save desired settings; record successful application separately."""
+def main(*, apply_guard=None, progress=None, source_cache=None):
+    """Apply desired state; optional worker guard runs inside the shared CLI lock."""
     args = parser().parse_args()
     setup = args.command == 'setup'
     if setup:
@@ -647,6 +655,8 @@ def main():
     owner = hashlib.sha256(str(path).encode()).hexdigest()
     with config_lock(path):
         old, config = merge_config(path, args)
+        if apply_guard is not None:
+            args.expected_container = apply_guard(config)
         if args.command in {'status', 'logs', 'stop', 'restart', 'open'}:
             if old is None:
                 raise CliError('No saved config; run devharbour first')
@@ -718,10 +728,12 @@ def main():
         if args.command == 'build':
             run(launch_argv(config, settings, owner, '0' * 64, True))
             return
+        if progress is not None:
+            progress('image')
         if config.get('source', {}).get('mode') == 'build':
             from devharbour_source import prepare_image
             print('\nStep 7 of 7: building the DevHarbour image. Your current DevHarbour keeps running during the build.')
-            cache = Path(os.environ.get('XDG_DATA_HOME', str(Path.home() / '.local/share'))) / 'devharbour/source'
+            cache = source_cache or Path(os.environ.get('XDG_DATA_HOME', str(Path.home() / '.local/share'))) / 'devharbour/source'
             image, checkout, revision = prepare_image(config['source'], cache, settings.get('platform'), args.rebuild)
             settings['image'] = image
             config['source'].update({'checkout': str(checkout), 'revision': revision})
@@ -740,7 +752,11 @@ def main():
         try:
             execution = dict(settings)
             execution.pop('health-timeout', None)
+            if progress is not None:
+                progress('recreate')
             ensure_instance(config, execution, args, owner, fingerprint, applied)
+            if progress is not None:
+                progress('health')
             wait_ready(config['instanceName'], settings.get('health-timeout', 180), settings)
         except CliError:
             print('Configuration is saved, but the instance is not confirmed ready. Last-applied state is unchanged.', file=sys.stderr)

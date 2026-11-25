@@ -70,3 +70,23 @@ export const SECTIONS = [
 		description: 'One host configuration, shared by the CLI and this page.'
 	}
 ] as const;
+
+/** Redacted persistent operation state, readable after login to a replacement. */
+export interface ApplyOperation {
+	id: string;
+	phase: 'queued' | 'validate' | 'image' | 'recreate' | 'health' | 'succeeded' | 'failed';
+	message: string;
+	startedAt: number;
+	updatedAt: number;
+	targetUrl: string;
+	previousUrl: string | null;
+}
+export interface ApplyReview {
+	token: string;
+	revision: string;
+	expiresAt: number;
+	requiresExposure: boolean;
+	targetUrl: string;
+	previousUrl: string | null;
+	changes: { key: string; before: unknown; after: unknown }[];
+}
