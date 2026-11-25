@@ -785,3 +785,39 @@ test('build mode: an existing container name is rejected', (t) => {
 	assert.match(r.stderr, /Container already exists/);
 	assert.equal(runCall(r), undefined);
 });
+
+test('managed Settings mounts the config directory at its host path and ignores ambient override', (t) => {
+	const f = fixture(t);
+	const config = join(f.dir, 'config.json');
+	writeFileSync(config, '{}', { mode: 0o600 });
+	const r = f.run(
+		[
+			...identityFlags,
+			'--non-interactive',
+			'--password-file',
+			f.passwordFile,
+			'--workspace',
+			f.dir,
+			'--managed-name',
+			'devharbour',
+			'--managed-owner',
+			'a'.repeat(64),
+			'--managed-fingerprint',
+			'b'.repeat(64),
+			'--managed-data-volume',
+			'dashboard_data',
+			'--managed-history-volume',
+			'ddash_zsh_data',
+			'--restart-policy',
+			'always',
+			'--managed-config',
+			config
+		],
+		{ DEVHARBOUR_CONFIG: '/untrusted/ambient.json' }
+	);
+	assert.equal(r.status, 0, r.stderr);
+	const launch = r.calls.find((call) => call.args[0] === 'run').args;
+	assert.ok(launch.includes(`type=bind,source=${f.dir},target=${f.dir}`));
+	assert.ok(launch.includes('DEVHARBOUR_CONFIG=' + config));
+	assert.ok(!launch.includes('DEVHARBOUR_CONFIG=/untrusted/ambient.json'));
+});

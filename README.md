@@ -39,7 +39,7 @@ for you and installs its terminal dependencies in a private virtual environment.
 install the current branch with one command:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/axelthas/devcontainer-dashboard/feat/65-devharbour-cli/scripts/install-devharbour.sh | bash -s -- --ref feat/65-devharbour-cli
+curl -fsSL https://raw.githubusercontent.com/axelthas/devcontainer-dashboard/feat/70-devharbour-settings/scripts/install-devharbour.sh | bash -s -- --ref feat/70-devharbour-settings
 ```
 
 After this feature is merged into `main`, the standard install command is:
@@ -54,7 +54,7 @@ The feature-branch example selects that branch for both the installer and runtim
 so it does not accidentally install the older `main` runtime. For a pinned install,
 use the same full commit SHA in the installer URL and `--ref`.
 
-The install command installs the CLI only. Then start guided setup:
+The install command installs the CLI only. Then start DevHarbour on localhost:
 
 ```bash
 devharbour
@@ -89,9 +89,60 @@ Reinstallation preserves configuration and data and refuses
 to overwrite unrelated commands. A local-source install includes your current CLI
 and launcher files, so review uncommitted changes first.
 
-### Guided setup
+### Settings in the browser
 
-Run `devharbour` without arguments for a devbootstrap-style wizard. It starts
+On a supported local Linux Docker host, `devharbour` (or `devharbour start`)
+keeps the puffin banner and asks only for a login password and its repetition.
+It detects the non-root host identity and one trusted SSH agent, then binds
+127.0.0.1:3000. Missing or ambiguous prerequisites require explicit host flags
+or `devharbour setup`; the command never guesses a forwarded SSH agent.
+
+Open **Settings** in the desktop header or the mobile Host sheet. The responsive
+page edits the same private `config.json` used by the host CLI. It includes
+Access, Host and SSH, Devcontainers, AI and MCP, Bootstrap, image/source controls,
+restart policy and a redacted file preview. It shows relevant controls for
+localhost, Tailscale HTTPS and custom bindings. Tailscale origin discovery stays
+in the host wizard; the web page accepts a validated explicit origin.
+
+**Save only does not deploy.** Every field is conservatively labelled **Recreate**
+until live/per-build application is implemented. The page copies the exact host
+apply command and distinguishes saved configuration from last-applied state:
+
+```bash
+devharbour start
+devharbour stop
+devharbour restart   # restart current container, not apply saved deployment changes
+devharbour status
+devharbour logs
+devharbour open      # open the last successfully applied URL
+devharbour apply     # review and reconcile saved configuration
+devharbour setup     # advanced save-only wizard
+```
+
+Applying a changed deployment retains named volumes but loses the DevHarbour
+container's writable layer and process-local login sessions, grants and PTYs.
+Separate devcontainers normally remain running; orchestration owned by DevHarbour
+can be interrupted. Log in again after recreation. No browser self-recreate helper
+or automatic devcontainer rebuild is included in this version.
+
+The updated managed launcher mounts the private config directory at its host
+path. Existing installations need one reviewed recreation to add that mount.
+Unmanaged deployments show an explicit unavailable state rather than creating
+another configuration. Keep externally referenced inputs available at the same
+paths if you expect the Settings validator to read them. The graphical environment
+editor operates only on the managed environment file inside the config directory;
+other env-file layers remain editable as references.
+
+Password and environment edits use new private files, then publish their references
+through one atomic config write. Old input files remain for recovery; the UI never
+deletes operator files. Secret values are write-only and never returned by read
+APIs. Concurrent CLI writes and stale browser edits are rejected. Installation
+alone does not update the application image: test this draft with an image built
+from this branch, using the existing managed local-build controls if needed.
+
+### Advanced guided setup
+
+Run `devharbour setup` for the devbootstrap-style configuration wizard. It saves only; run `devharbour apply` separately to start with the reviewed settings. It starts
 with the DevHarbour puffin banner (plain text when `NO_COLOR` is set or the
 terminal has no colour). Use arrow keys to select, Space to toggle optional
 features, Enter to accept, Escape to go back, and Ctrl+C to cancel.
@@ -218,7 +269,7 @@ switch is performed. The separate legacy `devharbour build` command still create
 an isolated disposable test instance and is not the guided managed-build choice.
 
 ```bash
-devharbour                              # first-run setup, then reuse
+devharbour                              # password-only localhost startup, then reuse
 devharbour --port 3010                  # save and run; review required recreation
 devharbour configure                   # guided config-only edit
 devharbour configure --clear bootstrap # turn off a saved optional setting

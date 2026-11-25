@@ -1,6 +1,6 @@
 # DevHarbour Settings and minimal startup
 
-Status: proposed, not implemented.
+Status: initial implementation in draft PR #71. Host-CLI apply is implemented; live/per-build readers and an external apply helper remain deferred.
 
 Work record: [issue #70](https://github.com/axelthas/devcontainer-dashboard/issues/70).
 Parent: [CLI PR #66](https://github.com/axelthas/devcontainer-dashboard/pull/66).
@@ -191,6 +191,22 @@ Docker resources for replacement/adoption failures, retained-volume behavior,
 changed origin/port/password, terminated sessions and helper recovery. Validate the
 custom production server and WebSocket path, not only Vite preview.
 
-This initial document-only change executes no runtime behavior. No build, unit,
+At the initial scaffold commit (`4601576`), this document-only change executed no runtime behavior. No build, unit,
 CLI, browser or Docker acceptance checks were run for it. Mockup interactions are
 simulations, not acceptance results for the production application.
+
+## Initial implementation record
+
+The first implementation includes password-only local quickstart, lifecycle verbs,
+a shared schema, the managed directory mount, authenticated browser editing,
+redacted previews, write-only credential/environment replacement, stale-edit and
+cross-process lock handling, and host-CLI apply. The Settings page is available
+from both interfaces. All apply policies are conservatively Recreate. Tailscale
+origin discovery remains in the host wizard, with manual origin entry in the UI.
+
+Live application, per-build environment loading and a self-recreate helper are not
+implemented. Real Docker mount/replacement, native-host discovery and Tailscale
+acceptance remain outstanding; browser tests use a disposable custom server and
+mocked CLI tests do not prove Docker behavior. See the PR for exact validation
+commands, revision and results. The original mockup remains a design reference,
+not a claim that every simulated interaction is shipped.

@@ -26,14 +26,10 @@ VERSION = '0.1.0'
 ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-STRINGS = {'workspace', 'socket', 'bind-address', 'origin', 'password-file', 'host-user',
-           'host-home', 'host-name', 'ssh-agent-socket', 'ssh-known-hosts', 'gateway-host',
-           'gateway-ports', 'vscode-ssh-host', 'image', 'ai-state-volume', 'brain-token-file',
-           'tailscale-socket', 'tailscale-ports', 'platform', 'name', 'source-checkout'}
-NUMBERS = {'host-uid', 'host-gid', 'port', 'ai-port', 'brain-port', 'brain-funnel-port',
-           'tailscale-gateway-port', 'health-timeout'}
-BOOLEANS = {'bootstrap', 'no-create-workspace', 'gateway', 'brain', 'brain-funnel',
-            'tailscale-allow-wildcard-bindings'}
+from devharbour_schema import PROPERTIES, validate as validate_schema
+STRINGS = {k for k, v in PROPERTIES.items() if v['type'] == 'string'}
+NUMBERS = {k for k, v in PROPERTIES.items() if v['type'] == 'integer'}
+BOOLEANS = {k for k, v in PROPERTIES.items() if v['type'] == 'boolean'}
 LOCAL_PATHS = {'password-file', 'source-checkout'}
 HOST_PATHS = {'workspace', 'socket', 'host-home', 'ssh-agent-socket', 'ssh-known-hosts', 'tailscale-socket', 'brain-token-file'}
 REQUIRED = {'host-user', 'host-uid', 'host-gid', 'host-home', 'ssh-agent-socket', 'password-file'}
@@ -58,7 +54,7 @@ class SafeParser(argparse.ArgumentParser):
 def parser():
     """Build one grammar for interactive, unattended and config-only use."""
     result = SafeParser(description=__doc__.split('\n')[0], allow_abbrev=False)
-    result.add_argument('command', nargs='?', default='run', choices=['run', 'configure', 'status', 'logs', 'stop', 'build'])
+    result.add_argument('command', nargs='?', default='run', choices=['run', 'start', 'configure', 'setup', 'apply', 'restart', 'open', 'status', 'logs', 'stop', 'build'])
     installed = (ROOT / 'VERSION').read_text().strip() if (ROOT / 'VERSION').is_file() else 'checkout'
     result.add_argument('--version', action='version', version='DevHarbour ' + VERSION + ' (' + installed + ')')
     result.add_argument('--config', default=str(Path(os.environ.get('XDG_CONFIG_HOME', str(Path.home() / '.config'))) / 'devharbour/config.json'))
@@ -173,6 +169,10 @@ def validate_types(settings):
         valid = (key in STRINGS and isinstance(value, str) and bool(value)) or (key in NUMBERS and type(value) is int) or (key in BOOLEANS and type(value) is bool) or (key == 'env-file' and isinstance(value, list) and all(isinstance(v, str) and v for v in value))
         if not valid:
             raise CliError('Unknown setting or invalid type: ' + str(key))
+        try:
+            validate_schema(value, PROPERTIES[key], key)
+        except ValueError:
+            raise CliError('Invalid setting: ' + key) from None
         strings = value if isinstance(value, list) else [value] if isinstance(value, str) else []
         if any(any(ord(char) < 32 for char in item) for item in strings):
             raise CliError('Control characters are not allowed in ' + key)
@@ -417,7 +417,7 @@ def resource_names(config):
     return ('dashboard_data', 'ddash_zsh_data', 'dashboard_ai') if name in {'devharbour', 'devcontainer-dashboard'} else (name + '-data', name + '-history', name + '-ai')
 
 
-def launch_argv(config, settings, owner, fingerprint, build=False):
+def launch_argv(config, settings, owner, fingerprint, build=False, config_path=None):
     """Translate typed data to the shared launcher's literal argv grammar."""
     data, history, ai = resource_names(config)
     arguments = ['bash', str(ROOT / 'run-dashboard.sh'), '--non-interactive']
@@ -439,6 +439,11 @@ def launch_argv(config, settings, owner, fingerprint, build=False):
         arguments[1] = str(Path(checkout) / 'scripts/run-dashboard.sh')
         arguments.append('--build')
     else:
+        if config_path is not None:
+            path = Path(config_path).absolute()
+            if path.parent.resolve() != path.parent or any(c in str(path) for c in ',\n\r'):
+                raise CliError('Managed config path must be canonical and contain no commas or line breaks')
+            arguments.extend(['--managed-config', str(path)])
         arguments.extend(['--managed-name', config['instanceName'], '--managed-owner', owner,
                           '--managed-fingerprint', fingerprint, '--managed-data-volume', data,
                           '--managed-history-volume', history, '--restart-policy', config['restartPolicy']])
@@ -468,7 +473,7 @@ def file_digest(path):
 
 def desired_fingerprint(config, settings):
     """Track deployment settings and local secret/env changes, not runtime state."""
-    value = {'config': config, 'resolved': settings, 'files': {}}
+    value = {'config': config, 'resolved': settings, 'files': {}, 'settingsMountVersion': 1}
     for path in [settings.get('password-file'), *settings.get('env-file', [])]:
         if path:
             value['files'][path] = file_digest(path)
@@ -536,6 +541,26 @@ def manage(args, config, owner):
     name = config['instanceName']
     if args.command == 'status':
         print(name + ': ' + container['State']['Status'])
+        try:
+            settings = normalized(config, Path(args.config).absolute().parent)
+            pending = (container.get('Config', {}).get('Labels') or {}).get(LABEL_FINGERPRINT) != desired_fingerprint(config, settings)
+            print('Saved settings:', 'pending apply' if pending else 'match this deployment')
+        except OSError:
+            print('Saved settings: cannot compare input files; inspect them on the host')
+    elif args.command == 'open':
+        from devharbour_quickstart import open_browser
+        state_path = Path(args.config).absolute().with_name(Path(args.config).name + '.state.json')
+        state = read_json(state_path) if state_path.exists() else {}
+        if not isinstance(state, dict) or not isinstance(state.get('deployment'), dict):
+            raise CliError('No successfully applied URL is recorded. Use devharbour status and inspect the deployment.')
+        open_browser(state['deployment'])
+    elif args.command == 'restart':
+        confirm('Restart this exact instance? Its login sessions and DevHarbour-owned processes end.', args)
+        current = inspect(name)
+        if not current or current['Id'] != container['Id']:
+            raise CliError('Container changed during review; retry')
+        run(['docker', 'restart', container['Id']])
+        print('Restarted the existing container. Saved deployment changes were not applied.')
     elif args.command == 'logs':
         run(['docker', 'logs', '--tail', '200', name])
     else:
@@ -603,12 +628,17 @@ def ensure_instance(config, settings, args, owner, fingerprint, applied):
         validate_volume_use(config, settings, args, None)
         if args.adopt and not args.replace:
             confirm('Reuse these retained volumes for this config?', args)
-    run(launch_argv(config, settings, owner, fingerprint))
+    run(launch_argv(config, settings, owner, fingerprint, config_path=args.config))
 
 
 def main():
     """Validate and save desired settings; record successful application separately."""
     args = parser().parse_args()
+    setup = args.command == 'setup'
+    if setup:
+        args.command = 'configure'
+    elif args.command == 'start':
+        args.command = 'run'
     if args.build_mode:
         args.command = 'build'
     if sys.platform != 'linux' or sys.version_info < (3, 9):
@@ -617,7 +647,7 @@ def main():
     owner = hashlib.sha256(str(path).encode()).hexdigest()
     with config_lock(path):
         old, config = merge_config(path, args)
-        if args.command in {'status', 'logs', 'stop'}:
+        if args.command in {'status', 'logs', 'stop', 'restart', 'open'}:
             if old is None:
                 raise CliError('No saved config; run devharbour first')
             if config != old or args.replace or args.adopt or args.clear or args.rebuild:
@@ -632,7 +662,18 @@ def main():
             config['settings']['env-file'] = [str(env_default)]
         if args.command != 'configure':
             run(['docker', 'info'], capture=True)
-        pending = wizard(config, args)
+        if args.command in {'run', 'apply'} and not setup:
+            from devharbour_banner import show
+            show(sys.stdout, VERSION)
+            if old is None and not REQUIRED <= config['settings'].keys():
+                from devharbour_quickstart import quickstart
+                pending = quickstart(sys.modules[__name__], config, args)
+            else:
+                if not REQUIRED <= config['settings'].keys():
+                    raise CliError('Saved config is incomplete. Use devharbour setup.')
+                pending = None
+        else:
+            pending = wizard(config, args)
         plan = getattr(args, 'env_plan', None)
         if plan:
             plan_path = Path(plan['path'])
@@ -648,7 +689,7 @@ def main():
         validation = dict(settings)
         if args.command != 'build':
             validation.pop('health-timeout', None)
-        run(launch_argv(config, validation, owner, '0' * 64, args.command == 'build') + ['--validate-only'])
+        run(launch_argv(config, validation, owner, '0' * 64, args.command == 'build', None if args.command == 'build' else path) + ['--validate-only'])
         for key in ['host-uid', 'host-gid']:
             if not 1 <= settings[key] <= 2147483647:
                 raise CliError(key + ' must be a positive non-root ID')
@@ -657,7 +698,11 @@ def main():
             if not Path(settings['password-file']).read_bytes().rstrip(b'\n'):
                 raise CliError('Password file is empty')
         print_summary(config, settings, path)
-        old_exposure = exposed(normalized(old, path.parent)) if old else {}
+        approval_state_path = path.with_name(path.name + '.state.json')
+        approval_state = read_json(approval_state_path) if approval_state_path.exists() else {}
+        if not isinstance(approval_state, dict) or not isinstance(approval_state.get('deployment', {}), dict):
+            raise CliError('Invalid last-applied state; review it on the host')
+        old_exposure = exposed(approval_state.get('deployment', {})) if args.command in {'run', 'apply'} else exposed(normalized(old, path.parent)) if old else {}
         if any(old_exposure.get(key) != value for key, value in exposed(settings).items()) and not args.allow_exposure:
             confirm('Approve the displayed remote-access/host-network settings?', args)
         if not args.non_interactive and not getattr(args, 'plan_approved', False) and (old is None or args.command == 'configure' or pending is not None):
@@ -684,6 +729,9 @@ def main():
             atomic_json(path, config)
         elif getattr(args, 'plan_approved', False):
             print('\nStep 7 of 7: starting DevHarbour and checking that it is ready.')
+        if config.get('source', {}).get('mode') != 'build':
+            if run(['docker', 'image', 'inspect', settings['image']], capture=True, check=False).returncode:
+                run(['docker', 'pull', settings['image']])
         fingerprint = desired_fingerprint(config, settings)
         state_path = path.with_name(path.name + '.state.json')
         applied = read_json(state_path) if state_path.exists() or state_path.is_symlink() else None
@@ -700,7 +748,7 @@ def main():
         atomic_json(state_path, {'schemaVersion': 1, 'fingerprint': fingerprint, 'containerId': inspect(config['instanceName'])['Id'], 'appliedAt': int(time.time()), 'deployment': {'instanceName': config['instanceName'], 'restartPolicy': config['restartPolicy'], **execution}, 'inputDigests': {source: file_digest(source) for source in [settings['password-file'], *settings.get('env-file', [])]}})
         address = settings.get('origin') or 'http://' + ('[::1]' if settings['bind-address'] == '::1' else '127.0.0.1' if settings['bind-address'] in {'0.0.0.0', '::'} else settings['bind-address']) + ':' + str(settings['port'])
         print('Ready:', address)
-        print('Use devharbour --config', str(path), 'status | logs | stop')
+        print('Use devharbour --config', str(path), 'start | stop | restart | status | logs | open | apply')
 
 
 if __name__ == '__main__':

@@ -532,6 +532,10 @@
 				</div>
 
 				<div class="flex items-center gap-4">
+					<a
+						href={resolve('/settings')}
+						class="text-sm text-[#5e81ac] hover:underline dark:text-[#88c0d0]">Settings</a
+					>
 					<!-- Quick stats -->
 					<div class="flex gap-3 text-sm font-medium">
 						<div

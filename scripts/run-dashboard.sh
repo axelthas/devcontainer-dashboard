@@ -21,6 +21,7 @@ Required options (both modes):
   --ssh-agent-socket PATH  Existing Docker-host SSH agent socket.
 Other options:
   --validate-only          Validate explicit settings without prompts, secrets or Docker.
+  --managed-config PATH    Private host config file; mount its directory read-write.
   --managed-name NAME      Retained registry instance (used by devharbour).
   --managed-owner ID       Config ownership label; required with --managed-name.
   --managed-fingerprint ID Desired-settings label; required with --managed-name.
@@ -83,6 +84,7 @@ HELP
 # Parse flags and reject mode conflicts before reading secrets or touching Docker.
 parse_arguments() {
   VALIDATE_ONLY=0 MANAGED_NAME='' MANAGED_OWNER='' MANAGED_FINGERPRINT=''
+  MANAGED_CONFIG=''
   MANAGED_DATA_VOLUME='' MANAGED_HISTORY_VOLUME='' RESTART_POLICY=''
   MODE=registry SHOW_HELP=0
   WORKSPACE='' SOCKET='' PORT='' BIND_ADDRESS='' ORIGIN=''
@@ -99,9 +101,10 @@ parse_arguments() {
   while (( $# )); do
     case "$1" in
       --help|-h) SHOW_HELP=1; return ;;
-      --managed-name|--managed-owner|--managed-fingerprint|--managed-data-volume|--managed-history-volume|--restart-policy|--workspace|--socket|--port|--ai-port|--ai-state-volume|--bind-address|--origin|--password|--password-file|--env-file|--host-user|--host-uid|--host-gid|--host-home|--host-name|--ssh-agent-socket|--gateway-host|--gateway-ports|--vscode-ssh-host|--image|--platform|--name|--health-timeout|--tailscale-socket|--tailscale-ports|--tailscale-gateway-port|--brain-token-file|--brain-port|--brain-funnel-port|--ssh-known-hosts)
+      --managed-config|--managed-name|--managed-owner|--managed-fingerprint|--managed-data-volume|--managed-history-volume|--restart-policy|--workspace|--socket|--port|--ai-port|--ai-state-volume|--bind-address|--origin|--password|--password-file|--env-file|--host-user|--host-uid|--host-gid|--host-home|--host-name|--ssh-agent-socket|--gateway-host|--gateway-ports|--vscode-ssh-host|--image|--platform|--name|--health-timeout|--tailscale-socket|--tailscale-ports|--tailscale-gateway-port|--brain-token-file|--brain-port|--brain-funnel-port|--ssh-known-hosts)
         [[ $# -ge 2 && -n "$2" ]] || fail "$1 requires a value"
         case "$1" in
+          --managed-config) MANAGED_CONFIG=$2 ;;
           --managed-name) MANAGED_NAME=$2 ;;
           --managed-owner) MANAGED_OWNER=$2 ;;
           --managed-fingerprint) MANAGED_FINGERPRINT=$2 ;;
@@ -341,9 +344,12 @@ validate_options() {
       [[ "$value" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$ ]] || fail 'Invalid managed resource name'
     done
     [[ "$MANAGED_OWNER" =~ ^[a-f0-9]{64}$ && "$MANAGED_FINGERPRINT" =~ ^[a-f0-9]{64}$ ]] || fail 'Managed labels must be SHA-256 values'
+    if [[ -n "$MANAGED_CONFIG" ]]; then
+      [[ "$MANAGED_CONFIG" == /* && "$MANAGED_CONFIG" != *,* && "$MANAGED_CONFIG" != *$'\n'* && "$MANAGED_CONFIG" != *$'\r'* ]] || fail 'Invalid managed config path'
+    fi
     case "$RESTART_POLICY" in always|unless-stopped|on-failure|no) ;; *) fail 'Invalid managed restart policy' ;; esac
   else
-    [[ -z "$MANAGED_OWNER$MANAGED_FINGERPRINT$MANAGED_DATA_VOLUME$MANAGED_HISTORY_VOLUME$RESTART_POLICY" ]] || fail 'Managed options require --managed-name'
+    [[ -z "$MANAGED_CONFIG$MANAGED_OWNER$MANAGED_FINGERPRINT$MANAGED_DATA_VOLUME$MANAGED_HISTORY_VOLUME$RESTART_POLICY" ]] || fail 'Managed options require --managed-name'
   fi
 }
 
@@ -423,6 +429,12 @@ prepare_arguments() {
     --mount "type=volume,source=$AI_STATE_VOLUME,target=/dashboard-ai"
     --mount "type=bind,source=$WORKSPACE,target=$WORKSPACE"
     --mount "type=bind,source=$SOCKET,target=/var/run/docker.sock")
+  # Mount the directory at its host path so atomic config renames remain visible.
+  # An explicit empty value prevents env files from enabling Settings accidentally.
+  ARGS+=(--env "DEVHARBOUR_CONFIG=$MANAGED_CONFIG")
+  if [[ -n "$MANAGED_CONFIG" ]]; then
+    ARGS+=(--mount "type=bind,source=${MANAGED_CONFIG%/*},target=${MANAGED_CONFIG%/*}")
+  fi
   # Managed registry publication always targets container port 3000.
   # Tailscale host-network mode appends its explicit PORT override below.
   if [[ -n "$MANAGED_NAME" ]]; then ARGS+=(--env PORT=3000); fi

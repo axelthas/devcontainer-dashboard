@@ -316,7 +316,11 @@ the CLI version and installed source identity; the CLI does not upgrade itself.
 ### Commands and precedence
 
 ```bash
-devharbour [run] [configuration options]
+devharbour [run|start] [configuration options]
+devharbour setup [configuration options]
+devharbour apply [configuration options]
+devharbour restart
+devharbour open
 devharbour configure [configuration options]
 devharbour status
 devharbour logs
@@ -327,7 +331,7 @@ devharbour --version
 ```
 
 `run` is the default. It merges explicit flags, validates the result, saves JSON,
-and ensures the managed instance is ready. With no saved settings it guides setup.
+and ensures the managed instance is ready. With no saved settings it uses minimal local startup and asks only for a password when host prerequisites are unambiguous. Use `setup` or `configure` for the full wizard.
 With complete saved settings it asks no repeated setup questions. `configure`
 uses the same validation and saving path but makes no Docker calls. It asks about
 advanced settings when interactive. Supply arguments to change required values
@@ -361,7 +365,7 @@ image is pulled on creation; existing image tags are not pulled again implicitly
 
 ### Menu-based setup and source builds
 
-Interactive setup uses the same Questionary/prompt-toolkit approach as devbootstrap,
+Advanced `setup` / `configure` uses the same Questionary/prompt-toolkit approach as devbootstrap,
 not a sequence of raw flag questions. Arrow keys choose, Space toggles checkboxes,
 Enter accepts, Escape goes back, and Ctrl+C cancels. The wizard starts with a
 coloured puffin banner (`devharbour_banner.py`), with a plain fallback for
@@ -705,3 +709,49 @@ operator's agent or keys. Discovery tests also use disposable Unix sockets with
 controlled peer-provider metadata. These do not prove real Docker mounts, SSH authentication,
 image compatibility, production WebSockets or restart behavior. Real-Docker
 acceptance must use disposable resources, never existing operator data.
+
+### Browser Settings integration
+
+The managed launcher accepts internal `--managed-config PATH`. It mounts the
+containing private directory read-write at the same absolute path and sets
+`DEVHARBOUR_CONFIG` explicitly, overriding any env-file or inherited value.
+Do not bind a single config file: atomic renames must remain visible. The
+configuration ownership label remains based on the canonical host config path.
+Changing deployment fingerprints requires one reviewed recreation to add the mount.
+Direct and isolated launches leave Settings disabled unless explicitly configured.
+
+The production image copies the Python Settings bridge and shared schema. The
+Node settings API invokes the fixed script using bounded stdin and literal argv.
+The bridge shares the host CLI flock, schema and no-Docker launcher validator.
+No additional Python packages are needed for browser editing. CLI menu dependencies
+stay in the installer's private virtual environment.
+
+`GET /api/settings` returns redacted desired configuration, schema metadata, an
+editor revision and pending-apply status. Same-origin authenticated POST operations
+save config, replace a password, or update the managed environment file. A stale
+revision is refused. APIs never return password/token/environment-secret values.
+Unknown environment variables are treated as secret. Input edits use copy-on-write
+files and an atomic config-reference update; prior files remain for recovery.
+Environment editing removes duplicate assignments of an updated key so Docker's
+last-value precedence cannot shadow the requested value.
+
+All Settings apply badges currently say Recreate. Live reload and per-build env
+loading are future work. `apply` compares exposure with last-applied deployment,
+not only the already-saved JSON, then uses the established exact-container
+replacement/adoption review. `restart` affects only the existing owned instance;
+it does not reconcile settings. `open` uses the last successfully applied URL.
+
+Validation commands for this feature:
+
+```bash
+npm run test:settings
+npm run check
+npm run build
+npm run build:server
+npm run test:settings:production
+```
+
+The Settings regression suite uses disposable private files and no Docker daemon.
+The production acceptance script starts the built custom server on a free port,
+uses a disposable config and Playwright Chromium, and stops only its own child.
+Neither proves real Docker mount/recreation, Tailscale or native-host discovery.

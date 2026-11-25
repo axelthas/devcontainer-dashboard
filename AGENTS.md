@@ -15,6 +15,15 @@ configuration keys, storage keys and the MCP server identifier compatible.
 
 A SvelteKit web dashboard for managing and monitoring local Docker containers. Displays devcontainers and sandbox services with their exposed ports, and provides start/stop/restart controls with an integrated terminal.
 
+## Managed Settings
+
+`/settings` edits the same host JSON as the Python CLI through
+`src/lib/server/settings.ts` and `scripts/devharbour_settings.py`. The fixed
+bridge owns the shared schema, flock and atomic writes. Keep secrets out of read
+responses and preserve stale-editor checks. Save is desired state only; all
+current apply policies are Recreate through host `devharbour apply`. Do not add
+self-removal from the web process. See the Settings feature specification.
+
 ## Build & Test
 
 ```bash

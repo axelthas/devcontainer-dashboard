@@ -23,7 +23,7 @@ import urllib.request
 import subprocess
 import venv
 
-FILES = ('devharbour.py', 'devharbour_ui.py', 'devharbour_source.py', 'devharbour_env.py', 'devharbour_banner.py', 'requirements-cli.txt', 'run-dashboard.sh')
+FILES = ('devharbour.schema.json', 'devharbour_schema.py', 'devharbour_quickstart.py', 'devharbour_settings.py', 'devharbour.py', 'devharbour_ui.py', 'devharbour_source.py', 'devharbour_env.py', 'devharbour_banner.py', 'requirements-cli.txt', 'run-dashboard.sh')
 MARKER = '# devharbour-managed-command-v1'
 
 
@@ -172,7 +172,7 @@ def install(args):
     print('Source checkout:', metadata.get('checkout', 'cloned on demand if a local build is selected'))
     if env_path:
         print('Devcontainer environment:', env_path, '(created with defaults and a generated OPENCODE_PASSWORD)' if env_created else '(existing file kept unchanged)')
-    print('Run devharbour for the menu-based setup. Existing configuration and containers were not changed.')
+    print('Run devharbour for localhost startup; use devharbour setup for advanced settings. Existing configuration and containers were not changed.')
 
 
 def main():
