@@ -1,1 +1,1887 @@
-PLACEHOLDER
+<!doctype html>
+<!--
+  DevHarbour design mockup: extend a Brain grant (GitHub issue #67).
+
+  This file is a self-contained static mockup. It does not load the application, any
+  network resource or any font. Open it directly in a browser.
+
+  URL parameters (for review links and screenshots):
+    view   = desktop | mobile                (default desktop)
+    state  = ending | request | extended     (default ending)
+    theme  = dark | light                    (default dark)
+    menu   = 1                               open the desktop Extend menu
+    notes  = 0                               hide the numbered design notes
+-->
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>DevHarbour mockup · Extend a Brain grant (#67)</title>
+		<style>
+			/* Nord palette, mapped to the jobs that the dashboard already uses. */
+			:root {
+				--n0: #2e3440;
+				--n1: #3b4252;
+				--n2: #434c5e;
+				--n3: #4c566a;
+				--s0: #d8dee9;
+				--s1: #e5e9f0;
+				--s2: #eceff4;
+				--f1: #88c0d0;
+				--f3: #5e81ac;
+				--red: #bf616a;
+				--orange: #d08770;
+				--yellow: #ebcb8b;
+				--green: #a3be8c;
+				--purple: #b48ead;
+				--sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Segoe UI', Roboto,
+					sans-serif;
+				--mono: ui-monospace, 'JetBrains Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
+			}
+			body {
+				margin: 0;
+				font-family: var(--sans);
+				font-size: 14px;
+				background: var(--page);
+				color: var(--ink);
+			}
+			body.dark {
+				--page: #262b35;
+				--bg: var(--n0);
+				--surface: var(--n1);
+				--bar: var(--n1);
+				--raised: var(--n2);
+				--edge: var(--n3);
+				--ink: var(--s2);
+				--dim: rgb(216 222 233 / 0.68);
+				--brain-ink: var(--purple);
+				--warn-ink: var(--yellow);
+				--warn-bg: rgb(235 203 139 / 0.14);
+				--run-ink: var(--yellow);
+				--frost: var(--f1);
+				--on-frost: var(--n0);
+				--run: var(--green);
+				--m-screen: #2e3440;
+				--m-surface: #3b4252;
+				--m-raised: #434c5e;
+				--m-edge: #4c566a;
+				--m-ink: #eceff4;
+				--m-dim: #c5ccd8;
+				--m-frost: #88c0d0;
+				--m-on-frost: #2e3440;
+				--m-run: #a3be8c;
+				--m-stop: #d57780;
+				--m-warn: #ebcb8b;
+				--m-brain: #b48ead;
+			}
+			body.light {
+				--page: #dfe4ec;
+				--bg: var(--s2);
+				--surface: #ffffff;
+				--bar: var(--s1);
+				--raised: var(--s1);
+				--edge: var(--s0);
+				--ink: var(--n0);
+				--dim: var(--n3);
+				--brain-ink: #86587f;
+				--warn-ink: #9a6b00;
+				--warn-bg: rgb(235 203 139 / 0.28);
+				--run-ink: var(--orange);
+				--frost: var(--f3);
+				--on-frost: #ffffff;
+				--run: #4f7d3f;
+				--m-screen: #eceff4;
+				--m-surface: #ffffff;
+				--m-raised: #e5e9f0;
+				--m-edge: #d8dee9;
+				--m-ink: #2e3440;
+				--m-dim: #4c566a;
+				--m-frost: #5e81ac;
+				--m-on-frost: #ffffff;
+				--m-run: #4f7d3f;
+				--m-stop: #b2434e;
+				--m-warn: #9a6b00;
+				--m-brain: #86587f;
+			}
+			button {
+				font: inherit;
+				color: inherit;
+				cursor: pointer;
+			}
+			svg.i {
+				width: 1em;
+				height: 1em;
+				flex: none;
+				fill: none;
+				stroke: currentColor;
+				stroke-width: 2;
+				stroke-linecap: round;
+				stroke-linejoin: round;
+			}
+			.mono {
+				font-family: var(--mono);
+			}
+
+			/* ---------- Mockup chrome (not part of the design) ---------- */
+			.mockbar {
+				display: flex;
+				flex-wrap: wrap;
+				align-items: center;
+				gap: 12px 16px;
+				padding: 14px 24px;
+				border-bottom: 1px solid var(--edge);
+			}
+			.mockbar h1 {
+				margin: 0;
+				font-size: 16px;
+				font-weight: 650;
+			}
+			.mockbar .sub {
+				color: var(--dim);
+			}
+			.seg {
+				display: inline-flex;
+				border: 1px solid var(--edge);
+				border-radius: 8px;
+				padding: 2px;
+				gap: 2px;
+			}
+			.seg button {
+				border: 0;
+				background: none;
+				padding: 4px 10px;
+				border-radius: 6px;
+				color: var(--dim);
+				font-size: 14px;
+			}
+			.seg button[aria-pressed='true'] {
+				background: var(--surface);
+				color: var(--ink);
+				box-shadow: 0 1px 2px rgb(0 0 0 / 0.15);
+			}
+			.spacer {
+				flex: 1;
+			}
+			#stage {
+				padding: 24px;
+				overflow-x: auto;
+			}
+			.pin {
+				display: inline-flex;
+				align-items: center;
+				justify-content: center;
+				width: 20px;
+				height: 20px;
+				border-radius: 50%;
+				background: var(--yellow);
+				color: var(--n0);
+				font-size: 12px;
+				font-weight: 700;
+				box-shadow: 0 0 0 3px rgb(235 203 139 / 0.3);
+				flex: none;
+				cursor: help;
+			}
+			body.nonotes .pin,
+			body.nonotes #notes {
+				display: none;
+			}
+			#notes {
+				max-width: 1440px;
+				margin: 0 24px 40px;
+				display: grid;
+				grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+				gap: 12px 28px;
+			}
+			#notes h2 {
+				grid-column: 1 / -1;
+				margin: 8px 0 0;
+				font-size: 15px;
+			}
+			#notes .note {
+				display: flex;
+				gap: 10px;
+				line-height: 1.45;
+			}
+			#notes .note p {
+				margin: 0;
+			}
+			#notes .note b {
+				display: block;
+			}
+
+			/* ---------- Desktop ---------- */
+			.desk {
+				width: 1440px;
+				height: 860px;
+				display: grid;
+				grid-template-columns: 1fr 660px;
+				border: 1px solid var(--edge);
+				border-radius: 12px;
+				overflow: hidden;
+				background: var(--bg);
+				box-shadow: 0 20px 60px rgb(0 0 0 / 0.25);
+			}
+			.dash {
+				min-width: 0;
+				border-right: 1px solid var(--edge);
+				display: flex;
+				flex-direction: column;
+			}
+			.dash-top {
+				display: flex;
+				align-items: center;
+				gap: 10px;
+				padding: 14px 20px;
+				border-bottom: 1px solid var(--edge);
+				background: var(--bar);
+			}
+			.logo {
+				font-weight: 750;
+				font-size: 16px;
+			}
+			.logo span {
+				color: var(--frost);
+			}
+			.host {
+				color: var(--dim);
+			}
+			.brain-toggle {
+				margin-left: auto;
+				display: inline-flex;
+				align-items: center;
+				gap: 6px;
+				border: 1px solid var(--purple);
+				background: rgb(180 142 173 / 0.18);
+				color: var(--brain-ink);
+				border-radius: 8px;
+				padding: 5px 10px;
+				font-weight: 600;
+			}
+			.dash-body {
+				padding: 18px 20px;
+				display: grid;
+				gap: 10px;
+				align-content: start;
+			}
+			.dash-h {
+				font-weight: 650;
+				color: var(--dim);
+				text-transform: uppercase;
+				letter-spacing: 0.05em;
+				margin: 6px 0 2px;
+			}
+			.crow {
+				display: grid;
+				grid-template-columns: 10px minmax(0, 1fr) auto;
+				align-items: center;
+				gap: 12px;
+				padding: 12px 14px;
+				background: var(--surface);
+				border: 1px solid var(--edge);
+				border-radius: 10px;
+			}
+			.crow.hover {
+				box-shadow: inset 3px 0 0 var(--purple);
+				background-color: rgb(180 142 173 / 0.12);
+			}
+			.dot {
+				width: 10px;
+				height: 10px;
+				border-radius: 50%;
+				background: var(--run);
+			}
+			.dot.off {
+				background: var(--n3);
+			}
+			.cname {
+				font-weight: 600;
+			}
+			.cmeta {
+				color: var(--dim);
+				white-space: nowrap;
+				overflow: hidden;
+				text-overflow: ellipsis;
+			}
+			.cact {
+				display: flex;
+				align-items: center;
+				gap: 8px;
+			}
+			.chip {
+				display: inline-flex;
+				align-items: center;
+				gap: 6px;
+				border-radius: 8px;
+				padding: 4px 8px;
+				font-size: 14px;
+				font-weight: 600;
+				white-space: nowrap;
+				border: 0;
+			}
+			.chip.brain {
+				background: var(--purple);
+				color: var(--n0);
+			}
+			.chip.brain.ending {
+				background: var(--yellow);
+				color: var(--n0);
+				animation: breathe 2.4s ease-in-out infinite;
+			}
+			.chip.grant {
+				background: none;
+				border: 1px dashed rgb(180 142 173 / 0.6);
+				color: var(--brain-ink);
+			}
+			.ghost {
+				border: 1px solid var(--edge);
+				background: none;
+				border-radius: 8px;
+				padding: 4px 8px;
+				color: var(--dim);
+				font-size: 14px;
+			}
+			@keyframes breathe {
+				0%,
+				100% {
+					box-shadow: 0 0 0 0 rgb(235 203 139 / 0);
+				}
+				50% {
+					box-shadow: 0 0 0 4px rgb(235 203 139 / 0.35);
+				}
+			}
+
+			.pane {
+				min-width: 0;
+				display: flex;
+				flex-direction: column;
+				background: var(--bg);
+			}
+			.pane-top {
+				display: flex;
+				align-items: center;
+				flex-wrap: wrap;
+				gap: 8px;
+				padding: 12px 20px;
+				border-bottom: 1px solid var(--edge);
+				background: var(--bar);
+			}
+			.pane-top h2 {
+				margin: 0;
+				display: flex;
+				gap: 8px;
+				align-items: center;
+				font-size: 16px;
+			}
+			.pane-top h2 svg {
+				color: var(--purple);
+				font-size: 18px;
+			}
+			.pill {
+				display: inline-flex;
+				align-items: center;
+				gap: 6px;
+				border-radius: 999px;
+				padding: 2px 8px;
+				font-size: 14px;
+				font-weight: 550;
+			}
+			.pill.run {
+				background: rgb(235 203 139 / 0.2);
+				color: var(--run-ink);
+			}
+			.pill.warn {
+				background: var(--warn-bg);
+				color: var(--warn-ink);
+				border: 1px solid rgb(235 203 139 / 0.5);
+			}
+			.pane-tools {
+				margin-left: auto;
+				display: flex;
+				align-items: center;
+				gap: 6px;
+				color: var(--dim);
+			}
+			.pane-tools .x {
+				border: 0;
+				background: none;
+				padding: 4px;
+				color: var(--dim);
+				font-size: 16px;
+				display: inline-flex;
+			}
+			.revoke {
+				border: 0;
+				background: none;
+				color: var(--red);
+				font-weight: 600;
+				font-size: 14px;
+				padding: 4px 8px;
+				border-radius: 8px;
+				display: inline-flex;
+				gap: 4px;
+				align-items: center;
+			}
+			.pane-body {
+				flex: 1;
+				min-height: 0;
+				overflow-y: auto;
+				padding: 16px 20px 32px;
+				display: grid;
+				gap: 16px;
+				align-content: start;
+			}
+			.filters {
+				display: flex;
+				gap: 4px;
+			}
+			.filters button {
+				border: 0;
+				background: none;
+				border-radius: 999px;
+				padding: 4px 12px;
+				font-size: 14px;
+				color: var(--dim);
+			}
+			.filters button.on {
+				background: var(--surface);
+				color: var(--ink);
+				box-shadow: 0 1px 2px rgb(0 0 0 / 0.15);
+			}
+			.group {
+				position: relative;
+				border: 1px solid var(--edge);
+				border-radius: 12px;
+				background: var(--surface);
+				box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
+				min-width: 0;
+			}
+			.group.ending {
+				border-color: rgb(235 203 139 / 0.7);
+			}
+			.group.ended {
+				opacity: 0.8;
+			}
+			.ghead {
+				display: flex;
+				gap: 12px;
+				padding: 12px 16px;
+				border-bottom: 1px solid var(--edge);
+				align-items: flex-start;
+			}
+			.ghead .chev {
+				color: var(--dim);
+				margin-top: 3px;
+			}
+			.gmain {
+				min-width: 0;
+				flex: 1;
+			}
+			.gtitle {
+				display: flex;
+				flex-wrap: wrap;
+				align-items: baseline;
+				gap: 4px 8px;
+			}
+			.gtitle h3 {
+				margin: 0;
+				font-size: 15px;
+			}
+			.gsub {
+				color: var(--dim);
+			}
+			.intent {
+				margin: 4px 0 0;
+				color: var(--brain-ink);
+			}
+			.intent span {
+				color: var(--dim);
+			}
+			.gstat {
+				margin-top: 6px;
+				display: flex;
+				flex-wrap: wrap;
+				align-items: center;
+				gap: 6px 8px;
+				color: var(--dim);
+			}
+			.bar {
+				width: 64px;
+				height: 4px;
+				border-radius: 999px;
+				background: var(--edge);
+				overflow: hidden;
+			}
+			.bar i {
+				display: block;
+				height: 100%;
+				border-radius: 999px;
+				background: var(--purple);
+				transition:
+					width 700ms cubic-bezier(0.2, 0.8, 0.2, 1),
+					background-color 300ms;
+			}
+			.ending .bar i {
+				background: var(--yellow);
+			}
+			.left.warn {
+				color: var(--warn-ink);
+				font-weight: 600;
+			}
+			.gacts {
+				display: flex;
+				align-items: center;
+				gap: 6px;
+				position: relative;
+				flex: none;
+			}
+			.extend {
+				display: inline-flex;
+				align-items: center;
+				gap: 6px;
+				border-radius: 8px;
+				padding: 4px 10px;
+				font-size: 14px;
+				font-weight: 600;
+				border: 1px solid var(--edge);
+				background: none;
+				color: var(--ink);
+			}
+			.extend.primary {
+				background: var(--frost);
+				border-color: var(--frost);
+				color: var(--on-frost);
+			}
+			.warnband {
+				display: flex;
+				align-items: center;
+				gap: 10px;
+				padding: 10px 16px;
+				background: var(--warn-bg);
+				border-bottom: 1px solid rgb(235 203 139 / 0.45);
+			}
+			.warnband > svg {
+				color: var(--warn-ink);
+				font-size: 16px;
+			}
+			.warnband.ended {
+				background: rgb(191 97 106 / 0.12);
+				border-color: rgb(191 97 106 / 0.4);
+			}
+			.warnband.ended > svg {
+				color: var(--red);
+			}
+			.warnband .t {
+				flex: 1;
+				min-width: 0;
+			}
+			.warnband b {
+				color: var(--warn-ink);
+				font-variant-numeric: tabular-nums;
+			}
+			.quick {
+				display: flex;
+				gap: 6px;
+			}
+			.quick button {
+				border: 1px solid rgb(235 203 139 / 0.6);
+				background: none;
+				color: var(--warn-ink);
+				border-radius: 8px;
+				padding: 3px 9px;
+				font-size: 14px;
+				font-weight: 600;
+			}
+			.menu {
+				position: absolute;
+				right: 0;
+				top: calc(100% + 6px);
+				z-index: 20;
+				width: 330px;
+				border: 1px solid var(--edge);
+				border-radius: 12px;
+				background: var(--surface);
+				box-shadow: 0 18px 40px rgb(0 0 0 / 0.35);
+				padding: 8px;
+				animation: pop 160ms ease-out;
+			}
+			@keyframes pop {
+				from {
+					opacity: 0;
+					transform: translateY(-4px) scale(0.98);
+				}
+			}
+			.menu h4 {
+				margin: 4px 10px 8px;
+				font-size: 14px;
+				color: var(--dim);
+				font-weight: 600;
+			}
+			.opt {
+				display: grid;
+				grid-template-columns: 1fr auto;
+				align-items: baseline;
+				gap: 2px 8px;
+				width: 100%;
+				text-align: left;
+				border: 0;
+				background: none;
+				border-radius: 8px;
+				padding: 8px 10px;
+			}
+			.opt:hover,
+			.opt.sel {
+				background: var(--raised);
+			}
+			.opt b {
+				font-size: 15px;
+			}
+			.opt span {
+				color: var(--dim);
+				font-variant-numeric: tabular-nums;
+			}
+			.opt small {
+				grid-column: 1 / -1;
+				color: var(--warn-ink);
+				font-size: 14px;
+			}
+			.opt small.asked {
+				color: var(--brain-ink);
+			}
+			.menu p {
+				margin: 8px 10px 4px;
+				color: var(--dim);
+				line-height: 1.4;
+			}
+			.ask {
+				margin: 12px 16px 0;
+				border: 1px solid rgb(180 142 173 / 0.55);
+				background: rgb(180 142 173 / 0.1);
+				border-radius: 10px;
+				padding: 10px 12px;
+				display: grid;
+				gap: 8px;
+				animation: pop 220ms ease-out;
+			}
+			.ask .h {
+				display: flex;
+				align-items: center;
+				gap: 8px;
+				font-weight: 650;
+				color: var(--brain-ink);
+			}
+			.ask .h time {
+				margin-left: auto;
+				font-weight: 400;
+				color: var(--dim);
+				font-family: var(--mono);
+				font-size: 13px;
+			}
+			.ask q {
+				line-height: 1.4;
+			}
+			.ask .row {
+				display: flex;
+				flex-wrap: wrap;
+				gap: 6px;
+				align-items: center;
+			}
+			.ask .row button {
+				border-radius: 8px;
+				padding: 4px 10px;
+				font-size: 14px;
+				font-weight: 600;
+				border: 1px solid var(--edge);
+				background: none;
+			}
+			.ask .row button.go {
+				background: var(--frost);
+				border-color: var(--frost);
+				color: var(--on-frost);
+			}
+			.ask .fine {
+				color: var(--dim);
+			}
+			.steps {
+				list-style: none;
+				margin: 0;
+				padding: 14px 16px 6px;
+				position: relative;
+			}
+			.steps::before {
+				content: '';
+				position: absolute;
+				left: 27px;
+				top: 24px;
+				bottom: 30px;
+				width: 1px;
+				background: var(--edge);
+			}
+			.step {
+				position: relative;
+				display: grid;
+				grid-template-columns: 24px minmax(0, 1fr) auto;
+				gap: 10px;
+				padding-bottom: 14px;
+			}
+			.sicon {
+				width: 24px;
+				height: 24px;
+				box-sizing: border-box;
+				border-radius: 50%;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				font-size: 13px;
+				background: var(--surface);
+				border: 1px solid var(--edge);
+				z-index: 1;
+			}
+			.sicon.ok {
+				color: var(--run);
+				border-color: var(--run);
+			}
+			.sicon.running {
+				color: var(--run-ink);
+				border-color: var(--run-ink);
+			}
+			.sicon.running svg {
+				animation: spin 1.2s linear infinite;
+			}
+			@keyframes spin {
+				to {
+					transform: rotate(360deg);
+				}
+			}
+			.sicon.stopped {
+				color: var(--red);
+				border-color: var(--red);
+			}
+			.sicon.event {
+				color: var(--brain-ink);
+				border-color: var(--purple);
+				background: rgb(180 142 173 / 0.16);
+			}
+			.sgoal {
+				line-height: 1.35;
+			}
+			.scmd {
+				font-family: var(--mono);
+				font-size: 13px;
+				color: var(--dim);
+				white-space: nowrap;
+				overflow: hidden;
+				text-overflow: ellipsis;
+				margin-top: 2px;
+			}
+			.sres {
+				color: var(--dim);
+				margin-top: 2px;
+			}
+			.sres.warn {
+				color: var(--warn-ink);
+			}
+			.sres.bad {
+				color: var(--red);
+			}
+			.stime {
+				font-family: var(--mono);
+				font-size: 13px;
+				color: var(--dim);
+				padding-top: 3px;
+			}
+			.event-step .sgoal {
+				color: var(--brain-ink);
+			}
+			.flash {
+				animation: flash 900ms ease-out;
+			}
+			@keyframes flash {
+				30% {
+					box-shadow: 0 0 0 4px rgb(180 142 173 / 0.45);
+				}
+			}
+
+			/* ---------- Mobile ---------- */
+			.phones {
+				display: flex;
+				gap: 36px;
+				align-items: flex-start;
+				width: max-content;
+			}
+			.phonewrap {
+				display: grid;
+				gap: 12px;
+				justify-items: center;
+				margin: 0;
+			}
+			.phonewrap figcaption {
+				color: var(--dim);
+			}
+			.phone {
+				width: 393px;
+				height: 852px;
+				border-radius: 54px;
+				border: 10px solid #15181e;
+				overflow: hidden;
+				position: relative;
+				background: var(--m-screen);
+				color: var(--m-ink);
+				box-shadow: 0 24px 60px rgb(0 0 0 / 0.35);
+			}
+			.sbar {
+				height: 54px;
+				display: flex;
+				align-items: center;
+				justify-content: space-between;
+				padding: 0 34px 0 44px;
+				font-weight: 600;
+				font-size: 16px;
+			}
+			.island {
+				position: absolute;
+				top: 11px;
+				left: 50%;
+				transform: translateX(-50%);
+				width: 120px;
+				height: 34px;
+				border-radius: 20px;
+				background: #000;
+			}
+			.mscroll {
+				position: absolute;
+				inset: 54px 0 0;
+				overflow: hidden;
+			}
+			.mnav {
+				padding: 4px 20px 12px;
+				font-size: 32px;
+				font-weight: 750;
+				letter-spacing: -0.01em;
+			}
+			.mseg {
+				margin: 0 16px 18px;
+				display: grid;
+				grid-template-columns: repeat(3, 1fr);
+				background: var(--m-raised);
+				border-radius: 9px;
+				padding: 2px;
+			}
+			.mseg span {
+				text-align: center;
+				padding: 6px 0;
+				font-size: 14px;
+				font-weight: 600;
+				border-radius: 7px;
+				color: var(--m-dim);
+			}
+			.mseg span.on {
+				background: var(--m-surface);
+				color: var(--m-ink);
+				box-shadow: 0 1px 3px rgb(0 0 0 / 0.2);
+			}
+			.mgh {
+				margin: 0 32px 6px;
+				font-size: 13px;
+				text-transform: uppercase;
+				letter-spacing: 0.04em;
+				color: var(--m-dim);
+			}
+			.mgroup {
+				margin: 0 16px;
+				background: var(--m-surface);
+				border-radius: 12px;
+				overflow: hidden;
+			}
+			.mgf {
+				margin: 6px 32px 22px;
+				font-size: 13px;
+				color: var(--m-dim);
+			}
+			.mrow,
+			.mtext,
+			.mask {
+				position: relative;
+			}
+			.mrow {
+				display: flex;
+				align-items: center;
+				gap: 12px;
+				padding: 10px 16px;
+				min-height: 44px;
+				box-sizing: border-box;
+			}
+			.mgroup > * + *::before {
+				content: '';
+				position: absolute;
+				top: 0;
+				right: 0;
+				left: 58px;
+				height: 1px;
+				background: var(--m-edge);
+				opacity: 0.7;
+			}
+			.mgroup > .mtext::before,
+			.mgroup > .mask::before {
+				left: 16px;
+			}
+			.mic {
+				width: 30px;
+				height: 30px;
+				border-radius: 8px;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				font-size: 16px;
+				flex: none;
+			}
+			.mic.ok {
+				background: rgb(163 190 140 / 0.18);
+				color: var(--m-run);
+			}
+			.mic.run,
+			.mic.warn {
+				background: rgb(235 203 139 / 0.2);
+				color: var(--m-warn);
+			}
+			.mic.stop {
+				background: rgb(213 119 128 / 0.18);
+				color: var(--m-stop);
+			}
+			.mic.brain {
+				background: rgb(180 142 173 / 0.22);
+				color: var(--m-brain);
+			}
+			.mic.frost {
+				background: var(--m-frost);
+				color: var(--m-on-frost);
+			}
+			.mic.box {
+				background: rgb(136 192 208 / 0.18);
+				color: var(--m-frost);
+			}
+			.mt {
+				min-width: 0;
+				flex: 1;
+			}
+			.mt b {
+				display: block;
+				font-weight: 500;
+				font-size: 16px;
+				line-height: 1.3;
+			}
+			.mt small {
+				display: block;
+				font-size: 13px;
+				color: var(--m-dim);
+				margin-top: 2px;
+				font-variant-numeric: tabular-nums;
+			}
+			.mrow.warnrow b {
+				color: var(--m-warn);
+				font-weight: 650;
+			}
+			.mrow.action b {
+				color: var(--m-frost);
+				font-weight: 600;
+			}
+			.mrow.danger b {
+				color: var(--m-stop);
+			}
+			.mrow .chev {
+				color: var(--m-dim);
+				font-size: 16px;
+				display: inline-flex;
+			}
+			.mtext {
+				padding: 12px 16px;
+				font-size: 15px;
+				line-height: 1.35;
+			}
+			.mtext .k {
+				color: var(--m-dim);
+			}
+			.mtext .v {
+				color: var(--m-brain);
+			}
+			.mchip {
+				border-radius: 7px;
+				padding: 3px 7px;
+				font-size: 13px;
+				font-weight: 650;
+				display: inline-flex;
+				align-items: center;
+				gap: 4px;
+			}
+			.mchip.brain {
+				background: var(--purple);
+				color: var(--n0);
+			}
+			.mchip.ending {
+				background: var(--yellow);
+				color: var(--n0);
+			}
+			.mask {
+				padding: 12px 16px;
+				display: grid;
+				gap: 10px;
+				background: rgb(180 142 173 / 0.1);
+			}
+			.mask .h {
+				display: flex;
+				gap: 8px;
+				align-items: center;
+				color: var(--m-brain);
+				font-weight: 650;
+				font-size: 16px;
+			}
+			.mask q {
+				font-size: 15px;
+				line-height: 1.35;
+			}
+			.mbtns {
+				display: grid;
+				grid-template-columns: 1fr 1fr;
+				gap: 8px;
+			}
+			.mbtn {
+				border: 0;
+				border-radius: 10px;
+				padding: 10px;
+				font-size: 15px;
+				font-weight: 650;
+				background: var(--m-raised);
+				color: var(--m-ink);
+			}
+			.mbtn.go {
+				background: var(--m-frost);
+				color: var(--m-on-frost);
+			}
+			.strip {
+				position: absolute;
+				left: 12px;
+				right: 12px;
+				bottom: 92px;
+				display: flex;
+				align-items: center;
+				gap: 12px;
+				padding: 10px 12px;
+				border-radius: 16px;
+				background: var(--m-surface);
+				border: 1px solid rgb(180 142 173 / 0.4);
+				box-shadow: 0 14px 30px rgb(0 0 0 / 0.35);
+				z-index: 5;
+			}
+			.strip.ending {
+				border-color: rgb(235 203 139 / 0.75);
+			}
+			.strip .sic {
+				width: 32px;
+				height: 32px;
+				border-radius: 50%;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				background: rgb(180 142 173 / 0.2);
+				color: var(--m-brain);
+				font-size: 16px;
+				flex: none;
+			}
+			.strip.ending .sic {
+				background: rgb(235 203 139 / 0.22);
+				color: var(--m-warn);
+			}
+			.strip .st {
+				min-width: 0;
+				flex: 1;
+			}
+			.strip .st small {
+				display: block;
+				font-size: 13px;
+				color: var(--m-dim);
+				white-space: nowrap;
+				overflow: hidden;
+				text-overflow: ellipsis;
+				font-variant-numeric: tabular-nums;
+			}
+			.strip.ending .st small {
+				color: var(--m-warn);
+				font-weight: 650;
+			}
+			.strip .st span {
+				display: block;
+				font-size: 15px;
+				line-height: 1.3;
+				white-space: nowrap;
+				overflow: hidden;
+				text-overflow: ellipsis;
+			}
+			.strip .sx {
+				border: 0;
+				border-radius: 999px;
+				padding: 7px 13px;
+				font-size: 14px;
+				font-weight: 700;
+				background: var(--m-frost);
+				color: var(--m-on-frost);
+				flex: none;
+			}
+			.strip .pin {
+				position: absolute;
+				top: -10px;
+				right: -6px;
+			}
+			.tabs {
+				position: absolute;
+				left: 0;
+				right: 0;
+				bottom: 0;
+				height: 84px;
+				display: grid;
+				grid-template-columns: repeat(5, 1fr);
+				border-top: 1px solid var(--m-edge);
+				background: var(--m-screen);
+				z-index: 6;
+			}
+			.tab {
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				gap: 2px;
+				padding-top: 8px;
+				color: var(--m-dim);
+				font-size: 11px;
+				font-weight: 500;
+				position: relative;
+			}
+			.tab svg {
+				font-size: 24px;
+				stroke-width: 1.8;
+			}
+			.tab.on {
+				color: var(--m-frost);
+			}
+			.tab.on.brain {
+				color: var(--m-brain);
+			}
+			.tab .badge {
+				position: absolute;
+				top: 6px;
+				left: 58%;
+				width: 10px;
+				height: 10px;
+				border-radius: 50%;
+				background: var(--m-warn);
+			}
+			.scrim {
+				position: absolute;
+				inset: 0;
+				background: rgb(0 0 0 / 0.45);
+				z-index: 8;
+			}
+			.sheet {
+				position: absolute;
+				left: 0;
+				right: 0;
+				bottom: 0;
+				z-index: 9;
+				background: var(--m-screen);
+				border-radius: 16px 16px 0 0;
+				padding: 8px 0 34px;
+				animation: up 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
+			}
+			@keyframes up {
+				from {
+					transform: translateY(100%);
+				}
+			}
+			.grab {
+				width: 40px;
+				height: 5px;
+				border-radius: 3px;
+				background: var(--m-edge);
+				margin: 0 auto 12px;
+			}
+			.sheet h3 {
+				margin: 0 20px 4px;
+				font-size: 20px;
+			}
+			.sheet .lead {
+				margin: 0 20px 14px;
+				color: var(--m-dim);
+				font-size: 15px;
+				line-height: 1.35;
+			}
+			.mrow.choice.sel b {
+				color: var(--m-frost);
+				font-weight: 650;
+			}
+			.mrow.choice .tick {
+				color: var(--m-frost);
+				font-size: 18px;
+				display: inline-flex;
+			}
+			.mgroup > .choice::before {
+				left: 16px;
+			}
+			.sheet .cta {
+				margin: 16px 16px 0;
+				display: grid;
+				gap: 8px;
+			}
+			.sheet .cta .mbtn {
+				padding: 13px;
+				font-size: 17px;
+			}
+			.sheet .keeps {
+				margin: 14px 20px 0;
+				font-size: 13px;
+				color: var(--m-dim);
+				line-height: 1.4;
+			}
+			@media (prefers-reduced-motion: reduce) {
+				* {
+					animation-duration: 1ms !important;
+					transition-duration: 1ms !important;
+				}
+			}
+		</style>
+	</head>
+	<body class="dark">
+		<header class="mockbar">
+			<div>
+				<h1>Extend a Brain grant</h1>
+				<div class="sub">DevHarbour mockup for issue #67 · static, no live data</div>
+			</div>
+			<div class="spacer"></div>
+			<div class="seg" role="group" aria-label="View" id="seg-view"></div>
+			<div class="seg" role="group" aria-label="State" id="seg-state"></div>
+			<div class="seg" role="group" aria-label="Theme" id="seg-theme"></div>
+			<div class="seg" role="group" aria-label="Notes" id="seg-notes"></div>
+		</header>
+		<main id="stage"></main>
+		<section id="notes" aria-label="Design notes"></section>
+
+		<script>
+			/**
+			 * Mockup controller. One state object drives two renderers: desktop and mobile.
+			 * A simulated clock ticks in real time from 13:37:48, so the countdown, the time bar
+			 * and the expiry behave as they would in the dashboard.
+			 */
+
+			const MINUTE = 60_000;
+			/** Grant durations that the dashboard already offers (BRAIN_GRANT_MINUTES). */
+			const DURATIONS = [15, 60, 240];
+			/** Access never runs further ahead of now than the longest grant. */
+			const CEILING_MINUTES = 240;
+			/** The warning starts this many minutes before the end. */
+			const WARNING_MINUTES = 5;
+
+			const params = new URLSearchParams(location.search);
+			const ui = {
+				view: params.get('view') === 'mobile' ? 'mobile' : 'desktop',
+				state: ['ending', 'request', 'extended'].includes(params.get('state'))
+					? params.get('state')
+					: 'ending',
+				theme: params.get('theme') === 'light' ? 'light' : 'dark',
+				notes: params.get('notes') !== '0',
+				menu: params.get('menu') === '1' ? 'g1' : null,
+				/** Duration that the phone sheet preselects */
+				sheetChoice: 60,
+				flash: null
+			};
+
+			/** Today's time from "HH:MM[:SS]", in milliseconds. */
+			function at(hms) {
+				const [h, m, s = 0] = hms.split(':').map(Number);
+				return new Date(2026, 10, 25, h, m, s).getTime();
+			}
+
+			/** Simulated wall clock. */
+			const BASE = at('13:37:48');
+			let started = performance.now();
+			const now = () => BASE + (performance.now() - started);
+
+			let grants = [];
+
+			/** Load fresh fixture data for one scenario and restart the clock. */
+			function seed(state) {
+				started = performance.now();
+				const extended = state === 'extended';
+				grants = [
+					{
+						id: 'g1',
+						name: 'fervent_bhabha',
+						service: 'devcontainer',
+						repo: 'devcontainer-dashboard',
+						user: 'node',
+						createdAt: at('13:27'),
+						expiresAt: extended ? at('14:42') : at('13:42'),
+						intent: 'Fix the terminal focus failure and run the full browser suite',
+						request:
+							state === 'request'
+								? {
+										minutes: 60,
+										at: '13:37',
+										reason:
+											'The full browser suite has about 35 minutes left. It stops when access ends.'
+									}
+								: null,
+						steps: [
+							{
+								at: '13:28',
+								goal: 'Install dependencies from the lockfile',
+								cmd: 'npm ci',
+								status: 'ok',
+								result: 'Exit 0 · 48 s'
+							},
+							{
+								at: '13:29',
+								goal: 'Build both outputs before the browser tests',
+								cmd: 'npm run build && npm run build:server',
+								status: 'ok',
+								result: 'Exit 0 · 2 min 12 s'
+							},
+							{
+								at: '13:31',
+								goal: 'Run the full browser suite on one worker',
+								cmd: 'npx playwright test --workers=1 --reporter=line',
+								status: 'running',
+								result: 'Running · 41 of 118 tests'
+							}
+						],
+						events: extended
+							? [{ at: '13:38', text: 'You extended access by 1 hour', end: '14:42' }]
+							: []
+					},
+					{
+						id: 'g2',
+						name: 'romantic_rosalind',
+						service: 'wss',
+						repo: 'polaris-wss',
+						user: 'polaris',
+						createdAt: at('11:48'),
+						expiresAt: at('15:48'),
+						intent: 'Trace FDP reconnects after a database failover',
+						request: null,
+						steps: [
+							{
+								at: '12:02',
+								goal: 'Find reconnect attempts in the WSS log',
+								cmd: 'grep -n "reconnect" /var/log/polaris/wss.log | tail -50',
+								status: 'ok',
+								result: 'Exit 0 · 0.4 s'
+							},
+							{
+								at: '12:05',
+								goal: 'Check which database host the FDP client uses now',
+								cmd: 'polaris-cfg get fdp.db.host',
+								status: 'ok',
+								result: 'Exit 0 · 0.2 s'
+							}
+						],
+						events: []
+					}
+				];
+			}
+
+			/* ---------- Grant rules (the proposed server behaviour) ---------- */
+
+			/** End time after an extension: add to the current end, never past the ceiling. */
+			function extendedEnd(grant, minutes, t = now()) {
+				return Math.min(
+					Math.max(grant.expiresAt, t) + minutes * MINUTE,
+					t + CEILING_MINUTES * MINUTE
+				);
+			}
+			/** True when the ceiling shortens the extension. */
+			const isCapped = (g, m, t) => extendedEnd(g, m, t) < Math.max(g.expiresAt, t) + m * MINUTE;
+			const isEnded = (g, t = now()) => g.expiresAt <= t;
+			const isEnding = (g, t = now()) =>
+				!isEnded(g, t) && g.expiresAt - t <= WARNING_MINUTES * MINUTE;
+			const running = (g) => g.steps.filter((s) => s.status === 'running').length;
+
+			/** Apply an extension, record it in the timeline, and clear Brain's request. */
+			function extend(id, minutes) {
+				const grant = grants.find((g) => g.id === id);
+				if (!grant || isEnded(grant)) return;
+				const end = extendedEnd(grant, minutes);
+				grant.expiresAt = end;
+				grant.request = null;
+				grant.events.push({
+					at: clock(now()),
+					text: `You extended access by ${label(minutes)}`,
+					end: clock(end)
+				});
+				ui.menu = null;
+				ui.flash = id;
+				render();
+				setTimeout(() => (ui.flash = null), 1000);
+			}
+
+			/* ---------- Formatting ---------- */
+
+			const clock = (t) =>
+				new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+			const label = (m) => (m < 60 ? `${m} minutes` : m === 60 ? '1 hour' : `${m / 60} hours`);
+			const short = (m) => (m < 60 ? `+${m} min` : m === 60 ? '+1 hour' : `+${m / 60} hours`);
+
+			/** Same compact form as formatRemaining() in brainAccess.svelte.ts. */
+			function remaining(g, t = now()) {
+				const minutes = Math.floor((g.expiresAt - t) / MINUTE);
+				if (minutes < 1) return '<1m';
+				if (minutes < 60) return `${minutes}m`;
+				const rest = minutes % 60;
+				return rest ? `${Math.floor(minutes / 60)}h ${rest}m` : `${Math.floor(minutes / 60)}h`;
+			}
+
+			/** Countdown for the warning, as m:ss. */
+			function countdown(g, t = now()) {
+				const s = Math.max(0, Math.ceil((g.expiresAt - t) / 1000));
+				return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+			}
+
+			/** Share of the grant time that is left, for the time bar. */
+			function share(g, t = now()) {
+				const total = g.expiresAt - g.createdAt;
+				return total > 0 ? Math.min(1, Math.max(0, (g.expiresAt - t) / total)) : 0;
+			}
+
+			/* ---------- Icons (lucide paths) ---------- */
+
+			const ICON = {
+				brain:
+					'<path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M9 13a4.5 4.5 0 0 0 3-4"/><path d="M12 13h4"/><path d="M12 18h6a2 2 0 0 1 2 2v1"/><path d="M12 8h8"/><path d="M16 8V5a2 2 0 0 1 2-2"/>',
+				clockPlus:
+					'<path d="M12 6v6l3.644 1.822"/><path d="M16 19h6"/><path d="M19 16v6"/><path d="M21.92 13.267a10 10 0 1 0-8.653 8.653"/>',
+				clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+				alert:
+					'<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+				down: '<path d="m6 9 6 6 6-6"/>',
+				right: '<path d="m9 18 6-6-6-6"/>',
+				x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+				check: '<path d="M20 6 9 17l-5-5"/>',
+				loader: '<path d="M21 12a9 9 0 1 1-6.219-8.56"/>',
+				square: '<rect width="12" height="12" x="6" y="6" rx="1"/>',
+				globe:
+					'<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>',
+				ban: '<circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/>',
+				box: '<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>',
+				folder:
+					'<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
+				cpu: '<rect width="16" height="16" x="4" y="4" rx="2"/><rect width="6" height="6" x="9" y="9" rx="1"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/>',
+				term: '<path d="m7 11 2-2-2-2"/><path d="M11 13h4"/><rect width="18" height="18" x="3" y="3" rx="2"/>'
+			};
+			const icon = (name) =>
+				`<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICON[name]}</svg>`;
+
+			/* ---------- Design notes, numbered to match the pins ---------- */
+
+			const NOTES = [
+				[
+					'Only the operator extends access',
+					'Extend sits next to Revoke on every active grant. It offers the existing grant durations and adds them to the current end time. Access never runs more than 4 hours ahead of now.'
+				],
+				[
+					'Warning before the end',
+					'Five minutes before the end, the group shows a live countdown and the commands that stop. The time bar turns amber. One click extends from the warning.'
+				],
+				[
+					'Visible with the pane closed',
+					'The Brain chip on the container row turns amber, so the warning reaches you when the Brain pane is closed.'
+				],
+				[
+					'Brain can ask, not extend (optional)',
+					'A new MCP tool lets Brain ask for more time and give a reason. The request only shows here. Nothing changes until you choose a duration. Brain still cannot create, extend or widen grants.'
+				],
+				[
+					'Every extension is recorded',
+					'An extension is an audit entry and shows in the command timeline. Brain reads the new end time from list_targets and from each tool result.'
+				],
+				[
+					'Phones',
+					'The live strip shows the warning and an Extend button. Extend access opens a sheet with the same three durations and their end times.'
+				]
+			];
+			const pin = (n) =>
+				`<span class="pin" title="${NOTES[n - 1][0]}: ${NOTES[n - 1][1]}">${n}</span>`;
+
+			/* ---------- Desktop ---------- */
+
+			/** Dashboard on the left, Brain pane on the right. */
+			function desktop() {
+				const t = now();
+				const rows = grants
+					.map((g) => {
+						const ending = isEnding(g, t);
+						const chip = isEnded(g, t)
+							? `<button class="chip grant">${icon('brain')}Grant Brain</button>`
+							: `<button class="chip brain ${ending ? 'ending' : ''}">${icon(ending ? 'clock' : 'brain')}Brain · ${remaining(g, t)}</button>`;
+						return `<div class="crow ${ui.menu === g.id ? 'hover' : ''}">
+							<span class="dot"></span>
+							<div style="min-width:0"><div class="cname">${g.name}</div><div class="cmeta">${g.repo} · ${g.service} · running</div></div>
+							<div class="cact">${g.id === 'g1' ? pin(3) : ''}${chip}<button class="ghost">Open with</button></div>
+						</div>`;
+					})
+					.join('');
+				const others = `
+					<div class="crow"><span class="dot"></span><div style="min-width:0"><div class="cname">compassionate_einstein</div><div class="cmeta">tern-framework · devcontainer · running</div></div>
+						<div class="cact"><button class="chip grant">${icon('brain')}Grant Brain</button><button class="ghost">Open with</button></div></div>
+					<div class="crow"><span class="dot off"></span><div style="min-width:0"><div class="cname">nice_saha</div><div class="cmeta">devcontainer-dashboard · devcontainer · stopped</div></div>
+						<div class="cact"><button class="ghost">Start</button></div></div>`;
+				const runningCount = grants.reduce((n, g) => n + (isEnded(g, t) ? 0 : running(g)), 0);
+				const endingCount = grants.filter((g) => isEnding(g, t)).length;
+				return `<div class="desk">
+					<section class="dash">
+						<div class="dash-top"><span class="logo">Dev<span>Harbour</span></span><span class="host">tern-dev-03</span>
+							<button class="brain-toggle">${icon('brain')}Brain</button></div>
+						<div class="dash-body"><div class="dash-h">Devcontainers</div>${rows}${others}</div>
+					</section>
+					<section class="pane" aria-label="Brain">
+						<div class="pane-top">
+							<h2>${icon('brain')}Brain</h2>
+							${runningCount ? `<span class="pill run">${icon('loader')}${runningCount} running</span>` : ''}
+							${endingCount ? `<span class="pill warn">${icon('clock')}${endingCount} ending soon</span>` : ''}
+							<div class="pane-tools"><span style="display:inline-flex;gap:6px;align-items:center">${icon('globe')}Endpoint</span>
+								<button class="revoke">${icon('ban')}Revoke all</button><button class="x" aria-label="Close">${icon('x')}</button></div>
+						</div>
+						<div class="pane-body">
+							<div class="filters"><button class="on">All</button><button>Running</button><button>Problems</button></div>
+							${grants.map((g) => group(g, t)).join('')}
+						</div>
+					</section>
+				</div>`;
+			}
+
+			/** One container group in the Brain pane. */
+			function group(g, t) {
+				const ended = isEnded(g, t);
+				const ending = isEnding(g, t);
+				const first = g.id === 'g1';
+				const steps = g.steps.map((s) => step(s, g, ended, ending)).join('');
+				const events = g.events
+					.map(
+						(e) => `<li class="step event-step">
+							<span class="sicon event">${icon('clockPlus')}</span>
+							<div style="min-width:0"><div class="sgoal">${first ? pin(5) + ' ' : ''}${e.text} · ends ${e.end}</div><div class="sres">Audit: extend · Brain sees the new end time on its next call</div></div>
+							<time class="stime">${e.at}</time></li>`
+					)
+					.join('');
+				const status = ended
+					? '<span>Grant ended</span>'
+					: `<span class="bar"><i style="width:${share(g, t) * 100}%"></i></span><span class="left ${ending ? 'warn' : ''}">${remaining(g, t)} left · ends ${clock(g.expiresAt)}</span>`;
+				const actions = ended
+					? '<button class="extend">Grant again…</button>'
+					: `${first ? pin(1) : ''}<button class="extend ${ending ? 'primary' : ''}" data-menu="${g.id}" aria-expanded="${ui.menu === g.id}">${icon('clockPlus')}Extend${icon('down')}</button><button class="revoke">Revoke</button>`;
+				return `<section class="group ${ending ? 'ending' : ''} ${ended ? 'ended' : ''} ${ui.flash === g.id ? 'flash' : ''}">
+					<header class="ghead">
+						<span class="chev">${icon('down')}</span>
+						<div class="gmain">
+							<div class="gtitle"><h3>${g.name}</h3><span class="gsub">${g.service} · as <span class="mono">${g.user}</span></span></div>
+							<p class="intent"><span>Working on&nbsp;</span>${g.intent}</p>
+							<div class="gstat">${status}<span>· ${g.steps.length} commands</span>
+								${!ended && running(g) ? `<span style="color:var(--run-ink)">· ${running(g)} running</span>` : ''}</div>
+						</div>
+						<div class="gacts">${actions}${ui.menu === g.id ? menu(g, t) : ''}</div>
+					</header>
+					${ending ? warnband(g, t) : ''}
+					${ended ? `<div class="warnband ended">${icon('alert')}<div class="t">Access ended at ${clock(g.expiresAt)}. The running command was stopped. Grant again to continue.</div></div>` : ''}
+					${g.request && !ended ? ask(g, t) : ''}
+					<ol class="steps">${steps}${events}</ol>
+				</section>`;
+			}
+
+			/** Amber band under the group header during the last five minutes. */
+			function warnband(g, t) {
+				const n = running(g);
+				const stops = n
+					? `${n} running ${n === 1 ? 'command stops' : 'commands stop'} at ${clock(g.expiresAt)}.`
+					: 'Brain loses access then.';
+				return `<div class="warnband">${pin(2)}${icon('clock')}
+					<div class="t">Access ends in <b>${countdown(g, t)}</b>. ${stops}</div>
+					<div class="quick">${[15, 60].map((m) => `<button data-extend="${g.id}:${m}">${short(m)}</button>`).join('')}</div>
+				</div>`;
+			}
+
+			/** Extend menu: the three grant durations with their resulting end times. */
+			function menu(g, t) {
+				const options = DURATIONS.map((m) => {
+					const sel = g.request && g.request.minutes === m;
+					return `<button class="opt ${sel ? 'sel' : ''}" role="menuitem" data-extend="${g.id}:${m}">
+						<b>${short(m)}</b><span>until ${clock(extendedEnd(g, m, t))}</span>
+						${isCapped(g, m, t) ? '<small>Shortened: access runs at most 4 hours ahead</small>' : ''}
+						${sel ? '<small class="asked">Brain asked for this</small>' : ''}
+					</button>`;
+				}).join('');
+				return `<div class="menu" role="menu"><h4>Extend access to ${g.name}</h4>${options}
+					<p>Same container run, user and reach. Running commands continue.</p></div>`;
+			}
+
+			/** Brain's pending request for more time. */
+			function ask(g, t) {
+				const m = g.request.minutes;
+				return `<div class="ask">
+					<div class="h">${pin(4)}${icon('brain')}Brain asks for ${label(m)} more<time>${g.request.at}</time></div>
+					<q>${g.request.reason}</q>
+					<div class="row">
+						<button class="go" data-extend="${g.id}:${m}">Extend by ${label(m)} · until ${clock(extendedEnd(g, m, t))}</button>
+						<button data-menu="${g.id}">Other duration</button>
+						<button data-dismiss="${g.id}">Dismiss</button>
+					</div>
+					<div class="fine">Brain cannot extend access itself. Dismiss tells Brain no.</div>
+				</div>`;
+			}
+
+			/** One command in the timeline. A running command warns while the grant ends soon. */
+			function step(s, g, ended, ending) {
+				let status = s.status;
+				let result = s.result;
+				let cls = '';
+				if (status === 'running' && ended) {
+					status = 'stopped';
+					result = 'Stopped: the grant expired';
+					cls = 'bad';
+				} else if (status === 'running' && ending) {
+					result = `${s.result} · stops at ${clock(g.expiresAt)} unless extended`;
+					cls = 'warn';
+				}
+				const ic = { ok: 'check', running: 'loader', stopped: 'square' }[status];
+				return `<li class="step"><span class="sicon ${status}">${icon(ic)}</span>
+					<div style="min-width:0"><div class="sgoal">${s.goal}</div><div class="scmd">$ ${s.cmd}</div><div class="sres ${cls}">${result}</div></div>
+					<time class="stime">${s.at}</time></li>`;
+			}
+
+			/* ---------- Mobile ---------- */
+
+			const statusBar = () =>
+				`<div class="island"></div><div class="sbar"><span>${clock(now())}</span><span style="font-size:14px">5G</span></div>`;
+
+			/** The five mobile tabs; Brain shows a dot while a command runs. */
+			function tabs(current) {
+				const brainRunning = grants.some((g) => !isEnded(g) && running(g));
+				return `<nav class="tabs">${[
+					['containers', 'Containers', 'box'],
+					['workspaces', 'Workspaces', 'folder'],
+					['services', 'Services', 'cpu'],
+					['terminals', 'Terminals', 'term'],
+					['brain', 'Brain', 'brain']
+				]
+					.map(
+						([id, name, ic]) =>
+							`<span class="tab ${current === id ? 'on' : ''} ${id === 'brain' ? 'brain' : ''}">${icon(ic)}${name}${id === 'brain' && brainRunning ? '<i class="badge"></i>' : ''}</span>`
+					)
+					.join('')}</nav>`;
+			}
+
+			/** Live strip above the tab bar. While a grant ends soon, it warns and offers Extend. */
+			function strip() {
+				const t = now();
+				const g = grants[0];
+				if (isEnded(g, t)) return '';
+				const s = g.steps.find((x) => x.status === 'running');
+				const text = s ? s.goal : g.intent;
+				if (isEnding(g, t))
+					return `<div class="strip ending"><span class="sic">${icon('clock')}</span>
+						<span class="st"><small>Ends in ${countdown(g, t)} · ${g.name}</small><span>${text}</span></span>
+						<button class="sx" data-sheet="1">Extend</button>${pin(6)}</div>`;
+				return `<div class="strip"><span class="sic">${icon('brain')}</span>
+					<span class="st"><small>Brain · ${g.name}</small><span>${text}</span></span>
+					<span style="color:var(--m-dim);display:inline-flex">${icon('right')}</span></div>`;
+			}
+
+			/** Containers tab, with the Brain chip on granted rows. */
+			function phoneContainers() {
+				const t = now();
+				const rows = grants
+					.map((g) => {
+						const ending = isEnding(g, t);
+						const chip = isEnded(g, t)
+							? ''
+							: `<span class="mchip ${ending ? 'ending' : 'brain'}">${icon(ending ? 'clock' : 'brain')}${remaining(g, t)}</span>`;
+						return `<div class="mrow"><span class="mic box">${icon('box')}</span>
+							<span class="mt"><b>${g.name}</b><small>${g.repo} · running</small></span>${chip}
+							<span class="chev">${icon('right')}</span></div>`;
+					})
+					.join('');
+				return `<div class="phone">${statusBar()}<div class="mscroll">
+					<div class="mnav">Containers</div>
+					<div class="mgh">Devcontainers</div>
+					<div class="mgroup">${rows}
+						<div class="mrow"><span class="mic box">${icon('box')}</span><span class="mt"><b>compassionate_einstein</b><small>tern-framework · running</small></span><span class="chev">${icon('right')}</span></div>
+						<div class="mrow"><span class="mic box" style="opacity:.5">${icon('box')}</span><span class="mt"><b>nice_saha</b><small>devcontainer-dashboard · stopped</small></span><span class="chev">${icon('right')}</span></div>
+					</div></div>${strip()}${tabs('containers')}</div>`;
+			}
+
+			/** Brain tab, optionally with the Extend access sheet open. */
+			function phoneBrain(withSheet) {
+				const t = now();
+				const groups = grants
+					.map((g) => {
+						const ended = isEnded(g, t);
+						const ending = isEnding(g, t);
+						const steps = [...g.steps]
+							.reverse()
+							.map((s) => {
+								const stopped = s.status === 'running' && ended;
+								const run = s.status === 'running' && !ended;
+								const result = stopped
+									? 'Stopped: the grant expired'
+									: run && ending
+										? `Running · stops at ${clock(g.expiresAt)}`
+										: s.result;
+								return `<div class="mrow"><span class="mic ${run ? 'run' : stopped ? 'stop' : 'ok'}">${icon(run ? 'loader' : stopped ? 'square' : 'check')}</span>
+									<span class="mt"><b>${s.goal}</b><small>${result} · ${s.at}</small></span><span class="chev">${icon('right')}</span></div>`;
+							})
+							.join('');
+						const events = [...g.events]
+							.reverse()
+							.map(
+								(e) =>
+									`<div class="mrow"><span class="mic brain">${icon('clockPlus')}</span><span class="mt"><b>${e.text}</b><small>Ends ${e.end} · ${e.at}</small></span></div>`
+							)
+							.join('');
+						const warn = ending
+							? `<div class="mrow warnrow"><span class="mic warn">${icon('clock')}</span><span class="mt"><b>Access ends in ${countdown(g, t)}</b><small>${running(g)} running command stops at ${clock(g.expiresAt)}</small></span></div>`
+							: '';
+						const request =
+							g.request && !ended
+								? `<div class="mask"><div class="h">${icon('brain')}Brain asks for ${label(g.request.minutes)} more</div><q>${g.request.reason}</q>
+									<div class="mbtns"><button class="mbtn go" data-extend="${g.id}:${g.request.minutes}">Extend ${label(g.request.minutes)}</button><button class="mbtn" data-dismiss="${g.id}">Not now</button></div></div>`
+								: '';
+						const extendRow = ended
+							? ''
+							: `<div class="mrow action" data-sheet="1"><span class="mic frost">${icon('clockPlus')}</span><span class="mt"><b>Extend access</b><small>Ends ${clock(g.expiresAt)}</small></span><span class="chev">${icon('right')}</span></div>`;
+						const footer = ended
+							? 'Grant ended. Its commands stay visible.'
+							: `${remaining(g, t)} left · as ${g.user}`;
+						return `<div class="mgh">${g.name}</div><div class="mgroup">
+							${warn}${request}${extendRow}
+							<div class="mtext"><span class="k">Working on&nbsp;</span><span class="v">${g.intent}</span></div>
+							${events}${steps}
+							${ended ? '' : '<div class="mrow danger"><span class="mt"><b>Revoke access</b></span></div>'}
+						</div><div class="mgf">${footer}</div>`;
+					})
+					.join('');
+				const runningCount = grants.reduce((n, g) => n + (isEnded(g, t) ? 0 : running(g)), 0);
+				return `<div class="phone">${statusBar()}<div class="mscroll">
+					<div class="mnav">Brain</div>
+					<div class="mseg"><span class="on">All</span><span>Running ${runningCount || ''}</span><span>Problems</span></div>
+					${groups}</div>${withSheet ? '' : strip()}${tabs('brain')}${withSheet ? sheet() : ''}</div>`;
+			}
+
+			/** Phone sheet with the three durations; follows MSheet and MConfirm. */
+			function sheet() {
+				const g = grants[0];
+				const t = now();
+				if (isEnded(g, t)) return '';
+				const choices = DURATIONS.map((m) => {
+					const sel = ui.sheetChoice === m;
+					const asked = g.request && g.request.minutes === m;
+					return `<div class="mrow choice ${sel ? 'sel' : ''}" data-choice="${m}"><span class="mt"><b>${label(m)} more</b>
+						<small>Until ${clock(extendedEnd(g, m, t))}${isCapped(g, m, t) ? ' · 4-hour limit' : ''}${asked ? ' · Brain asked for this' : ''}</small></span>
+						${sel ? `<span class="tick">${icon('check')}</span>` : ''}</div>`;
+				}).join('');
+				return `<div class="scrim"></div><div class="sheet"><div class="grab"></div>
+					<h3>Extend access</h3>
+					<p class="lead">${g.name} · as ${g.user}. Access ends at ${clock(g.expiresAt)}.</p>
+					<div class="mgroup">${choices}</div>
+					<div class="cta"><button class="mbtn go" data-extend="${g.id}:${ui.sheetChoice}">Extend by ${label(ui.sheetChoice)}</button><button class="mbtn">Cancel</button></div>
+					<p class="keeps">Keeps the same container run, user and reach. Running commands continue.</p>
+				</div>`;
+			}
+
+			function mobile() {
+				return `<div class="phones">
+					<figure class="phonewrap">${phoneContainers()}<figcaption>Any tab: the live strip warns</figcaption></figure>
+					<figure class="phonewrap">${phoneBrain(false)}<figcaption>Brain tab: warning, request and Extend access</figcaption></figure>
+					<figure class="phonewrap">${phoneBrain(true)}<figcaption>Extend access sheet</figcaption></figure>
+				</div>`;
+			}
+
+			/* ---------- Controls and rendering ---------- */
+
+			/** Render one segmented control of the mockup bar. */
+			function seg(id, key, options) {
+				document.getElementById(id).innerHTML = options
+					.map(
+						([value, text]) =>
+							`<button aria-pressed="${ui[key] === value}" data-ui="${key}:${value}">${text}</button>`
+					)
+					.join('');
+			}
+
+			function render() {
+				document.body.className = `${ui.theme} ${ui.notes ? '' : 'nonotes'}`;
+				seg('seg-view', 'view', [
+					['desktop', 'Desktop'],
+					['mobile', 'Mobile']
+				]);
+				seg('seg-state', 'state', [
+					['ending', 'Ending soon'],
+					['request', 'Brain asks'],
+					['extended', 'Extended']
+				]);
+				seg('seg-theme', 'theme', [
+					['dark', 'Dark'],
+					['light', 'Light']
+				]);
+				seg('seg-notes', 'notes', [
+					[true, 'Notes'],
+					[false, 'Clean']
+				]);
+				document.getElementById('stage').innerHTML = ui.view === 'desktop' ? desktop() : mobile();
+				document.getElementById('notes').innerHTML =
+					'<h2>Design notes</h2>' +
+					NOTES.map(
+						([title, text], i) =>
+							`<div class="note"><span class="pin">${i + 1}</span><p><b>${title}</b>${text}</p></div>`
+					).join('');
+			}
+
+			document.addEventListener('click', (event) => {
+				const el = event.target.closest(
+					'[data-ui],[data-menu],[data-extend],[data-dismiss],[data-choice]'
+				);
+				if (!el) {
+					// A click outside the open menu closes it.
+					if (ui.menu && !event.target.closest('.menu')) {
+						ui.menu = null;
+						render();
+					}
+					return;
+				}
+				if (el.dataset.ui) {
+					const [key, raw] = el.dataset.ui.split(':');
+					ui[key] = raw === 'true' ? true : raw === 'false' ? false : raw;
+					if (key === 'state') {
+						ui.menu = null;
+						seed(ui.state);
+					}
+				} else if (el.dataset.menu) {
+					ui.menu = ui.menu === el.dataset.menu ? null : el.dataset.menu;
+				} else if (el.dataset.extend) {
+					const [id, minutes] = el.dataset.extend.split(':');
+					return extend(id, Number(minutes));
+				} else if (el.dataset.dismiss) {
+					grants.find((g) => g.id === el.dataset.dismiss).request = null;
+				} else if (el.dataset.choice) {
+					ui.sheetChoice = Number(el.dataset.choice);
+				}
+				render();
+			});
+
+			document.addEventListener('keydown', (event) => {
+				if (event.key === 'Escape' && ui.menu) {
+					ui.menu = null;
+					render();
+				}
+			});
+
+			seed(ui.state);
+			render();
+			// Tick once a second so countdowns, bars and expiry stay live. Pause while a menu is open.
+			setInterval(() => {
+				if (!ui.menu) render();
+			}, 1000);
+		</script>
+	</body>
+</html>
