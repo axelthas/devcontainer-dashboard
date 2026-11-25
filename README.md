@@ -6,10 +6,11 @@ A self-hosted control center for development environments. Discover local reposi
 build and manage devcontainers, run Docker Compose sandboxes, and access terminals,
 editors, AI coding tools, and project services from one browser interface.
 
-Formerly **Devcontainer Dashboard**. This is a branding change, not a deployment
-migration. The repository URL, published image, launcher commands, environment
+Formerly **Devcontainer Dashboard**. New installations use the container name
+`devharbour`. The repository URL, published image, launcher commands, environment
 variables, retained volumes, browser storage keys, and MCP server identifier keep
-their existing names. Existing installations do not need to move or reset data.
+their existing names. Existing saved configurations keep their container name
+until you explicitly migrate them; see [Container name](#container-name).
 
 The puffin uses the dashboard's Nord palette for now: Polar Night `#2e3440`,
 Snow Storm `#eceff4`, Frost `#88c0d0`, and Aurora orange `#d08770` and yellow `#ebcb8b`.
@@ -234,6 +235,31 @@ The default restart policy is `always`: Docker starts the instance again after a
 daemon restart, including after a manual stop. Select `--restart-policy
 unless-stopped` or `no` if that is not wanted; applying the change requires an
 explicitly reviewed recreation.
+
+### Container name
+
+New CLI configurations and direct published-image launches create `devharbour`.
+Isolated checkout builds use unique `devharbour-local-*` names unless `--name`
+is supplied. Repository and image references are not renamed. Both the new
+`devharbour` default and saved legacy `devcontainer-dashboard` configurations
+use the existing `dashboard_data`, `ddash_zsh_data` and `dashboard_ai` volumes.
+Custom instance names keep their separate volume mappings.
+
+Reinstalling the command does not rename existing containers or edit saved
+configuration. To change a saved legacy default configuration explicitly:
+
+```bash
+devharbour configure --instance-name devharbour
+```
+
+This saves only the configuration. It does not rename, stop, remove or start a
+container. Other saved instance names remain immutable. Before starting the new
+name, review and back up the old container's mounts and any data in its writable
+layer. A stopped old container still holds its volumes: remove that container
+only after a separate, deliberate review, without deleting its volumes. The CLI
+refuses volumes attached to another container, even with adoption enabled.
+When only the reviewed retained volumes remain, run `devharbour --adopt` and
+approve their reuse. No migration or adoption happens automatically.
 
 See [the CLI reference](scripts/README.md#installed-devharbour-cli) for unattended
 examples, the JSON schema, relative paths, replacement/adoption rules and checkout
