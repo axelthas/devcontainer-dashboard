@@ -6,6 +6,22 @@ fail() {
     exit 1
 }
 
+# Docker can create a root-owned .config parent for the nested Settings mount.
+# Prepare only the container-private parent; never traverse or chown host mounts.
+prepare_config_home() {
+    config_home="$HOST_HOME/.config"
+    [ ! -L "$config_home" ] || fail "HOME/.config must not be a symlink"
+    if [ ! -e "$config_home" ]; then
+        mkdir -m 700 -- "$config_home" || fail "Cannot create container-private HOME/.config"
+    fi
+    [ -d "$config_home" ] || fail "HOME/.config must be a directory"
+    [ "$(realpath "$config_home")" = "$config_home" ] || fail "HOME/.config must be canonical"
+    [ "$(findmnt -n -o TARGET -T "$config_home")" = / ] \
+        || fail "HOME/.config must remain container-private; mount selected children only"
+    chown -h -- "$HOST_UID:$HOST_GID" "$config_home" \
+        || fail "Cannot prepare container-private HOME/.config ownership"
+}
+
 [ -n "${DASHBOARD_PASSWORD:-}" ] || fail "DASHBOARD_PASSWORD must be set to a non-empty value"
 [ "$(id -u)" = 0 ] || fail "Start the entrypoint as root; it drops privileges before hooks and the server"
 case "${HOST_USER:-}" in ''|*[!a-zA-Z0-9_-]*|[!a-zA-Z_]*) fail "HOST_USER must be a valid non-root account name" ;; esac
@@ -90,6 +106,7 @@ if [ "${AI_ENABLED:-}" = 1 ]; then
     chmod 700 /dashboard-ai
 fi
 chown "$HOST_UID:$HOST_GID" "$HOST_HOME"
+prepare_config_home
 printf '%s ALL=(root) NOPASSWD:ALL\n' "$HOST_USER" > /etc/sudoers.d/dashboard-operator
 chmod 0440 /etc/sudoers.d/dashboard-operator
 export HOME="$HOST_HOME" USER="$HOST_USER" LOGNAME="$HOST_USER" SHELL=/bin/zsh
