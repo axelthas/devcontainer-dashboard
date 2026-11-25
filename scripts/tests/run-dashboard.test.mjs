@@ -207,6 +207,7 @@ test('registry mode: pulls the default image and runs attached with stable volum
 		'ghcr.io/axelthas/devcontainer-dashboard:latest'
 	]);
 	const run = runCall(r);
+	assert.equal(run.args[run.args.indexOf('--name') + 1], 'devharbour');
 	assert.ok(run.args.includes('--rm'));
 	assert.ok(run.args.includes('127.0.0.1:3000:3000'));
 	assert.ok(run.args.includes('dashboard_data:/data'));
@@ -734,7 +735,7 @@ test('build mode: unique default name, default workspace and loopback publicatio
 	assert.equal(r.status, 0, r.stderr);
 	const run = runCall(r);
 	const name = run.args[run.args.indexOf('--name') + 1];
-	assert.match(name, /^ddash-local-abcdef123456-\d+-\d+$/);
+	assert.match(name, /^devharbour-local-abcdef123456-\d+-\d+$/);
 	assert.ok(
 		run.args.includes(
 			'type=bind,source=/home/operator/ddash-production-workspace,target=/home/operator/ddash-production-workspace'
