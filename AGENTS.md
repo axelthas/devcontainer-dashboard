@@ -20,9 +20,11 @@ A SvelteKit web dashboard for managing and monitoring local Docker containers. D
 `/settings` edits the same host JSON as the Python CLI through
 `src/lib/server/settings.ts` and `scripts/devharbour_settings.py`. The fixed
 bridge owns the shared schema, flock and atomic writes. Keep secrets out of read
-responses and preserve stale-editor checks. Save is desired state only; all
-current apply policies are Recreate through host `devharbour apply`. Do not add
-self-removal from the web process. See the Settings feature specification.
+responses and preserve stale-editor checks. Save only is desired state. `devharbour_apply.py` runs reviewed recreation in a
+separate, one-shot same-image helper, never by removing the web process from
+inside itself. Keep the exact-container/revision guards, shared CLI lock and
+redacted persistent ledger. Progress must reflect real phases and readiness.
+See the Settings feature specification.
 
 ## Build & Test
 

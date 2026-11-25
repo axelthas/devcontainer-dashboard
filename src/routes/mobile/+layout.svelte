@@ -8,6 +8,7 @@
 	import { provideBrainAccess } from '$lib/brainAccess.svelte';
 	import { trackVisualViewport } from '$lib/visualViewport.svelte';
 	import { provideMobileDashboard, type MobileInitialData } from '$lib/mobile/dashboard.svelte';
+	import SettingsBanner from '$lib/settings/SettingsBanner.svelte';
 	import MHostSheet from '$lib/components/mobile/MHostSheet.svelte';
 	import MTabBar from '$lib/components/mobile/MTabBar.svelte';
 	import MBrainStrip from '$lib/components/mobile/MBrainStrip.svelte';
@@ -97,6 +98,7 @@
 		style:padding-left="env(safe-area-inset-left)"
 		style:padding-right="env(safe-area-inset-right)"
 	>
+		{#if !fullscreen}<SettingsBanner />{/if}
 		{@render children()}
 	</div>
 	{#if !fullscreen}

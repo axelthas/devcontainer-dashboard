@@ -157,11 +157,11 @@ The review must explain interruption and recovery:
 - A failed deployment leaves desired state saved but not applied. Report durable
   operation status and actionable retry/recovery instructions.
 
-A later external apply helper can deliver the mockup's one-click flow. Specify
-its identity, exact target, lock handoff, narrow operation contract, durable status,
-health checks, failure recovery and cleanup before enabling it. The helper must
-survive replacement of the requesting process. Treat it as a separate validated
-phase, not an optimistic self-removal call from the web server.
+The external apply helper delivers the mockup's one-click flow as specified in
+the implementation record below. It has an exact target, lock handoff, narrow
+operation contract, durable status, readiness checks and failure recovery. It
+survives replacement of the requesting process; the web server never removes
+itself directly.
 
 ## Compatibility and non-goals
 
@@ -204,9 +204,45 @@ cross-process lock handling, and host-CLI apply. The Settings page is available
 from both interfaces. All apply policies are conservatively Recreate. Tailscale
 origin discovery remains in the host wizard, with manual origin entry in the UI.
 
-Live application, per-build environment loading and a self-recreate helper are not
-implemented. Real Docker mount/replacement, native-host discovery and Tailscale
+At the initial implementation commit, live application, per-build environment
+loading and the independent recreate helper were not implemented. Real Docker mount/replacement, native-host discovery and Tailscale
 acceptance remain outstanding; browser tests use a disposable custom server and
 mocked CLI tests do not prove Docker behavior. See the PR for exact validation
 commands, revision and results. The original mockup remains a design reference,
 not a claim that every simulated interaction is shipped.
+
+## Full-width layout and independent apply implementation
+
+The header now has edge-aligned branding and controls, viewport-centered status
+pills, and a circular Settings cog. Pills move to another row before collisions.
+The Settings category rail remains fixed-width; settings and JSON share the rest
+of the viewport with a draggable/keyboard separator. Narrow layouts use inline
+JSON preview. The draft dock offers Discard, Save only and Save & recreate.
+
+The shared saved-change banner persists across desktop/mobile/Settings and page
+reloads. An authenticated review endpoint validates an unsaved candidate without
+saving it and issues a 10-minute token bound to desired/input revision and current
+owned container. Queue requires explicit replacement confirmation and separate
+increased-exposure approval. Expired, changed and duplicate operations are refused.
+
+The queue saves the reviewed desired state and launches an independent helper
+from the running image ID. It runs as the numeric operator, retains necessary
+supplementary groups for Docker, drops capabilities and has read-only root storage.
+Only config-directory and Docker-socket binds are writable; reviewed external
+inputs/workspace/source are read-only. No host-home mount or arbitrary command
+API is introduced. A short delay lets the queue response reach the browser.
+
+The worker uses the authoritative CLI, not a second deployment implementation.
+It guards desired/input revision after acquiring the exclusive lock, prepares the
+image before stopping anything, rechecks exact container identity, recreates and
+checks app/Docker/SSH-agent readiness. Last-applied state advances only after
+readiness. Durable phases are queued, validate, image, recreate, health, succeeded
+and failed. Worker death is reconciled only after checking Docker; a Docker outage
+is not treated as proof of worker death. Old helper containers auto-remove after
+exit, but operation/review state remains private for recovery.
+
+Browser disconnect does not cancel apply. The banner distinguishes interruption
+from success and directs the user to the configured new address and a fresh login.
+There is no automatic rollback or automatic devcontainer rebuild. Live/per-build
+application remains deferred. Real Docker/Tailscale replacement is a separate
+acceptance step; mocked Docker regressions and fixture progress are not that proof.

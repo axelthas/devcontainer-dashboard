@@ -2,7 +2,7 @@
  * No real Docker actions, existing configurations or operator credentials are used.
  */
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -103,15 +103,27 @@ async function main() {
 		await page.waitForURL(origin + '/settings');
 		await page.getByLabel('DevHarbour web port', { exact: true }).waitFor();
 		assert.ok(!(await page.content()).includes('redaction-fixture-12345'));
+		await page.setViewportSize({ width: 1920, height: 1080 });
+		const geometry = await page.evaluate(() => ({
+			layout: document.querySelector('.layout').getBoundingClientRect().width,
+			mirror: document.querySelector('#settings-json-preview').getBoundingClientRect().width
+		}));
+		assert.ok(geometry.layout > 1800, 'Settings remains width-capped');
+		assert.ok(geometry.mirror > 500, 'JSON column does not share remaining width');
+		const separator = page.getByRole('separator', { name: 'Resize settings and JSON' });
+		await separator.focus();
+		await page.keyboard.press('ArrowLeft');
+		assert.equal(await separator.getAttribute('aria-valuenow'), '45');
 		const stale = await context.newPage();
 		await stale.goto(origin + '/settings');
+		await stale.getByLabel('DevHarbour web port', { exact: true }).waitFor();
 		await page.getByLabel('DevHarbour web port', { exact: true }).fill('3010');
-		await page.getByRole('button', { name: 'Review and save' }).click();
+		await page.getByRole('button', { name: 'Save only', exact: true }).click();
 		await page.getByRole('dialog').getByRole('button', { name: 'Save only' }).click();
-		await page.getByText('Saved on the host.', { exact: false }).waitFor();
+		await page.getByText('Saved. Review and recreate', { exact: false }).waitFor();
 		assert.equal(JSON.parse(await readFile(configPath, 'utf8')).settings.port, 3010);
 		await page.locator('#access-mode').selectOption('custom');
-		await page.getByRole('button', { name: 'Review and save' }).click();
+		await page.getByRole('button', { name: 'Save only', exact: true }).click();
 		assert.equal(
 			await page.getByRole('dialog').getByRole('button', { name: 'Save only' }).isDisabled(),
 			true
@@ -123,7 +135,7 @@ async function main() {
 			undefined
 		);
 		await stale.getByLabel('DevHarbour web port', { exact: true }).fill('3011');
-		await stale.getByRole('button', { name: 'Review and save' }).click();
+		await stale.getByRole('button', { name: 'Save only', exact: true }).click();
 		await stale.getByRole('dialog').getByRole('button', { name: 'Save only' }).click();
 		await stale
 			.getByRole('dialog')
@@ -169,6 +181,66 @@ async function main() {
 			await page.getByLabel('DevHarbour web port', { exact: true }).inputValue(),
 			'3010'
 		);
+
+		const now = Math.floor(Date.now() / 1000);
+		const operation = {
+			id: 'a'.repeat(32),
+			helperName: 'fixture-helper',
+			phase: 'health',
+			message: 'Checking fixture readiness',
+			startedAt: now,
+			updatedAt: now,
+			targetUrl: origin,
+			previousUrl: origin
+		};
+		await writeFile(configPath + '.apply.json', JSON.stringify(operation), { mode: 0o600 });
+		await page.getByText('Checking fixture readiness', { exact: true }).waitFor();
+		assert.equal(await page.getByRole('list', { name: 'Apply progress' }).count(), 1);
+		const updateState = spawnSync(
+			'python3',
+			[
+				'-c',
+				`import sys;from pathlib import Path;sys.path.insert(0,'scripts');import devharbour as c;p=Path(sys.argv[1]);v=c.read_json(p);r=c.normalized(v,p.parent);c.atomic_json(p.with_name(p.name+'.state.json'),{'schemaVersion':1,'fingerprint':c.desired_fingerprint(v,r),'appliedAt':int(__import__('time').time()),'deployment':{'instanceName':v['instanceName'],'restartPolicy':v['restartPolicy'],**r},'inputDigests':{}})`,
+				configPath
+			],
+			{ encoding: 'utf8' }
+		);
+		assert.equal(updateState.status, 0, updateState.stderr);
+		operation.phase = 'succeeded';
+		operation.message = 'DevHarbour is ready';
+		await writeFile(configPath + '.apply.json', JSON.stringify(operation), { mode: 0o600 });
+		await page.getByText('DevHarbour is ready', { exact: true }).waitFor();
+		assert.equal(
+			await page.getByText('Saved changes are waiting to apply', { exact: true }).count(),
+			0
+		);
+
+		await page.goto(origin + '/');
+		await page.getByRole('link', { name: 'Settings', exact: true }).waitFor();
+		const header = await page.evaluate(() => {
+			const logo = document.querySelector('.dashboard-header-grid img').getBoundingClientRect();
+			const pills = document.querySelector('.dashboard-header-pills').getBoundingClientRect();
+			const controls = document.querySelector('.dashboard-header-controls').getBoundingClientRect();
+			return {
+				left: logo.left,
+				center: pills.x + pills.width / 2,
+				right: controls.right,
+				width: window.innerWidth
+			};
+		});
+		assert.ok(
+			header.left <= 25 && header.right >= header.width - 25,
+			'header does not use full width'
+		);
+		assert.ok(Math.abs(header.center - header.width / 2) < 2, 'pills are not centered in viewport');
+		assert.equal(await page.locator('a[aria-label="Settings"] svg').count(), 1);
+		await page.setViewportSize({ width: 800, height: 1000 });
+		assert.ok(
+			await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+			'narrow desktop header overflows'
+		);
+		await page.goto(origin + '/settings');
+		await page.getByLabel('DevHarbour web port', { exact: true }).waitFor();
 		await page.setViewportSize({ width: 390, height: 844 });
 		assert.ok(
 			await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
@@ -180,7 +252,7 @@ async function main() {
 		);
 		assert.deepEqual(problems, []);
 		console.log(
-			'PASS: production auth/origin checks, desktop save, stale-editor rejection, env/password rotation, secret redaction, mobile width and theme.'
+			'PASS: production auth/origin checks, full-width header and Settings split, keyboard resizing, save/stale editors, secret rotation/redaction, persistent progress and narrow layouts.'
 		);
 	} finally {
 		await browser?.close();

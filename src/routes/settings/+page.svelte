@@ -1,10 +1,12 @@
 <script lang="ts">
-	/** One desired-state editor for the managed host CLI. Saves never deploy. */
+	/** Save only edits desired state; reviewed recreation runs in an independent worker. */
 	import { untrack, onMount } from 'svelte';
 	import { beforeNavigate } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { ArrowLeft, Settings, Sun, Moon, Copy, RefreshCw } from 'lucide-svelte';
+	import { ArrowLeft, Settings, Sun, Moon, RefreshCw } from 'lucide-svelte';
 	import puffin from '$lib/assets/favicon.svg';
+	import SettingsBanner from '$lib/settings/SettingsBanner.svelte';
+	import ApplyControl from '$lib/settings/ApplyControl.svelte';
 	import SettingField from '$lib/settings/SettingField.svelte';
 	import EnvironmentEditor from '$lib/settings/EnvironmentEditor.svelte';
 	import {
@@ -21,6 +23,8 @@
 		untrack(() => (data.settings.available ? structuredClone(data.settings.config) : null))
 	);
 	let section = $state('access');
+	let jsonShare = $state(40);
+	let splitArea = $state<HTMLDivElement>();
 	let dark = $state(true);
 	let busy = $state(false);
 	let error = $state('');
@@ -82,10 +86,39 @@
 
 	onMount(() => {
 		dark = localStorage.getItem('devcontainer-dashboard-theme') !== 'light';
+		const saved = Number(localStorage.getItem('devharbour-settings-json-share'));
+		if (saved >= 25 && saved <= 60) jsonShare = saved;
 	});
 	beforeNavigate(({ cancel }) => {
 		if (anyDirty && !window.confirm('Discard unsaved Settings changes?')) cancel();
 	});
+	/** Resize the settings/JSON columns while keeping both usable. */
+	function resizeSplit(event: PointerEvent) {
+		if (event.button !== 0 || !splitArea) return;
+		event.preventDefault();
+		const rect = splitArea.getBoundingClientRect();
+		const change = (next: PointerEvent) =>
+			setShare((100 * (rect.right - next.clientX)) / (rect.width - 224));
+		const stop = () => {
+			window.removeEventListener('pointermove', change);
+			window.removeEventListener('pointerup', stop);
+			window.removeEventListener('pointercancel', stop);
+		};
+		window.addEventListener('pointermove', change);
+		window.addEventListener('pointerup', stop);
+		window.addEventListener('pointercancel', stop);
+	}
+	/** Persist a bounded layout preference, never configuration values. */
+	function setShare(value: number) {
+		jsonShare = Math.max(25, Math.min(60, value));
+		localStorage.setItem('devharbour-settings-json-share', String(jsonShare));
+	}
+	function splitKeys(event: KeyboardEvent) {
+		if (!['ArrowLeft', 'ArrowRight', 'Home'].includes(event.key)) return;
+		event.preventDefault();
+		setShare(event.key === 'Home' ? 40 : jsonShare + (event.key === 'ArrowLeft' ? 5 : -5));
+	}
+
 	/** Warn for reload/close without persisting sensitive draft input. */
 	function leaving(event: BeforeUnloadEvent) {
 		if (anyDirty) {
@@ -185,7 +218,7 @@
 			password = '';
 			repeat = '';
 			review?.close();
-			message = 'Saved on the host. Run the apply command below to recreate DevHarbour.';
+			message = 'Saved. Review and recreate from the pending-changes banner when ready.';
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Settings could not be saved.';
 			throw cause;
@@ -216,8 +249,13 @@
 		}
 	}
 	/** Reload fresh host state without silently discarding any draft. */
-	async function reload() {
-		if (anyDirty && !window.confirm('Discard draft changes and reload from the host?')) return;
+	async function reload(checkDraft = true) {
+		if (
+			checkDraft &&
+			anyDirty &&
+			!window.confirm('Discard draft changes and reload from the host?')
+		)
+			return;
 		busy = true;
 		try {
 			const response = await fetch(resolve('/api/settings'), { cache: 'no-store' });
@@ -235,35 +273,35 @@
 			busy = false;
 		}
 	}
-	/** Copy only the non-secret host command; never invoke a shell from the browser. */
-	async function copy() {
-		try {
-			await navigator.clipboard.writeText(snapshot?.applyCommand ?? '');
-			message = 'Host apply command copied.';
-		} catch {
-			error = 'Clipboard unavailable. Select and copy the command manually.';
-		}
-	}
 </script>
 
 <svelte:head><title>Settings | DevHarbour</title></svelte:head>
 <svelte:window onbeforeunload={leaving} />
-<div class:light={!dark} class="settings-app">
+<div class:light={!dark} class:dark class:has-draft={dirty} class="settings-app">
 	<header>
 		<div class="header-inner">
 			<img src={puffin} width="34" height="34" alt="" /><strong>DevHarbour</strong><span class="dim"
 				>/ Settings</span
 			>
 			<div class="header-actions">
-				<button type="button" onclick={reload} disabled={busy} aria-label="Reload Settings"
-					><RefreshCw size={17} /></button
+				<button
+					type="button"
+					onclick={() => void reload()}
+					disabled={busy}
+					aria-label="Reload Settings"><RefreshCw size={17} /></button
 				><button type="button" onclick={theme} aria-label="Toggle theme"
 					>{#if dark}<Sun size={17} />{:else}<Moon size={17} />{/if}</button
 				><a href={resolve('/')}><ArrowLeft size={16} /> Containers</a>
 			</div>
 		</div>
 	</header>
-	<div class="layout">
+	<SettingsBanner initial={snapshot} />
+	<div
+		class="layout"
+		bind:this={splitArea}
+		style:--json-share={`${jsonShare}fr`}
+		style:--fields-share={`${100 - jsonShare}fr`}
+	>
 		<nav aria-label="Settings sections">
 			{#each SECTIONS as item (item.id)}<button
 					type="button"
@@ -289,27 +327,13 @@
 					<h2>Managed Settings unavailable</h2>
 					<p>{current.message}</p>
 					<p>
-						This page does not create a second config. Reinstall the updated host CLI, then review <code
+						Settings are temporarily locked while applying. If no operation is active and the config
+						mount is absent, reinstall the updated host CLI, then review <code
 							>devharbour apply</code
 						> to add the private config-directory mount.
 					</p>
 				</div>
 			{:else if snapshot && draft}
-				{#if snapshot.pending}<div class="notice pending">
-						<strong>Saved configuration is not confirmed applied.</strong>
-						<p>Save does not change the running container. Apply on the Docker host:</p>
-						<div class="command">
-							<code>{snapshot.applyCommand}</code><button
-								type="button"
-								onclick={copy}
-								aria-label="Copy apply command"><Copy size={16} /></button
-							>
-						</div>
-						<small
-							>Review the exact replacement there. Sessions and DevHarbour-owned terminals end; the
-							writable layer is lost. Retained volumes stay. Log in again after recreation.</small
-						>
-					</div>{/if}
 				{#if section === 'env'}
 					<fieldset disabled={busy || environmentDirty}>
 						<legend class="sr-only">Environment file paths</legend>
@@ -485,7 +509,23 @@ devharbour setup</pre>
 				</div>
 			{/if}
 		</main>
-		{#if snapshot && draft}<aside>
+		{#if snapshot && draft}
+			<!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+			<div
+				class="splitter"
+				role="separator"
+				tabindex="0"
+				aria-label="Resize settings and JSON"
+				aria-controls="settings-json-preview"
+				aria-orientation="vertical"
+				aria-valuemin={25}
+				aria-valuemax={60}
+				aria-valuenow={Math.round(jsonShare)}
+				onpointerdown={resizeSplit}
+				onkeydown={splitKeys}
+				ondblclick={() => setShare(40)}
+			></div>
+			<aside id="settings-json-preview">
 				<div class="mirror">
 					<div class="mirror-heading">
 						<span>config.json</span><small>{dirty ? 'Draft' : 'Saved desired state'}</small>
@@ -506,8 +546,15 @@ devharbour setup</pre>
 				type="button"
 				onclick={() => reviewSave()}
 				class="primary"
-				disabled={busy || environmentDirty}>Review and save</button
+				disabled={busy || environmentDirty}>Save only</button
 			>
+			{#if snapshot && draft}<ApplyControl
+					{snapshot}
+					candidate={draft}
+					label="Save & recreate"
+					disabled={busy || environmentDirty}
+					onqueued={() => void reload(false)}
+				/>{/if}
 		</div>{/if}
 	<dialog
 		bind:this={review}
@@ -588,7 +635,7 @@ devharbour setup</pre>
 		display: flex;
 		align-items: center;
 		gap: 0.7rem;
-		max-width: 1440px;
+		width: 100%;
 		margin: auto;
 		padding: 0.85rem 1.5rem;
 	}
@@ -611,7 +658,7 @@ devharbour setup</pre>
 	.layout {
 		display: grid;
 		gap: 1.5rem;
-		max-width: 1440px;
+		width: 100%;
 		margin: auto;
 		padding: 1.5rem;
 	}
@@ -677,25 +724,6 @@ devharbour setup</pre>
 	}
 	.success {
 		border-color: #a3be8c;
-	}
-	.pending {
-		border-color: #ebcb8b66;
-	}
-	.pending p {
-		margin: 0.3rem 0;
-	}
-	.command {
-		display: flex;
-		align-items: center;
-		gap: 0.6rem;
-		margin: 0.6rem 0;
-		padding: 0.6rem;
-		background: var(--settings-surface);
-		border-radius: 0.4rem;
-	}
-	.command code {
-		flex: 1;
-		overflow-wrap: anywhere;
 	}
 	small {
 		font-size: 0.75rem;
@@ -813,7 +841,7 @@ devharbour setup</pre>
 	}
 	.mirror pre {
 		overflow: auto;
-		max-height: 70vh;
+		max-height: calc(100dvh - 15rem);
 		padding: 0.8rem 0;
 		line-height: 1.7;
 		color: #a3be8c;
@@ -840,7 +868,7 @@ devharbour setup</pre>
 		bottom: 1rem;
 		left: 1rem;
 		right: 1rem;
-		max-width: 1000px;
+		width: auto;
 		margin: auto;
 		display: flex;
 		flex-wrap: wrap;
@@ -902,9 +930,29 @@ devharbour setup</pre>
 		justify-content: flex-end;
 		gap: 0.5rem;
 	}
+	.splitter {
+		display: none;
+	}
+	@media (min-width: 1280px) {
+		.splitter {
+			display: block;
+			cursor: col-resize;
+			touch-action: none;
+			border-left: 1px solid var(--settings-edge);
+			margin-right: 6px;
+		}
+		.splitter:hover,
+		.splitter:focus-visible {
+			border-color: var(--settings-accent);
+			outline: none;
+		}
+		aside {
+			padding-left: 1rem;
+		}
+	}
 	@media (min-width: 760px) {
 		.layout {
-			grid-template-columns: 180px minmax(0, 1fr);
+			grid-template-columns: 200px minmax(0, 1fr);
 		}
 		nav {
 			flex-direction: column;
@@ -915,8 +963,53 @@ devharbour setup</pre>
 		}
 	}
 	@media (min-width: 1280px) {
+		.settings-app {
+			height: 100dvh;
+			display: flex;
+			flex-direction: column;
+			padding-bottom: 0;
+			overflow: hidden;
+		}
+		.settings-app.has-draft .layout {
+			padding-bottom: 6rem;
+		}
+		header {
+			flex-shrink: 0;
+		}
+		.mirror {
+			position: static;
+		}
 		.layout {
-			grid-template-columns: 180px minmax(0, 1fr) 370px;
+			flex: 1;
+			min-height: 0;
+			height: auto;
+			margin: 0;
+			padding-bottom: 1.5rem;
+			main {
+				overflow-y: auto;
+			}
+			aside {
+				height: 100%;
+				min-height: 0;
+			}
+			.mirror {
+				height: 100%;
+				display: grid;
+				grid-template-rows: auto minmax(0, 1fr) auto;
+			}
+			.mirror pre {
+				max-height: none;
+				min-height: 0;
+			}
+			grid-template-columns: 200px minmax(0, var(--fields-share, 60fr)) 8px minmax(
+					0,
+					var(--json-share, 40fr)
+				);
+			gap: 0;
+			main {
+				padding-right: 1.5rem;
+				padding-left: 1.5rem;
+			}
 		}
 		aside {
 			display: block;

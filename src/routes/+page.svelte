@@ -12,9 +12,11 @@
 		EyeOff,
 		LogOut,
 		Smartphone,
-		BrainCircuit
+		BrainCircuit,
+		Settings
 	} from 'lucide-svelte';
 	import { resolve } from '$app/paths';
+	import SettingsBanner from '$lib/settings/SettingsBanner.svelte';
 	import { untrack } from 'svelte';
 	import brandIcon from '$lib/assets/favicon.svg';
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
@@ -515,9 +517,7 @@
 			bind:offsetHeight={headerHeight}
 			class="sticky top-0 z-10 border-b border-[#d8dee9] bg-[#e5e9f0] transition-colors duration-300 dark:border-[#434c5e] dark:bg-[#3b4252]"
 		>
-			<div
-				class="mx-auto flex max-w-7xl flex-col justify-between gap-4 px-6 py-4 md:flex-row md:items-center"
-			>
+			<div class="dashboard-header-grid">
 				<!-- Logo & Title -->
 				<div class="flex items-center gap-3">
 					<img src={brandIcon} alt="" aria-hidden="true" width="48" height="48" class="shrink-0" />
@@ -531,11 +531,7 @@
 					</div>
 				</div>
 
-				<div class="flex items-center gap-4">
-					<a
-						href={resolve('/settings')}
-						class="text-sm text-[#5e81ac] hover:underline dark:text-[#88c0d0]">Settings</a
-					>
+				<div class="dashboard-header-pills">
 					<!-- Quick stats -->
 					<div class="flex gap-3 text-sm font-medium">
 						<div
@@ -572,7 +568,8 @@
 							>
 						</button>
 					{/if}
-
+				</div>
+				<div class="dashboard-header-controls">
 					<!-- SSH host for VS Code remote connections -->
 					<div
 						class="flex items-center gap-1.5 rounded-lg border border-[#d8dee9] bg-[#eceff4] px-3 py-1.5 dark:border-[#434c5e] dark:bg-[#2e3440]"
@@ -612,6 +609,14 @@
 					</a>
 					<!-- eslint-enable svelte/no-navigation-without-resolve -->
 
+					<a
+						href={resolve('/settings')}
+						aria-label="Settings"
+						title="Settings"
+						class="rounded-full border border-[#d8dee9] bg-[#eceff4] p-2 text-[#4c566a] transition-opacity hover:opacity-80 dark:border-[#434c5e] dark:bg-[#2e3440] dark:text-[#d8dee9]"
+						><Settings size={20} /></a
+					>
+
 					<form method="POST" action="/logout">
 						<button
 							type="submit"
@@ -626,6 +631,7 @@
 			</div>
 		</header>
 
+		<SettingsBanner />
 		<div class="flex items-start" style:--brain-top={`${headerHeight}px`}>
 			<main class="mx-auto mt-8 max-w-7xl min-w-0 flex-1 space-y-12 px-6">
 				{#if containerError || workspaceError || terminalError || networkError}
@@ -883,3 +889,78 @@
 		onSetActive={(id) => (activeTerminalId = id)}
 	/>
 </div>
+
+<style>
+	.dashboard-header-grid {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+		align-items: center;
+		gap: 1rem;
+		width: 100%;
+		padding: 1rem 1.5rem;
+	}
+	.dashboard-header-pills {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.75rem;
+	}
+	.dashboard-header-controls {
+		display: flex;
+		justify-self: end;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 0.75rem;
+	}
+	.dashboard-header-controls > a,
+	.dashboard-header-controls > button,
+	.dashboard-header-controls form button {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 2.5rem;
+		height: 2.5rem;
+		flex-shrink: 0;
+	}
+	@media (max-width: 1399px) {
+		.dashboard-header-grid {
+			grid-template-columns: 1fr auto;
+		}
+		.dashboard-header-pills {
+			grid-column: 1 / -1;
+			grid-row: 2;
+		}
+		.dashboard-header-controls {
+			grid-column: 2;
+			grid-row: 1;
+		}
+	}
+	@media (max-width: 900px) {
+		.dashboard-header-grid {
+			grid-template-columns: minmax(0, 1fr);
+		}
+		.dashboard-header-controls {
+			grid-column: 1;
+			grid-row: 2;
+			justify-self: stretch;
+		}
+		.dashboard-header-pills {
+			grid-column: 1;
+			grid-row: 3;
+		}
+		.dashboard-header-grid {
+			padding: 0.75rem 1rem;
+			gap: 0.75rem;
+		}
+		.dashboard-header-controls {
+			flex-wrap: wrap;
+			gap: 0.5rem;
+		}
+		.dashboard-header-controls input {
+			width: 7rem;
+		}
+		.dashboard-header-pills {
+			flex-wrap: wrap;
+		}
+	}
+</style>

@@ -105,8 +105,11 @@ localhost, Tailscale HTTPS and custom bindings. Tailscale origin discovery stays
 in the host wizard; the web page accepts a validated explicit origin.
 
 **Save only does not deploy.** Every field is conservatively labelled **Recreate**
-until live/per-build application is implemented. The page copies the exact host
-apply command and distinguishes saved configuration from last-applied state:
+until live/per-build application is implemented. The pending-changes banner distinguishes saved configuration from last-applied
+state on desktop, mobile and Settings. Use **Save & recreate** for unsaved edits
+or **Review and recreate** for saved settings. Review the exact diff and approve
+any increased network exposure. The independent worker prepares the image before
+replacement, then checks readiness. The host CLI remains available:
 
 ```bash
 devharbour start
@@ -122,8 +125,22 @@ devharbour setup     # advanced save-only wizard
 Applying a changed deployment retains named volumes but loses the DevHarbour
 container's writable layer and process-local login sessions, grants and PTYs.
 Separate devcontainers normally remain running; orchestration owned by DevHarbour
-can be interrupted. Log in again after recreation. No browser self-recreate helper
-or automatic devcontainer rebuild is included in this version.
+can be interrupted. Log in again after recreation, using the new password if
+rotated. If the origin/port changes, the review provides the new address. No
+automatic rollback or automatic devcontainer rebuild is attempted. A failed
+operation retains its status and host-CLI recovery guidance.
+
+The helper uses the running image, bypasses its application entrypoint, runs with
+the current numeric operator identity/groups, has a read-only root and no added
+capabilities, and mounts only the private config directory, Docker socket and
+reviewed read-only inputs/workspace/source. It never mounts the host home. Docker
+socket access still grants broad host authority; this is not a sandbox for an
+untrusted operator. The CLI rechecks the reviewed config/input revision and exact
+owned container under its shared lock. Progress survives browser/server loss.
+
+Settings uses the full viewport, a category rail and a keyboard/draggable
+settings/JSON divider. The split preference is local layout state, not system
+configuration. Narrow screens show the JSON preview inline instead.
 
 The updated managed launcher mounts the private config directory at its host
 path. Existing installations need one reviewed recreation to add that mount.
