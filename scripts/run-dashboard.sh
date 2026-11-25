@@ -118,6 +118,9 @@ parse_arguments() {
           --password) PASSWORD=$2 ;;
           --password-file) PASSWORD_FILE=$2 ;;
           --env-file) ENV_FILES+=("$2") ;;
+          --brain-token-file) BRAIN=1; BRAIN_TOKEN_FILE=$2 ;;
+          --brain-port) BRAIN=1; BRAIN_PORT=$2 ;;
+          --brain-funnel-port) BRAIN_FUNNEL_PORT=$2 ;;
           --host-user) HOST_USER=$2 ;;
           --host-uid) HOST_UID=$2 ;;
           --host-gid) HOST_GID=$2 ;;
@@ -135,9 +138,6 @@ parse_arguments() {
           --tailscale-socket) TAILSCALE_SOCKET=$2 ;;
           --tailscale-ports) TAILSCALE_PORTS=$2 ;;
           --tailscale-gateway-port) TAILSCALE_GATEWAY_PORT=$2 ;;
-          --brain-token-file) BRAIN_TOKEN_FILE=$2 ;;
-          --brain-port) BRAIN_PORT=$2 ;;
-          --brain-funnel-port) BRAIN_FUNNEL_PORT=$2 ;;
         esac
         shift 2 ;;
       --validate-only) VALIDATE_ONLY=1; shift ;;
@@ -320,7 +320,7 @@ validate_options() {
       fail 'Tailscale mode requires --origin https://node.tailnet.ts.net'
     TAILSCALE_PORTS="${TAILSCALE_PORTS:-8400-8499}"
     TAILSCALE_GATEWAY_PORT="${TAILSCALE_GATEWAY_PORT:-3003}"
-    [[ "$TAILSCALE_PORTS" =~ ^([1-9][0-9]{0,4})-([1-9][0-9]{0,4})$ ]] || fail 'Invalid --tailscale-ports'
+    [[ "$TAILSCALE_PORTS" =~ ^([1-9][0-9]{0,4})-([1-9][0-9]{0,4})$ ]] || fail 'Invalid Tailscale range (max 256 ports)'
     first=${BASH_REMATCH[1]} last=${BASH_REMATCH[2]}
     (( first <= last && last <= 65535 && last-first <= 255 )) || fail 'Invalid Tailscale range (max 256 ports)'
     [[ "$TAILSCALE_GATEWAY_PORT" =~ ^[1-9][0-9]{0,4}$ ]] || fail 'Invalid --tailscale-gateway-port'
@@ -393,7 +393,7 @@ prepare_checkout() {
   script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
   REPO_ROOT=$(git -C "$script_dir" rev-parse --show-toplevel 2>/dev/null) || fail 'Build mode requires a git checkout'
   cd -- "$REPO_ROOT"
-  [[ -f Dockerfile ]] || fail 'No Dockerfile at checkout root: $REPO_ROOT'
+  [[ -f Dockerfile ]] || fail "No Dockerfile at checkout root: $REPO_ROOT"
   REVISION=$(git rev-parse HEAD)
   BRANCH=$(git symbolic-ref --quiet --short HEAD || printf 'detached HEAD')
   DIRTY=false
@@ -588,10 +588,8 @@ main() {
   if [[ "$MODE" == build ]]; then prepare_checkout; else prepare_registry; fi
   prepare_arguments
   print_plan
-  if [[ -n "$MANAGED_NAME" ]]; then run_managed
-  elif [[ "$MODE" == build ]]; then run_build
-  else run_registry
-  fi
+  if [[ "$MODE" == build ]]; then run_build
+  elif [[ -n "$MANAGED_NAME" ]]; then run_managed
+  else run_registry; fi
 }
-
 main "$@"
