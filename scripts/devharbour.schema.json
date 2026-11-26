@@ -222,7 +222,7 @@
 					"minLength": 1,
 					"maxLength": 4096,
 					"pattern": "^[^\\u0000-\\u001f\\u007f]+$",
-					"default": "ghcr.io/axelthas/devcontainer-dashboard:latest"
+					"default": "ghcr.io/axelthas/devharbour:latest"
 				},
 				"name": {
 					"type": "string",

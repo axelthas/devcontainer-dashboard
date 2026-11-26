@@ -12,12 +12,7 @@ import subprocess
 import tempfile
 
 REPOSITORY = 'https://github.com/axelthas/devharbour.git'
-# Existing pinned checkouts may still have the old origin. Do not rewrite them.
-LEGACY_REPOSITORY = 'https://github.com/axelthas/devcontainer-dashboard.git'
-ALLOWED_REMOTES = {
-    REPOSITORY, REPOSITORY[:-4], 'git@github.com:axelthas/devharbour.git',
-    LEGACY_REPOSITORY, LEGACY_REPOSITORY[:-4], 'git@github.com:axelthas/devcontainer-dashboard.git',
-}
+ALLOWED_REMOTES = {REPOSITORY, REPOSITORY[:-4], 'git@github.com:axelthas/devharbour.git'}
 
 
 class SourceError(RuntimeError):

@@ -66,7 +66,7 @@ Other options:
                            Proxy existing all-interface service bindings over HTTPS.
                            Requires --tailscale-socket; original HTTP exposure stays.
   --vscode-ssh-host VALUE  VS Code SSH host.
-  --image REF              Registry image (default ghcr.io/axelthas/devcontainer-dashboard:latest).
+  --image REF              Registry image (default ghcr.io/axelthas/devharbour:latest).
   --build                  Build and run this checkout; never publish an image.
   --platform VALUE         Buildx platform (build only).
   --name NAME              Test container name (build only; default devharbour-local-*).
@@ -293,7 +293,7 @@ validate_options() {
       fail 'Bind sources must be absolute Docker-host paths without commas or newlines'
   done
   if [[ "$MODE" == registry ]]; then
-    IMAGE="${IMAGE:-ghcr.io/axelthas/devcontainer-dashboard:latest}"
+    IMAGE="${IMAGE:-ghcr.io/axelthas/devharbour:latest}"
     BIND_ADDRESS="${BIND_ADDRESS:-127.0.0.1}"; PORT="${PORT:-3000}"
   else PORT="${PORT:-3001}"
   fi
