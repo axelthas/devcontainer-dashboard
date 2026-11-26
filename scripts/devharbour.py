@@ -34,7 +34,7 @@ LOCAL_PATHS = {'password-file', 'source-checkout'}
 HOST_PATHS = {'workspace', 'socket', 'host-home', 'ssh-agent-socket', 'ssh-known-hosts', 'tailscale-socket', 'brain-token-file'}
 REQUIRED = {'host-user', 'host-uid', 'host-gid', 'host-home', 'ssh-agent-socket', 'password-file'}
 DEFAULTS = {'socket': '/var/run/docker.sock', 'port': 3000, 'ai-port': 3002,
-            'bind-address': '127.0.0.1', 'image': 'ghcr.io/axelthas/devcontainer-dashboard:latest'}
+            'bind-address': '127.0.0.1', 'image': 'ghcr.io/axelthas/devharbour:latest'}
 DEFAULT_WORKSPACE_NAME = 'devharbour-workspaces'
 LABEL_OWNER = 'devharbour.config-owner'
 LABEL_FINGERPRINT = 'devharbour.config-fingerprint'

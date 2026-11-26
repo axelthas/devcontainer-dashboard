@@ -2,8 +2,8 @@
 
 Status: initial implementation in draft PR #71. Host-CLI apply is implemented; live/per-build readers and an external apply helper remain deferred.
 
-Work record: [issue #70](https://github.com/axelthas/devcontainer-dashboard/issues/70).
-Parent: [CLI PR #66](https://github.com/axelthas/devcontainer-dashboard/pull/66).
+Work record: [issue #70](https://github.com/axelthas/devharbour/issues/70).
+Parent: [CLI PR #66](https://github.com/axelthas/devharbour/pull/66).
 Design: [interactive Settings mockup](https://app.clickup.com/9012329445/artifact/8cjuez5-123452?version=1).
 Baseline: `feat/65-devharbour-cli` at `9ba441e569a91df00a3ab39d8935c3aa6b492a8f`.
 

@@ -204,7 +204,7 @@ test('registry mode: pulls the default image and runs attached with stable volum
 	assert.match(r.stdout, /Dashboard address/);
 	assert.deepEqual(r.calls.find((c) => c.args[0] === 'pull').args, [
 		'pull',
-		'ghcr.io/axelthas/devcontainer-dashboard:latest'
+		'ghcr.io/axelthas/devharbour:latest'
 	]);
 	const run = runCall(r);
 	assert.equal(run.args[run.args.indexOf('--name') + 1], 'devharbour');
@@ -223,7 +223,7 @@ test('registry mode: pulls the default image and runs attached with stable volum
 		['operator', '2345', '3456', '/home/operator']
 	);
 	assert.equal(run.passwordChars, 14);
-	assert.equal(run.args.at(-1), 'ghcr.io/axelthas/devcontainer-dashboard:latest');
+	assert.equal(run.args.at(-1), 'ghcr.io/axelthas/devharbour:latest');
 	// adapter-node rejects an empty ORIGIN at startup, so a blank origin is not forwarded.
 	assert.ok(!run.args.includes('ORIGIN'));
 	assert.ok(run.args.includes('HOST_HOSTNAME='));
@@ -400,7 +400,7 @@ test('ignores the removed environment-variable interface', (t) => {
 		)
 	);
 	assert.equal(run.passwordChars, 14);
-	assert.equal(run.args.at(-1), 'ghcr.io/axelthas/devcontainer-dashboard:latest');
+	assert.equal(run.args.at(-1), 'ghcr.io/axelthas/devharbour:latest');
 	assert.ok(!run.args.includes('dev-bootstrap'));
 	assert.ok(!run.args.some((a) => a.includes('/.ssh')));
 });

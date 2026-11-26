@@ -11,8 +11,8 @@ import shutil
 import subprocess
 import tempfile
 
-REPOSITORY = 'https://github.com/axelthas/devcontainer-dashboard.git'
-ALLOWED_REMOTES = {REPOSITORY, REPOSITORY[:-4], 'git@github.com:axelthas/devcontainer-dashboard.git'}
+REPOSITORY = 'https://github.com/axelthas/devharbour.git'
+ALLOWED_REMOTES = {REPOSITORY, REPOSITORY[:-4], 'git@github.com:axelthas/devharbour.git'}
 
 
 class SourceError(RuntimeError):

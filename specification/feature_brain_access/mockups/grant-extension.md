@@ -1,6 +1,6 @@
 # Mockup: extend a Brain grant
 
-Issue: [#67](https://github.com/axelthas/devcontainer-dashboard/issues/67). The behaviour is specified in [Grant extension](../feature_specification_brain_access.md#grant-extension).
+Issue: [#67](https://github.com/axelthas/devharbour/issues/67). The behaviour is specified in [Grant extension](../feature_specification_brain_access.md#grant-extension).
 
 [`grant-extension.html`](grant-extension.html) is the design mockup. It is one static file. It loads no network resources and no application code. The implementation is the authority where the two differ.
 
