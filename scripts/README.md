@@ -286,13 +286,13 @@ CLI and launcher into a versioned user-local runtime directory. `--ref COMMIT`
 selects a remote GitHub revision instead of `--source`. Without either option, the
 installer resolves `main` to one immutable commit before downloading its archive.
 It reads only allowlisted regular runtime files from the archive rather than
-extracting arbitrary archive paths. The source checkout is a separate verified
-Git operation. Pinned terminal packages install into a private Python environment.
+extracting arbitrary archive paths. It records the revision for local builds
+without cloning the repository. Pinned terminal packages install into a private
+Python environment.
 
-Required host tools: Linux, Python 3.9+ with venv/pip, Bash, Git and Docker. Use an
-existing non-root Docker operator. Host Node.js, npm and sudo are not needed.
-The installer retains a pinned checkout by default; `--no-checkout` defers the
-clone until a local build is requested. Docker Buildx is needed for local builds.
+Required host tools for the published image: Linux, Python 3.9+ with venv/pip,
+Bash, curl and Docker. Use an existing non-root Docker operator. Host Node.js,
+npm and sudo are not needed. Git and Docker Buildx are needed for local builds.
 Optional integrations retain their own prerequisites. The installer never
 provisions Docker/Tailscale or changes host permissions.
 
@@ -403,11 +403,10 @@ setup approval. Non-interactive flags remain available and do not import the
 terminal dependencies.
 
 The one-command installer creates a versioned private Python virtual environment
-with the pinned `requirements-cli.txt` dependencies. It retains a clean Git source
-checkout at `source/<commit>` and records it in `SOURCE.json`; it does not install
-system packages. Git and Python venv/pip are prerequisites. `--no-checkout` leaves
-source acquisition until a local build is requested. Local `--source` installation
-copies the current CLI files but does not reset or modify that checkout.
+with the pinned `requirements-cli.txt` dependencies. It records the source
+revision in `SOURCE.json` without cloning a checkout or installing system
+packages. Local `--source` installation uses Git to identify the checkout revision
+and copies the current CLI files without modifying the checkout.
 
 Choose published images or **Build locally** in the run-mode step. Local builds
 can use the installed revision, `main`, or an entered branch/tag/commit. New source
