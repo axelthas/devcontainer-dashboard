@@ -34,16 +34,15 @@ stopped explicitly. The browser remembers deselected services for the sandbox
 kind, defined by repository name and ordered file selection. Newly added services
 therefore start selected.
 
-| Action | Effect |
-| --- | --- |
-| Build | Build selected services. |
-| Start | Start in detached mode without pulling. A missing registry image produces a message to use Pull or Pull and start. |
-| Build and start | Build and start in detached mode. |
-| Pull | Pull registry images. Skip buildable services. |
-| Pull and start | Pull first. Start only after a successful pull. |
-| Stop | Stop the project without deleting containers or volumes. |
-| Stop unselected | Stop running services outside the selection. |
-| Service logs | Follow selected service logs in the terminal drawer. |
+- **Build** builds selected services.
+- **Start** starts in detached mode without pulling. If a registry image is
+  missing, use **Pull** or **Pull and start**.
+- **Build and start** builds and starts in detached mode.
+- **Pull** pulls registry images and skips buildable services.
+- **Pull and start** starts only after a successful pull.
+- **Stop** stops the project without deleting containers or volumes.
+- **Stop unselected** stops running services outside the selection.
+- **Service logs** follows selected service logs in the terminal drawer.
 
 An active operation survives browser reload, disconnect, or panel close.
 Cancelling an operation stops the process, not resources that it already created.

@@ -6,15 +6,13 @@ work log or a list of implementation steps.
 
 ## Find a specification
 
-| Topic | Specification |
-| --- | --- |
-| Product overview | [DevHarbour product specification](initial_specification.md) |
-| Bootstrap | [Local workspaces, terminals, and bootstrap](feature_bootstrap/feature_specification_bootstrap.md) |
-| Brain access | [Brain shell access over MCP](feature_brain_access/feature_specification_brain_access.md) |
-| Compose | [Compose sandboxes](feature_compose_sandbox/feature_specification_compose_sandbox.md) |
-| Git | [Git ref menu](feature_git_refs/feature_specification_git_refs.md) |
-| Settings | [Managed Settings and recreation](feature_settings/feature_specification_settings.md) |
-| Terminal engines | [Terminal engine switcher](feature_terminal_engines/feature_specification_terminal_engines.md) |
+- [DevHarbour product specification](initial_specification.md)
+- [Local workspaces, terminals, and bootstrap](feature_bootstrap/feature_specification_bootstrap.md)
+- [Brain shell access over MCP](feature_brain_access/feature_specification_brain_access.md)
+- [Compose sandboxes](feature_compose_sandbox/feature_specification_compose_sandbox.md)
+- [Git ref menu](feature_git_refs/feature_specification_git_refs.md)
+- [Managed Settings and recreation](feature_settings/feature_specification_settings.md)
+- [Terminal engine switcher](feature_terminal_engines/feature_specification_terminal_engines.md)
 
 Use the [project README](../README.md) for operator instructions, the
 [architecture reference](../ARCHITECTURE.md) for system structure, and the

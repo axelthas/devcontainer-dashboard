@@ -25,13 +25,13 @@ service from the dashboard.
 
 ## Interfaces and constraints
 
-| Contract | Reference |
-| --- | --- |
-| Initial dashboard data | [Page server loader](../src/routes/+page.server.ts) |
-| Container refresh and actions | [Container API routes](../src/routes/api/containers/) |
-| Shared response types | [Shared types](../src/lib/types.ts) |
-| Production HTTP and terminal WebSocket entry point | [Custom server](../src/server.ts) and [build guidance](../AGENTS.md#build--test) |
-| Installation and deployment | [Quickstart](../README.md#quickstart) and [CLI reference](../scripts/README.md) |
+- Initial dashboard data: [page server loader](../src/routes/+page.server.ts).
+- Container refresh and actions: [container API routes](../src/routes/api/containers/).
+- Shared response types: [shared types](../src/lib/types.ts).
+- Production HTTP and terminal WebSocket: [custom server](../src/server.ts) and
+  [build guidance](../AGENTS.md#build--test).
+- Installation and deployment: [quickstart](../README.md#quickstart) and
+  [CLI reference](../scripts/README.md).
 
 The application requires access to the local Docker daemon. Anyone who can sign
 in with the dashboard password has operator access. Use localhost or a trusted
