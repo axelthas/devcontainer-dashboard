@@ -339,3 +339,53 @@ export interface RemovalResult {
 	result: 'removed' | 'kept' | 'failed';
 	reason?: string;
 }
+
+/** One branch or tag in the Git ref menu. Lists are ordered newest commit first. */
+export interface GitRefEntry {
+	/** Short name, for example `main`, `origin/main` or `v1.0.2`. */
+	name: string;
+	/** Abbreviated commit SHA. */
+	sha: string;
+	/** ISO 8601 committer date (tags: creation date). Undefined when Git cannot report it. */
+	date?: string;
+}
+
+/** A local branch with its upstream state. */
+export interface GitLocalBranch extends GitRefEntry {
+	/** Upstream short name, for example `origin/main`. */
+	upstream?: string;
+	ahead?: number;
+	behind?: number;
+	/** True when the configured upstream no longer exists on the remote. */
+	upstreamGone?: boolean;
+}
+
+/** A remote-tracking branch. */
+export interface GitRemoteBranch extends GitRefEntry {
+	/** Remote name, for example `origin`. */
+	remote: string;
+	/** Branch name on the remote, for example `feat/x`. */
+	branch: string;
+	/** True when a local branch with the same name exists. Checkout then selects that branch. */
+	hasLocal: boolean;
+}
+
+/** Local branches, remote branches and tags, each newest first. */
+export interface GitRefs {
+	local: GitLocalBranch[];
+	remote: GitRemoteBranch[];
+	tags: GitRefEntry[];
+	/** Time of the last fetch (modification time of `.git/FETCH_HEAD`). */
+	lastFetchedAt?: string;
+}
+
+/** Response of `GET /api/repos/branches`. `branches` and `tags` stay for older clients. */
+export interface RepoRefsResponse {
+	branches: string[];
+	tags: string[];
+	currentBranch?: string;
+	currentTag?: string;
+	/** Ordered refs. Undefined when `git for-each-ref` fails; `refsError` then explains why. */
+	refs?: GitRefs;
+	refsError?: string;
+}
