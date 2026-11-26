@@ -1,6 +1,6 @@
 # Terminal engine switcher
 
-Part of [#42](https://github.com/axelthas/devcontainer-dashboard/issues/42). Replaces the
+Part of [#42](https://github.com/axelthas/devharbour/issues/42). Replaces the
 selector design of draft PR #44. PR #44 stays a technical reference for the engine adapters.
 
 ![Terminal engine switcher](terminal_engine_switcher.svg)
