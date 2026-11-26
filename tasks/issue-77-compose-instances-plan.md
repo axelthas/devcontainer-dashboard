@@ -33,12 +33,35 @@ Constraints that every step keeps:
 - No environment values, secrets or build arguments in responses or in files.
 - Client components do not import `$lib/server/`. Svelte 5 runes and Nord styling.
 
+## Step 0 recommendations (pending review)
+
+Keep this work in the draft PR for #77. Review the kinds and presenters as a
+separate slice in the same PR. A presenter must not depend on the instance store.
+
+- Use **selection key** for the existing repository and file identity. Do not
+  migrate stored keys. Use **kind** only for classification.
+- Keep the `devcontainer-dashboard.*` label prefix for compatibility.
+- Use the workspace-local `.devharbour/instances` directory. Verify that the
+  Docker daemon can resolve its bind paths before enabling rendered-file mounts.
+- Make the default pool configurable. Use `10.231.{slot}.0/24` as the proposed
+  default, support reserved CIDRs, and fail closed on overlap or exhaustion.
+- Keep volumes on removal. Do not add a volume-delete option.
+- Bind published instance ports to loopback and let Docker allocate the ports.
+  Defer fixed port offsets and non-loopback publishing.
+- Use built-in presenters with declarative configuration. Do not load presenter
+  code from repositories.
+- Render workspace files only. Do not extract files from images.
+- Leave automatic startup modes to the solution images. DevHarbour offers only
+  explicitly triggered choice actions.
+- Gate instances at runtime on Compose 2.24.4 or later. Do not change the
+  Compose version requirement for the original sandbox.
+
+The plan remains at step 0 until these recommendations are reviewed.
+
 ## Prerequisites and stop conditions
 
 - Environment: the DevHarbour devcontainer, Node 22, Docker Compose 2.24.4 or
   later for `!override`. The devcontainer has Compose v5.8.0.
-- Before step 1, ask whether to use local source libraries or system-installed
-  libraries for the build.
 - Recheck the baseline. Stop and ask if `src/lib/server/compose*`,
   `src/lib/composeCommands.ts` or the Compose components changed.
 - Stop for review after step 0, after step 3 (planner output on fixtures) and
