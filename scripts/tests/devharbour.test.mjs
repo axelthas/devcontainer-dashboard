@@ -686,7 +686,7 @@ test('switching local build back to published mode restores the registry image d
 	c.settings.image = 'sha256:' + 'a'.repeat(64);
 	f.save(c);
 	ok(f.exec(['configure', '--image-source', 'published']));
-	assert.equal(f.read().settings.image, 'ghcr.io/axelthas/devcontainer-dashboard:latest');
+	assert.equal(f.read().settings.image, 'ghcr.io/axelthas/devharbour:latest');
 });
 
 test('installer creates a private devcontainer env file once and never overwrites it', (t) => {
