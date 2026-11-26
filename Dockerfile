@@ -14,8 +14,9 @@ RUN bun /dashboard/scripts/patch-openchamber.mjs /source \
     && bun run --cwd packages/sdk build \
     && bun run build:web
 
-# Keep native modules on the same Node major in both dashboard stages.
-FROM node:24-bookworm-slim AS builder
+# Use the same Node distribution for native module builds and the runtime.
+FROM node:24-bookworm-slim AS node-base
+FROM node-base AS builder
 RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
@@ -26,11 +27,20 @@ RUN npm run build && npm run build:server
 
 FROM ubuntu:noble
 ENV DEBIAN_FRONTEND=noninteractive
-RUN if id ubuntu >/dev/null 2>&1; then userdel -r ubuntu; fi \
-    && apt-get update && apt-get install -y --no-install-recommends \
+RUN set -eu; \
+    if id ubuntu >/dev/null 2>&1; then userdel -r ubuntu; fi; \
+    printf '%s\n' 'Acquire::Retries "3";' 'APT::Update::Error-Mode "any";' \
+      > /etc/apt/apt.conf.d/80-devharbour-retries; \
+    for delay in 5 15 0; do \
+      if apt-get update; then break; fi; \
+      if [ "$delay" = 0 ]; then exit 1; fi; \
+      sleep "$delay"; \
+    done; \
+    apt-get install -y --no-install-recommends \
        curl ca-certificates git openssh-client zsh python3 python3.12-venv \
-       python3-pip-whl locales util-linux passwd sudo which tar make g++ \
-    && locale-gen en_US.UTF-8 && rm -rf /var/lib/apt/lists/*
+       python3-pip-whl locales util-linux passwd sudo which tar make g++; \
+    locale-gen en_US.UTF-8; \
+    rm -rf /var/lib/apt/lists/*
 ENV LANG=en_US.UTF-8 LANGUAGE=en_US:en LC_ALL=en_US.UTF-8
 # The feature installer sources a sibling helper. Keep both files at one reviewed
 # revision and execute a file, not stdin, so BASH_SOURCE resolves that helper.
@@ -44,9 +54,11 @@ RUN set -eu; \
       -o "$feature_dir/scripts/version-resolution.sh"; \
     bash "$feature_dir/install.sh"; \
     rm -rf "$feature_dir"
-RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
-    && rm -rf /var/lib/apt/lists/*
+COPY --from=node-base /usr/local/bin/node /usr/local/bin/node
+COPY --from=node-base /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
+RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
+    && node --version && npm --version
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
       -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
     && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
