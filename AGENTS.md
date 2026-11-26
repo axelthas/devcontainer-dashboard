@@ -112,17 +112,17 @@ npm run test             # deployment + unit + e2e combined
 | `/api/bootstrap/providers` (GET)               | Returns configured bootstrap providers and fallback provider info                            |
 | `/api/bootstrap/run` (POST)                    | Starts a bootstrap run for a preset or custom command                                        |
 | `/api/bootstrap/pull` (POST)                   | Pulls the active bootstrap provider repository                                               |
-| `/api/bootstrap/checkout` (POST)               | Checks out a branch in the active bootstrap provider repository                              |
+| `/api/bootstrap/checkout` (POST)               | Checks out a branch or tag in the active bootstrap provider repository                       |
 | `/api/repos/branches` (GET)                    | Returns local/remote branches and tags (newest first) and the current ref of a repository    |
 | `/api/repos/checkout` (POST)                   | Checks out a local branch, remote branch or tag in a repository path                         |
-| `/api/repos/fetch` (POST)                      | Fetches all remotes of a repository path and prunes deleted remote branches                  |
+| `/api/repos/fetch` (POST)                      | Fetches all remotes of a repository path and prunes deleted remote-tracking branches          |
 | `/api/repos/pull` (POST)                       | Fast-forwards the current branch of a repository path from its upstream                      |
 | `/api/compose/tags` (GET)                      | Registry tags for the selected registry images of a Compose selection                        |
 | `/api/compose/remove` (GET, POST)              | Sandbox removal preview with token; removal keeps volumes, images and shared networks        |
 | `/api/devcontainer/build` (POST)               | Starts a devcontainer build session for a repository                                         |
 | `/api/terminal` (WebSocket)                    | PTY terminal sessions via upgrade on the HTTP server                                         |
 | `/api/brain` (GET)                             | Brain endpoint status, grants checked against Docker, recent commands, and activity          |
-| `/api/brain/targets/[id]` (GET)                | Preview of a grant: user, start directory, and reach. Grants nothing                         |
+| `/api/brain/targets/[id]` (GET)                 | Preview of a grant: user, start directory, and reach. Grants nothing                         |
 | `/api/brain/grants` (POST, DELETE)             | Grants one reviewed container run, or revokes every grant                                    |
 | `/api/brain/grants/[id]` (DELETE, PATCH)       | Revokes one grant and stops its commands, or extends it by `minutes` from its current end    |
 | `/api/brain/grants/[id]/time-request` (DELETE) | Dismisses Brain's pending request for more time                                              |
@@ -137,7 +137,7 @@ npm run test             # deployment + unit + e2e combined
 | ----------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | `src/lib/server/auth.ts`                  | Password validation, login throttling, opaque sessions, and cookie helpers                     |
 | `src/lib/server/docker.ts`                | Dockerode client singleton                                                                     |
-| `src/lib/server/terminal.ts`              | WebSocket PTY server (attaches to Vite dev or production HTTP server)                          |
+| `src/lib/server/terminal.ts`              | WebSocket PTY server (attaches to Vite dev or production HTTP server)                           |
 | `src/lib/server/workspaces.ts`            | Scans `WORKSPACE_ROOT` for task/repo pairs with `.devcontainer`                                |
 | `src/lib/server/bootstrap.ts`             | Loads bootstrap providers and resolves the active provider                                     |
 | `src/lib/server/bootstrapRuns.ts`         | Tracks bootstrap run sessions in memory                                                        |
@@ -146,9 +146,9 @@ npm run test             # deployment + unit + e2e combined
 | `src/lib/portConfig.ts`                   | Port-to-label/icon mapping for known services                                                  |
 | `src/lib/serviceTargets.ts`               | Client-safe service identity, viewer hrefs, proxy paths, and embed profiles                    |
 | `src/lib/server/serviceGateway.ts`        | Streaming gateway core: auth, origin checks, cookie scoping, redirects, upgrades               |
-| `src/lib/server/serviceGatewayRuntime.ts` | Docker/session wiring, opt-in flag, `SERVICE_PROXY_PORTS` policy, viewer target validation     |
+| `src/lib/server/serviceGatewayRuntime.ts` | Docker/session wiring, opt-in flag, `SERVICE_PROXY_PORTS` policy overrides                     |
 | `src/routes/service/+page.server.ts`      | Validated viewer contract; server decides the iframe target from live Docker state             |
-| `src/lib/brainTypes.ts`                   | Client-safe Brain access shapes: previews, grants, executions, audit entries                   |
+| `src/lib/brainTypes.ts`                    | Client-safe Brain access shapes: previews, grants, executions, audit entries                   |
 | `src/lib/server/brain/gateway.ts`         | Brain MCP listener: configuration, bearer authentication, request limits                       |
 | `src/lib/server/brain/access.ts`          | Brain grant lifecycle: expiry, extension, time requests, revocation, container-run checks      |
 | `src/lib/server/brain/executions.ts`      | Brain commands in a Docker exec PTY: output, stdin, input control, verified cancellation       |
@@ -185,14 +185,10 @@ npm run test             # deployment + unit + e2e combined
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 
-export const GET: RequestHandler = async () => {
-	// ...
-	return json(data);
-};
-
-export const POST: RequestHandler = async ({ params, request }) => {
+export const GET: RequestHandler = async ({ params, request }) => {
 	// Validate input
 	if (!valid) throw error(400, 'Invalid input');
+
 	// Perform action
 	return json({ success: true });
 };
@@ -202,7 +198,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 
 - **Dark/light theme**: Managed via `localStorage` key `devcontainer-dashboard-theme`, toggled in `+page.svelte`; support both modes using `dark:` variants
 - **No `$lib/server/` imports from client**: Server modules are in `src/lib/server/`, excluded from browser test projects
-- **Nord palette only**: Use Nord hex values via Tailwind arbitrary values, no custom theme config. Key colors: `#2e3440` (polar night), `#3b4252`, `#434c5e`, `#4c566a`, `#d8dee9` (snow storm), `#e5e9f0`, `#eceff4`, `#8fbcbb` (frost), `#88c0d0`, `#81a1c1`, `#5e81ac`
+- **Nord palette only**: Use Nord hex values via Tailwind arbitrary values, no custom theme config. Key colors: `#2e3440` (polar night), `#3b4252` (storm), `#434c5e` (storm), `#4c566a` (storm), `#d8dee9` (snow storm), `#e5e9f0` (snow storm), `#eceff4` (snow storm), `#88c0d0` (frost), `#81a1c1` (frost), `#5e81ac` (frost)
 - **Native dependencies**: `node-pty` requires `build-essential python3` (dev) or `python3 make g++` (Alpine production)
 - **Container metadata**: Compose projects are grouped by `com.docker.compose.project`, while devcontainers are identified from name and image heuristics plus the `devcontainer.local_folder` label.
 
@@ -211,7 +207,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 Two vitest projects configured in `vite.config.ts`:
 
 - **`client`**: browser-mode tests for `.svelte.{test,spec}.ts` files (uses `vitest-browser-svelte` + Playwright chromium)
-- **`server`**: Node environment tests for `.{test,spec}.ts` files (excludes `.svelte.*` test files)
+- **`server`**: Node environment tests for `.{test,spec}.ts` files (excludes `.svelte.*` files)
 
 Important:
 
@@ -243,16 +239,12 @@ Project skills live in `.opencode/skills/` and are invoked explicitly:
 
 ## Authoritative Sources
 
-- [specification/initial_specification.md](specification/initial_specification.md): Core product behavior and terminology
-- [specification/feature_bootstrap/feature_specification_bootstrap.md](specification/feature_bootstrap/feature_specification_bootstrap.md): Bootstrap workflow details
-- [specification/feature_brain_access/feature_specification_brain_access.md](specification/feature_brain_access/feature_specification_brain_access.md): Brain MCP shell access, grants, and trust model
-- [specification/feature_git_refs/feature_specification_git_refs.md](specification/feature_git_refs/feature_specification_git_refs.md): Git ref menu: sections, search, fetch and pull
+- [Specification index](specification/README.md): Product overview and feature behavior
 - [src/lib/types.ts](src/lib/types.ts): Shared data models and session state shapes
-- [src/routes/api/\*_/_.ts](src/routes/api): Route names, request validation, and response contracts
+- [API routes](src/routes/api): Route names, request validation, and response contracts
 - [src/server.ts](src/server.ts): Production server entry point and PORT handling
 
 ## Documentation
 
-- [specification/initial_specification.md](specification/initial_specification.md): Full product specification
-- [specification/feature_bootstrap/](specification/feature_bootstrap/): Bootstrap feature spec
-- [tasks/](tasks/): Implementation session notes and research
+- Update the relevant [specification](specification/README.md) in the same PR as a behavior change. Follow its naming and authoring rules.
+- Track work in GitHub issues. Use an [implementation plan](tasks/README.md) only when a temporary, executable handoff is useful.
