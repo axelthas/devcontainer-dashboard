@@ -6,6 +6,17 @@ DevHarbour is a self-hosted dashboard for development environments. Build and ru
 Dev Containers and Docker Compose sandboxes, then open terminals, editors, AI
 coding tools, and project services from your browser.
 
+![DevHarbour dashboard with running devcontainers, local workspaces and a Compose sandbox](docs/screenshots/desktop-dashboard.png)
+
+Phones get a dedicated mobile interface for containers, services, terminals and
+agent activity.
+
+<p align="center">
+  <img src="docs/screenshots/mobile-containers.png" alt="DevHarbour containers on a phone" width="260">
+  <img src="docs/screenshots/mobile-services.png" alt="DevHarbour Compose services on a phone" width="260">
+  <img src="docs/screenshots/mobile-agent.png" alt="DevHarbour agent activity on a phone" width="260">
+</p>
+
 ## Quickstart
 
 **You need:** A Linux host with running Docker that your user can access, Bash,
@@ -84,6 +95,8 @@ needs a reachable HTTPS endpoint.
 Select **Grant Brain** on each running container the agent may use. Agents can
 ask for more time, but only the operator can extend or revoke access.
 
+![An agent works in a granted devcontainer while the operator watches each command](docs/screenshots/desktop-agent.png)
+
 DevHarbour has Docker access, and anyone who can sign in has operator access.
 Keep the dashboard on localhost or a trusted private network. Optional Tailscale
 Funnel exposes the token-protected MCP endpoint, not the dashboard. See the
@@ -96,7 +109,9 @@ For local development, use Node.js 22, Docker access, and a C++ build toolchain
 with Python 3 for `node-pty`. Run `npm ci` from a checkout. Then set
 `DASHBOARD_PASSWORD` and `WORKSPACE_ROOT` to a login password and an existing
 workspace directory, respectively. Start Vite with `npm run dev -- --host 127.0.0.1`.
-For production checks, see [AGENTS.md](AGENTS.md#build--test).
+For production checks, see [AGENTS.md](AGENTS.md#build--test). After a build,
+run `node scripts/capture-readme-screenshots.mjs` to refresh the README
+screenshots from demo data.
 
 ## More documentation
 
