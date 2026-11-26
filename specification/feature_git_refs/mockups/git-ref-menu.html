@@ -1,0 +1,771 @@
+<!doctype html>
+<!--
+  DevHarbour design mockup: Git ref menu of a repository row.
+
+  This file is a self-contained static mockup. It loads no application code, no network
+  resource and no font. Open it directly in a browser.
+
+  URL parameters (for review links and screenshots):
+    theme  = dark | light                          (default dark)
+    q      = <text>                                prefill the search field
+    state  = open | closed | fetched | pull-error  (default open)
+    notes  = 0                                     hide the numbered design notes
+-->
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>DevHarbour mockup · Git ref menu</title>
+		<style>
+			:root {
+				--n0: #2e3440;
+				--n1: #3b4252;
+				--n2: #434c5e;
+				--n3: #4c566a;
+				--s0: #d8dee9;
+				--s1: #e5e9f0;
+				--s2: #eceff4;
+				--f1: #88c0d0;
+				--f2: #81a1c1;
+				--f3: #5e81ac;
+				--red: #bf616a;
+				--orange: #d08770;
+				--green: #a3be8c;
+				--sans: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;
+				--mono: ui-monospace, 'JetBrains Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
+			}
+			body {
+				margin: 0;
+				font-family: var(--sans);
+				font-size: 14px;
+				background: var(--bg);
+				color: var(--text);
+			}
+			body.dark {
+				--bg: var(--n0);
+				--card: var(--n1);
+				--pop: var(--n1);
+				--head: var(--n0);
+				--hover: var(--n2);
+				--line: var(--n3);
+				--text: var(--s0);
+				--muted: rgb(216 222 233 / 0.6);
+				--accent: var(--f1);
+				--chip: var(--n2);
+			}
+			body.light {
+				--bg: var(--s2);
+				--card: #fff;
+				--pop: #fff;
+				--head: var(--s2);
+				--hover: var(--s1);
+				--line: var(--s0);
+				--text: var(--n0);
+				--muted: var(--n3);
+				--accent: var(--f3);
+				--chip: var(--s1);
+			}
+			.bar {
+				display: flex;
+				gap: 8px;
+				align-items: center;
+				padding: 10px 16px;
+				border-bottom: 1px solid var(--line);
+				font-size: 12px;
+				color: var(--muted);
+			}
+			.bar button {
+				font: inherit;
+				color: var(--text);
+				background: var(--chip);
+				border: 1px solid var(--line);
+				border-radius: 4px;
+				padding: 2px 8px;
+				cursor: pointer;
+			}
+			.stage {
+				display: grid;
+				grid-template-columns: minmax(0, 760px) 300px;
+				gap: 32px;
+				padding: 28px 24px 80px;
+			}
+			body.no-notes .stage {
+				grid-template-columns: minmax(0, 760px);
+			}
+			body.no-notes .notes,
+			body.no-notes .pin {
+				display: none !important;
+			}
+			h1 {
+				font-size: 12px;
+				letter-spacing: 0.06em;
+				text-transform: uppercase;
+				color: var(--muted);
+				margin: 0 0 12px;
+				font-weight: 600;
+			}
+			.ws {
+				background: var(--card);
+				border: 1px solid var(--line);
+				border-radius: 10px;
+			}
+			.ws-head {
+				display: flex;
+				align-items: center;
+				gap: 8px;
+				padding: 10px 14px;
+				border-bottom: 1px solid var(--line);
+				font-weight: 600;
+			}
+			.ws-head small {
+				font-weight: 400;
+				color: var(--muted);
+			}
+			.repo {
+				display: flex;
+				align-items: center;
+				padding: 8px 14px;
+				gap: 12px;
+				border-bottom: 1px solid var(--line);
+			}
+			.repo:last-child {
+				border-bottom: 0;
+			}
+			.repo-name {
+				display: flex;
+				align-items: center;
+				gap: 6px;
+				width: 170px;
+				font-size: 13px;
+				font-weight: 500;
+			}
+			.col {
+				width: 210px;
+				position: relative;
+			}
+			.trigger {
+				display: inline-flex;
+				align-items: center;
+				gap: 4px;
+				font: 12px var(--sans);
+				color: var(--accent);
+				background: var(--chip);
+				border: 1px solid var(--line);
+				border-radius: 4px;
+				padding: 2px 8px;
+				cursor: pointer;
+				max-width: 200px;
+			}
+			.trigger span {
+				overflow: hidden;
+				text-overflow: ellipsis;
+				white-space: nowrap;
+			}
+			.svc {
+				display: flex;
+				gap: 6px;
+			}
+			.svc span {
+				font-size: 11px;
+				border: 1px solid var(--line);
+				border-radius: 999px;
+				padding: 2px 8px;
+				color: var(--muted);
+			}
+			svg {
+				flex-shrink: 0;
+			}
+			.menu {
+				position: absolute;
+				top: calc(100% + 4px);
+				left: 0;
+				z-index: 30;
+				width: 320px;
+				background: var(--pop);
+				border: 1px solid var(--line);
+				border-radius: 8px;
+				box-shadow: 0 12px 32px rgb(0 0 0 / 0.28);
+				overflow: hidden;
+				display: flex;
+				flex-direction: column;
+			}
+			.search {
+				display: flex;
+				gap: 8px;
+				align-items: center;
+				padding: 8px 12px;
+				border-bottom: 1px solid var(--line);
+				color: var(--muted);
+			}
+			.search input {
+				flex: 1;
+				min-width: 0;
+				background: transparent;
+				border: 0;
+				outline: 0;
+				color: var(--text);
+				font: 12px var(--sans);
+			}
+			.tools {
+				position: relative;
+				display: flex;
+				gap: 6px;
+				align-items: center;
+				padding: 6px 12px;
+				border-bottom: 1px solid var(--line);
+			}
+			.tools button {
+				display: inline-flex;
+				gap: 4px;
+				align-items: center;
+				font: 12px var(--sans);
+				color: var(--text);
+				background: transparent;
+				border: 1px solid var(--line);
+				border-radius: 4px;
+				padding: 2px 8px;
+				cursor: pointer;
+			}
+			.tools button:hover {
+				background: var(--hover);
+			}
+			.tools button[disabled] {
+				opacity: 0.5;
+				cursor: wait;
+			}
+			.tools .when {
+				margin-left: auto;
+				font-size: 10px;
+				color: var(--muted);
+			}
+			.behind {
+				font: 10px var(--mono);
+				color: var(--orange);
+			}
+			.notice {
+				padding: 6px 12px;
+				font-size: 12px;
+				border-bottom: 1px solid var(--line);
+				color: var(--green);
+			}
+			.notice.err {
+				color: var(--red);
+			}
+			.list {
+				max-height: 320px;
+				overflow-y: auto;
+			}
+			.sect {
+				position: sticky;
+				top: 0;
+				z-index: 1;
+				display: flex;
+				justify-content: space-between;
+				padding: 4px 12px;
+				font-size: 10px;
+				font-weight: 600;
+				letter-spacing: 0.06em;
+				text-transform: uppercase;
+				color: var(--muted);
+				background: var(--head);
+				border-top: 1px solid var(--line);
+				border-bottom: 1px solid var(--line);
+			}
+			.sect:first-child {
+				border-top: 0;
+			}
+			.sect b {
+				font-weight: 400;
+			}
+			.item {
+				display: flex;
+				align-items: center;
+				gap: 8px;
+				width: 100%;
+				padding: 6px 12px;
+				font: 12px var(--sans);
+				color: var(--text);
+				background: transparent;
+				border: 0;
+				text-align: left;
+				cursor: pointer;
+			}
+			.item.active {
+				background: var(--hover);
+			}
+			.item.current {
+				color: var(--accent);
+				font-weight: 600;
+			}
+			.item .nm {
+				flex: 1;
+				min-width: 0;
+				overflow: hidden;
+				text-overflow: ellipsis;
+				white-space: nowrap;
+				font-family: var(--mono);
+			}
+			.item .age {
+				width: 28px;
+				text-align: right;
+				font-size: 10px;
+				color: var(--muted);
+				font-variant-numeric: tabular-nums;
+			}
+			.item .ck {
+				width: 12px;
+				color: var(--green);
+			}
+			.badge {
+				font-size: 10px;
+				border-radius: 3px;
+				padding: 0 4px;
+			}
+			.b-up {
+				background: rgb(136 192 208 / 0.2);
+				color: var(--accent);
+			}
+			.b-local {
+				background: var(--chip);
+				color: var(--muted);
+			}
+			.b-gone {
+				background: rgb(191 97 106 / 0.15);
+				color: var(--red);
+			}
+			.ab {
+				font: 10px var(--mono);
+				color: var(--orange);
+			}
+			.empty {
+				padding: 8px 12px;
+				font-size: 12px;
+				font-style: italic;
+				color: var(--muted);
+			}
+			.ic-branch,
+			.ic-remote {
+				color: var(--f2);
+			}
+			.ic-tag {
+				color: var(--green);
+			}
+			.pin {
+				position: absolute;
+				width: 18px;
+				height: 18px;
+				border-radius: 50%;
+				background: var(--orange);
+				color: var(--n0);
+				font: 700 11px/18px var(--sans);
+				text-align: center;
+				z-index: 40;
+			}
+			.notes ol {
+				margin: 0;
+				padding: 0;
+				list-style: none;
+				counter-reset: n;
+			}
+			.notes li {
+				counter-increment: n;
+				position: relative;
+				padding: 0 0 14px 28px;
+				font-size: 13px;
+				line-height: 1.45;
+			}
+			.notes li::before {
+				content: counter(n);
+				position: absolute;
+				left: 0;
+				top: 1px;
+				width: 18px;
+				height: 18px;
+				border-radius: 50%;
+				background: var(--orange);
+				color: var(--n0);
+				font: 700 11px/18px var(--sans);
+				text-align: center;
+			}
+			.notes p {
+				color: var(--muted);
+				margin: 2px 0 0;
+			}
+			.notes code {
+				font-family: var(--mono);
+				font-size: 12px;
+			}
+			@keyframes spin {
+				to {
+					transform: rotate(360deg);
+				}
+			}
+			.spin {
+				animation: spin 1s linear infinite;
+			}
+		</style>
+	</head>
+	<body class="dark">
+		<div class="bar">
+			<strong style="color: var(--text)">DevHarbour mockup</strong> · Git ref menu<span
+				style="margin-left: auto"
+			></span
+			><button id="themeBtn" type="button">Theme</button
+			><button id="notesBtn" type="button">Notes</button>
+		</div>
+		<div class="stage">
+			<section>
+				<h1>Local workspaces</h1>
+				<div class="ws">
+					<div class="ws-head">git.personal <small>· 2 repositories</small></div>
+					<div class="repo">
+						<div class="repo-name">
+							<svg
+								class="ic-branch"
+								width="14"
+								height="14"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+							>
+								<circle cx="6" cy="6" r="3" />
+								<circle cx="6" cy="18" r="3" />
+								<circle cx="18" cy="8" r="3" />
+								<path d="M6 9v6M18 11a6 6 0 0 1-6 6H9" /></svg
+							>devharbour
+						</div>
+						<div class="col" id="col">
+							<button class="trigger" id="trigger" type="button" aria-haspopup="listbox">
+								<span>main</span
+								><svg
+									width="10"
+									height="10"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+								>
+									<path d="m6 9 6 6 6-6" />
+								</svg>
+							</button>
+							<span class="pin" style="left: -24px; top: 2px">1</span>
+							<div class="menu" id="menu">
+								<label class="search" style="position: relative"
+									><svg
+										width="12"
+										height="12"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+									>
+										<circle cx="11" cy="11" r="7" />
+										<path d="m20 20-3.5-3.5" /></svg
+									><input
+										id="q"
+										type="search"
+										placeholder="Search branches and tags"
+										autocomplete="off"
+										spellcheck="false"
+									/><span class="pin" style="right: 8px; top: 7px">2</span></label
+								>
+								<div class="tools">
+									<button
+										id="fetchBtn"
+										type="button"
+										title="Fetch all remotes and prune deleted remote branches"
+									>
+										<svg
+											id="fetchIc"
+											width="11"
+											height="11"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="2"
+										>
+											<path d="M12 13v8l-4-4M12 21l4-4" />
+											<path d="M4.4 15.3A7 7 0 1 1 17.7 9h1.8a4.5 4.5 0 0 1 2.5 8.2" /></svg
+										>Fetch
+									</button>
+									<button id="pullBtn" type="button" title="Fast-forward main from origin/main">
+										<svg
+											id="pullIc"
+											width="11"
+											height="11"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="2"
+										>
+											<path d="M12 17V3M6 11l6 6 6-6M19 21H5" /></svg
+										>Pull <span class="behind" id="behind">↓2</span>
+									</button>
+									<span class="when" id="when">Fetched 3h ago</span>
+									<span class="pin" style="right: 96px; top: 8px">3</span>
+								</div>
+								<div class="notice" id="notice" hidden></div>
+								<div style="position: relative">
+									<span class="pin" style="right: 44px; top: 2px">4</span>
+									<div class="list" id="list" role="listbox"></div>
+								</div>
+							</div>
+						</div>
+						<div class="svc"><span>Vite 5173</span><span>Node 3000</span></div>
+					</div>
+					<div class="repo" style="min-height: 440px; align-items: flex-start; position: relative">
+						<div class="repo-name">
+							<svg
+								class="ic-branch"
+								width="14"
+								height="14"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+							>
+								<circle cx="6" cy="6" r="3" />
+								<circle cx="6" cy="18" r="3" />
+								<circle cx="18" cy="8" r="3" />
+								<path d="M6 9v6M18 11a6 6 0 0 1-6 6H9" /></svg
+							>tern-framework
+						</div>
+						<div class="col">
+							<button class="trigger" type="button">
+								<span>feat/amqp-foundations</span
+								><svg
+									width="10"
+									height="10"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+								>
+									<path d="m6 9 6 6 6-6" />
+								</svg>
+							</button>
+						</div>
+						<span class="pin" style="right: 24px; top: 220px">6</span>
+					</div>
+				</div>
+			</section>
+			<aside class="notes">
+				<h1>Design notes</h1>
+				<ol>
+					<li>
+						<b>Same trigger, same place.</b>
+						<p>
+							The branch chip in the row stays. A press opens the menu; a second press closes it.
+						</p>
+					</li>
+					<li>
+						<b>Search first.</b>
+						<p>
+							The cursor starts in the search field. Every word must match, in any order:
+							<code>42 term</code> finds <code>feat/42-terminal-engines</code>. Arrow keys move,
+							Enter checks out, Escape closes.
+						</p>
+					</li>
+					<li>
+						<b>Fetch and Pull.</b>
+						<p>
+							Fetch runs <code>git fetch --all --prune</code>. Pull runs
+							<code>git pull --ff-only</code> and shows how far the branch is behind. Pull is off on
+							a detached HEAD or without an upstream.
+						</p>
+					</li>
+					<li>
+						<b>Three sections, newest first.</b>
+						<p>
+							Local branches, remote branches, tags. Branches sort by tip commit date, tags by
+							creation date. The right column shows the age.
+						</p>
+					</li>
+					<li>
+						<b>Remote checkout.</b>
+						<p>
+							A remote branch creates a local tracking branch.
+							<span class="badge b-local">local</span> means that the name exists locally; checkout
+							then selects the local branch. <span class="badge b-up">upstream</span> marks the
+							upstream of the current branch.
+						</p>
+					</li>
+					<li>
+						<b>Outside press closes.</b>
+						<p>
+							A press anywhere outside the trigger and the menu closes it, also a press on the
+							trigger of another row.
+						</p>
+					</li>
+				</ol>
+			</aside>
+		</div>
+		<script>
+			// Mockup data: names from the DevHarbour repository. Ages are fixed for the review.
+			const H = 3600e3,
+				D = 24 * H;
+			const local = [
+				['feat/git-ref-picker', 0.2 * H],
+				['main', 20 * H, { behind: 2 }],
+				['feat/70-devharbour-settings', 2 * D, { ahead: 3 }],
+				['fix/63-host-ssh-agent-forwarding', 3 * D],
+				['feat/42-terminal-engine-switcher', 24 * D, { gone: true }]
+			];
+			const remote = [
+				['origin/main', 2 * H, { up: true }],
+				['origin/fix/registry-first-install', 5 * H],
+				['origin/feat/67-extend-brain-grant', 26 * H],
+				['origin/feat/70-devharbour-settings', 2 * D, { local: true }],
+				['origin/feat/65-devharbour-cli', 3 * D],
+				['origin/fix/63-host-ssh-agent-forwarding', 3 * D, { local: true }],
+				['origin/feat/mobile-service-container-view', 4 * D],
+				['origin/feat/52-sandbox-versions', 9 * D],
+				['origin/feat/brain-split-view', 16 * D],
+				['origin/feat/compose-sandboxes', 30 * D],
+				['origin/fix/13-production-startup', 50 * D],
+				['origin/feature/polaris-instances', 70 * D]
+			];
+			const tags = [
+				['v1.0.2', 30 * H],
+				['v1.0.1', 3 * D],
+				['v1.0.0', 12 * D]
+			];
+			const age = (ms) =>
+				ms < H
+					? Math.floor(ms / 60e3) + 'm'
+					: ms < D
+						? Math.floor(ms / H) + 'h'
+						: ms < 14 * D
+							? Math.floor(ms / D) + 'd'
+							: ms < 60 * D
+								? Math.floor(ms / (7 * D)) + 'w'
+								: Math.floor(ms / (30 * D)) + 'mo';
+			const ICON = {
+				local:
+					'<svg class="ic-branch" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="8" r="3"/><path d="M6 9v6M18 11a6 6 0 0 1-6 6H9"/></svg>',
+				remote:
+					'<svg class="ic-remote" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>',
+				tag: '<svg class="ic-tag" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.6 2.6A2 2 0 0 0 11.2 2H4a2 2 0 0 0-2 2v7.2a2 2 0 0 0 .6 1.4l8.7 8.7a2.4 2.4 0 0 0 3.4 0l6.6-6.6a2.4 2.4 0 0 0 0-3.4z"/><circle cx="7.5" cy="7.5" r="1"/></svg>'
+			};
+			const params = new URLSearchParams(location.search);
+			const $ = (id) => document.getElementById(id);
+			let active = 0,
+				open = params.get('state') !== 'closed';
+			if (params.get('theme') === 'light') document.body.className = 'light';
+			if (params.get('notes') === '0') document.body.classList.add('no-notes');
+			$('q').value = params.get('q') ?? '';
+			const match = (name, q) =>
+				q
+					.toLowerCase()
+					.split(/\s+/)
+					.filter(Boolean)
+					.every((w) => name.toLowerCase().includes(w));
+			function badge(extra) {
+				if (!extra) return '';
+				if (extra.gone) return '<span class="badge b-gone">gone</span>';
+				if (extra.ahead || extra.behind)
+					return `<span class="ab">${extra.ahead ? '\u2191' + extra.ahead : ''}${extra.behind ? '\u2193' + extra.behind : ''}</span>`;
+				if (extra.up) return '<span class="badge b-up">upstream</span>';
+				if (extra.local) return '<span class="badge b-local">local</span>';
+				return '';
+			}
+			function render() {
+				const q = $('q').value;
+				const sections = [
+					['Local branches', 'local', local],
+					['Remote branches', 'remote', remote],
+					['Tags', 'tag', tags]
+				];
+				let html = '',
+					i = 0;
+				for (const [title, kind, rows] of sections) {
+					const hit = rows.filter(([n]) => match(n, q));
+					if (!hit.length) continue;
+					html += `<div class="sect">${title}<b>${hit.length}</b></div>`;
+					for (const [name, ms, extra] of hit) {
+						const current = kind === 'local' && name === 'main';
+						html += `<button type="button" role="option" class="item${i === active ? ' active' : ''}${current ? ' current' : ''}">${ICON[kind]}<span class="nm">${name}</span>${badge(extra)}<span class="age">${age(ms)}</span><span class="ck">${current ? '\u2713' : ''}</span></button>`;
+						i++;
+					}
+				}
+				$('list').innerHTML =
+					html || `<div class="empty">No branch or tag matches "${q.replace(/[<>&"]/g, '')}"</div>`;
+				$('list').dataset.count = i;
+				$('menu').style.display = open ? 'flex' : 'none';
+			}
+			function show(text, err) {
+				const n = $('notice');
+				n.hidden = false;
+				n.textContent = text;
+				n.className = 'notice' + (err ? ' err' : '');
+			}
+			function simulate(icon, done) {
+				$('fetchBtn').disabled = $('pullBtn').disabled = true;
+				$(icon).classList.add('spin');
+				setTimeout(() => {
+					$(icon).classList.remove('spin');
+					$('fetchBtn').disabled = $('pullBtn').disabled = false;
+					done();
+					render();
+				}, 900);
+			}
+			$('fetchBtn').onclick = () =>
+				simulate('fetchIc', () => {
+					show('Fetched. 3 refs updated.');
+					$('when').textContent = 'Fetched now';
+				});
+			$('pullBtn').onclick = () =>
+				simulate('pullIc', () => {
+					show('Fast-forwarded 97ffd3b..167a730.');
+					local[1][2] = undefined;
+					$('behind').hidden = true;
+				});
+			$('q').oninput = () => {
+				active = 0;
+				render();
+			};
+			$('q').onkeydown = (e) => {
+				const n = Number($('list').dataset.count);
+				if (e.key === 'ArrowDown') active = Math.min(n - 1, active + 1);
+				else if (e.key === 'ArrowUp') active = Math.max(0, active - 1);
+				else return;
+				e.preventDefault();
+				render();
+				document.querySelector('.item.active')?.scrollIntoView({ block: 'nearest' });
+			};
+			$('trigger').onclick = () => {
+				open = !open;
+				render();
+				if (open) $('q').focus();
+			};
+			// A press outside the trigger and the menu closes the menu.
+			window.addEventListener('pointerdown', (e) => {
+				if (open && !$('col').contains(e.target) && !e.target.closest('.bar')) {
+					open = false;
+					render();
+				}
+			});
+			window.addEventListener('keydown', (e) => {
+				if (e.key === 'Escape' && open) {
+					open = false;
+					render();
+					$('trigger').focus();
+				}
+			});
+			$('themeBtn').onclick = () => {
+				document.body.classList.toggle('dark');
+				document.body.classList.toggle('light');
+			};
+			$('notesBtn').onclick = () => document.body.classList.toggle('no-notes');
+			if (params.get('state') === 'fetched') {
+				show('Fetched. 3 refs updated.');
+				$('when').textContent = 'Fetched now';
+			}
+			if (params.get('state') === 'pull-error')
+				show('fatal: Not possible to fast-forward, aborting.', true);
+			render();
+			if (open) $('q').focus();
+		</script>
+	</body>
+</html>
