@@ -26,6 +26,14 @@ import {
 	type ComposeSelection
 } from '../composeCommands.js';
 import { isImageTag, SANDBOX_TAG_LABEL, withTag } from '../imageReference.js';
+import {
+	COMPOSE_KIND_LABEL,
+	composeKindExtension,
+	kindProfilePath,
+	readKindProfile,
+	resolveComposeKind
+} from './composeKinds.js';
+import { KindDescriptorError } from './kindDescriptor.js';
 import type {
 	ComposeInspection,
 	ComposeNetworkSummary,
@@ -332,7 +340,7 @@ export interface ConfigOutput {
 	stdout: string;
 	stderr: string;
 }
-export type ConfigRunner = (target: ComposeTarget) => Promise<ConfigOutput>;
+export type ConfigRunner = (target: ComposeTarget, mode?: 'literal-kind') => Promise<ConfigOutput>;
 
 /** Bound CLI text before it reaches a response. */
 function bounded(text: string): string {
@@ -341,8 +349,15 @@ function bounded(text: string): string {
 }
 
 /** Run `docker compose config` with literal argv, a filtered environment, and a deadline. */
-export const runComposeConfig: ConfigRunner = (target) => {
+export const runComposeConfig: ConfigRunner = (target, mode) => {
 	const command = composeConfigCommand(target.repoPath, target.selection);
+	if (mode === 'literal-kind')
+		command.args.push(
+			'--no-interpolate',
+			'--no-env-resolution',
+			'--no-consistency',
+			'--no-normalize'
+		);
 	return new Promise((resolvePromise, reject) => {
 		execFile(
 			command.file,
@@ -593,6 +608,7 @@ export interface InspectOptions {
 	imageInfo?: (reference: string) => Promise<ImageInfo | null>;
 	writeOverride?: (path: string, content: string) => Promise<void>;
 	overrideDirectory?: string;
+	kindProfileDirectory?: string;
 }
 
 /** Resolve configuration, then compare it with live Docker containers of the same project. */
@@ -644,13 +660,43 @@ export async function inspectComposeTarget(
 		all: true,
 		filters: { label: [`com.docker.compose.project=${summary.projectName}`] }
 	});
+	const stack = classifyStack(containers, [
+		target.projectDirectory,
+		target.canonicalProjectDirectory
+	]);
+	const warnings = composeWarnings(output.stderr);
+	const kind = await resolveComposeKind({
+		extension: composeKindExtension(raw),
+		literalExtension: async () =>
+			composeKindExtension(JSON.parse((await run(target, 'literal-kind')).stdout)),
+		operatorProfile: () =>
+			readKindProfile(
+				kindProfilePath(
+					target.canonicalRepoPath,
+					target.selection.files,
+					options.kindProfileDirectory
+				)
+			),
+		labels:
+			stack.ownership === 'this'
+				? containers
+						.filter(({ State }) => State === 'running')
+						.map(({ Labels }) => Labels?.[COMPOSE_KIND_LABEL])
+				: [],
+		services
+	}).catch((cause: unknown) => {
+		if (!(cause instanceof KindDescriptorError)) throw cause;
+		warnings.push(cause.message);
+		return { view: { kind: 'generic', presenter: 'generic', source: 'default' } } as const;
+	});
 	return {
 		...summary,
 		services,
+		kind: kind.view,
 		...(tag && overrideFile ? { tag, overrideFile } : {}),
 		projectDirectory: target.projectDirectory,
 		selection: target.selection,
-		warnings: composeWarnings(output.stderr),
-		...classifyStack(containers, [target.projectDirectory, target.canonicalProjectDirectory])
+		warnings,
+		...stack
 	};
 }

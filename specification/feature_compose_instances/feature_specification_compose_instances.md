@@ -1,7 +1,7 @@
 # Compose instances
 
 **Proposed** in [issue #77](https://github.com/axelthas/devharbour/issues/77).
-Nothing in this specification is implemented. The current behavior is in
+The full workflow is not yet available. The current behavior is in
 [Compose sandboxes](../feature_compose_sandbox/feature_specification_compose_sandbox.md).
 
 ## Purpose and scope
@@ -67,8 +67,10 @@ a slot.
 The server must derive the plan from the resolved configuration. The browser
 must only display it.
 
-- A network with an explicit IPv4 subnet gets the subnet of its template for the
-  slot. The gateway, IP range and auxiliary addresses move by the same offset.
+- A managed bridge network with one explicit IPv4 subnet gets the subnet of
+  its template for the slot. Source and destination prefix lengths must match.
+  The gateway, IP range and auxiliary addresses move by the same offset. Each
+  managed network must have a distinct destination subnet.
 - A network without an explicit subnet needs no address change.
 - A network with a fixed `name` gets the name `<instance>_<key>`.
 - An external network stays shared, unless the kind marks it per instance. The
@@ -78,8 +80,8 @@ must only display it.
 - `extra_hosts` values use the same address map.
 - A fixed `container_name` becomes `<instance>-<service>`. The old name must stay
   resolvable as a network alias on each instance network.
-- A fixed published host port becomes an ephemeral port on `127.0.0.1`, unless
-  the kind sets another port policy.
+- An instance publication binds to `127.0.0.1` and Docker allocates the host
+  port. The original sandbox ports do not change.
 - A named volume with a fixed `name` gets the name `<instance>_<key>`. Other named
   volumes are already scoped to the project.
 - The server must not rewrite environment values. The plan lists only the names
@@ -129,15 +131,18 @@ must only display it.
 The first source that answers decides the kind:
 
 1. A top-level `x-devharbour` block in the resolved configuration.
-2. An operator profile in DevHarbour data, matched by repository name and file
-   selection, for a repository that the operator cannot change.
-3. The DevHarbour kind label on running containers of the project.
+2. An operator profile in DevHarbour data, matched by canonical repository
+   path and ordered files, for a repository the operator cannot change.
+3. An allowlisted built-in kind label (`generic`, `web`, or `database`) when
+   all running containers of the owned project agree. This is display-only.
 4. Built-in heuristics: `web` for published HTTP ports, `database` for official
    database images without HTTP ports. Heuristic kinds are for display only.
 5. `generic`.
 
-The server must validate each kind descriptor and refuse unknown keys. A
-heuristic kind must not enable instance files or actions. Compose drops
+The server must validate each kind descriptor and refuse unknown keys or
+interpolated values. An invalid declaration adds a generic warning but does
+not block the original sandbox. Label and heuristic kinds must not enable
+instance files or actions. Compose drops
 service-level extension fields from `config` output, so per-service values must
 be in the top-level block.
 
@@ -191,7 +196,8 @@ container path. DevHarbour must not run repository scripts to render files.
 
 ## Out of scope
 
-- IPv6 subnet changes.
+- IPv6 subnet changes, non-bridge managed networks and more than one explicit
+  IPAM subnet per managed network.
 - Host route and VPN range detection. Settings can reserve ranges.
 - Volume removal.
 - Presenter code from repositories.

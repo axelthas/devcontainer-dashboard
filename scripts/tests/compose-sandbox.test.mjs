@@ -27,6 +27,9 @@ let root;
 let repo;
 let commands;
 let sandbox;
+let kindDescriptor;
+let composeKinds;
+let instancePlan;
 let runs;
 let inspectRoute;
 let runRoute;
@@ -121,7 +124,18 @@ export default {
 	);
 	commands = await sourceModule('src/lib/composeCommands.ts', 'commands.mjs');
 	image = await sourceModule('src/lib/imageReference.ts', 'image.mjs');
+	kindDescriptor = await sourceModule('src/lib/server/kindDescriptor.ts', 'kind-descriptor.mjs');
+	composeKinds = await sourceModule('src/lib/server/composeKinds.ts', 'compose-kinds.mjs', {
+		'../imageReference.js': './image.mjs',
+		'./kindDescriptor.js': './kind-descriptor.mjs'
+	});
+	await sourceModule('src/lib/server/composeInstanceAddresses.ts', 'instance-addresses.mjs');
+	instancePlan = await sourceModule('src/lib/server/composeInstancePlan.ts', 'instance-plan.mjs', {
+		'./composeInstanceAddresses.js': './instance-addresses.mjs'
+	});
 	sandbox = await sourceModule('src/lib/server/composeSandbox.ts', 'sandbox.mjs', {
+		'./composeKinds.js': './compose-kinds.mjs',
+		'./kindDescriptor.js': './kind-descriptor.mjs',
 		'node:child_process': './boundaries.mjs',
 		'../composeCommands.js': './commands.mjs',
 		'../imageReference.js': './image.mjs'
@@ -1275,4 +1289,242 @@ test('remove routes map stale previews to 409 and bad input to 400', async () =>
 		});
 	await assert.rejects(post({ project: 'keflavik' }), { status: 400 });
 	await assert.rejects(post({ project: 'keflavik; rm', token: 'a'.repeat(32) }), { status: 400 });
+});
+
+/** Representative literal descriptor with fields that must stay on the server. */
+function profileDescriptor() {
+	return {
+		schema: 1,
+		kind: 'fixture-stack',
+		presenter: 'profile',
+		services: { web: { role: 'app' } },
+		defaults: { services: ['web'] },
+		panels: ['choice:mode'],
+		instances: {
+			files: [
+				{
+					id: 'hosts',
+					from: { path: 'fixtures/private-hosts' },
+					rewrite: 'addresses',
+					mount: { role: 'app', target: '/etc/fixture-hosts' }
+				}
+			]
+		},
+		actions: {
+			mode: {
+				type: 'choice',
+				label: 'Mode',
+				options: ['one', 'two'],
+				confirm: ['two'],
+				services: ['web'],
+				argv: ['fixture-command', '{option}'],
+				readBack: ['fixture-readback']
+			}
+		}
+	};
+}
+
+test('kind descriptors reject unknown fields, invalid paths, interpolation and oversized values', () => {
+	const validate = kindDescriptor.parseKindDescriptor;
+	const parsed = validate(profileDescriptor());
+	assert.equal(parsed.view.kind, 'fixture-stack');
+	assert.deepEqual(parsed.view.actions, [
+		{ id: 'mode', label: 'Mode', options: ['one', 'two'], confirm: ['two'] }
+	]);
+	const candidates = [
+		{ ...profileDescriptor(), unknown: 'not-returned' },
+		{ ...profileDescriptor(), title: '${PASSWORD}' },
+		{ ...profileDescriptor(), title: 'a'.repeat(40000) },
+		{
+			...profileDescriptor(),
+			instances: {
+				files: [{ ...profileDescriptor().instances.files[0], from: { path: '../secret' } }]
+			}
+		},
+		{
+			...profileDescriptor(),
+			instances: {
+				files: [
+					{
+						...profileDescriptor().instances.files[0],
+						mount: { target: 'relative/file', role: 'app' }
+					}
+				]
+			}
+		}
+	];
+	for (const candidate of candidates)
+		assert.throws(() => validate(candidate), kindDescriptor.KindDescriptorError);
+});
+
+test('kind discovery respects precedence and keeps display-only fallbacks separate from policy', async () => {
+	const input = {
+		extension: profileDescriptor(),
+		literalExtension: async () => profileDescriptor(),
+		operatorProfile: async () => ({ schema: 1, kind: 'operator-stack' }),
+		labels: ['database'],
+		services: []
+	};
+	const resolve = composeKinds.resolveComposeKind;
+	assert.equal((await resolve(input)).view.source, 'compose');
+	assert.equal((await resolve({ ...input, extension: undefined })).view.source, 'operator');
+	const labelsOnly = { ...input, extension: undefined, operatorProfile: async () => undefined };
+	assert.deepEqual(await resolve(labelsOnly), {
+		view: { kind: 'database', presenter: 'database', source: 'label' }
+	});
+	assert.equal(
+		(await resolve({ ...labelsOnly, labels: ['database', 'web'] })).view.kind,
+		'generic'
+	);
+	assert.equal((await resolve({ ...labelsOnly, labels: ['unknown-value'] })).view.kind, 'generic');
+	assert.equal(
+		(
+			await resolve({
+				...labelsOnly,
+				labels: [],
+				services: [{ image: 'docker.io/library/postgres:17', ports: [] }]
+			})
+		).view.kind,
+		'database'
+	);
+	assert.equal(
+		(
+			await resolve({
+				...labelsOnly,
+				labels: [],
+				services: [{ image: 'example.test/library/postgres:17', ports: [] }]
+			})
+		).view.kind,
+		'generic'
+	);
+	assert.equal(
+		(
+			await resolve({
+				...labelsOnly,
+				labels: [],
+				services: [{ ports: [{ target: '80', protocol: 'tcp', published: '8080' }] }]
+			})
+		).view.kind,
+		'web'
+	);
+});
+
+test('inspection hides execution metadata and rejects interpolated declarations without breaking the original stack', async () => {
+	const target = await sandbox.resolveComposeTarget(root, input());
+	const descriptor = profileDescriptor();
+	const raw = (extension) => ({
+		stdout: JSON.stringify({ ...JSON.parse(resolvedConfig()), 'x-devharbour': extension }),
+		stderr: ''
+	});
+	const inspect = (literal) =>
+		sandbox.inspectComposeTarget(
+			target,
+			async () => [],
+			async (_, mode) => (mode ? raw(literal) : raw(descriptor))
+		);
+	const accepted = await inspect(descriptor);
+	assert.equal(accepted.kind.source, 'compose');
+	assert.doesNotMatch(
+		JSON.stringify(accepted),
+		/fixture-command|fixture-readback|private-hosts|never-return-this/
+	);
+	const rejected = await inspect({ ...descriptor, kind: '${TOKEN}' });
+	assert.equal(rejected.kind.kind, 'generic');
+	assert.equal(rejected.warnings.length, 1);
+	assert.equal(rejected.projectName, 'keflavik');
+	assert.doesNotMatch(JSON.stringify(rejected), /TOKEN|never-return-this/);
+});
+
+/** A daemon-free fixture in the shape emitted by Compose config. */
+function instanceFixture() {
+	return {
+		name: 'example',
+		networks: {
+			demo: {
+				ipam: {
+					config: [
+						{
+							subnet: '192.168.20.0/24',
+							gateway: '192.168.20.1',
+							ip_range: '192.168.20.128/25',
+							aux_addresses: { db: '192.168.20.20' }
+						}
+					]
+				}
+			},
+			shared: { external: true }
+		},
+		services: {
+			web: {
+				container_name: 'example-web',
+				networks: { demo: { ipv4_address: '192.168.20.10' }, shared: null },
+				extra_hosts: ['db=192.168.20.20', 'mirror:192.168.20.21', 'local=::1'],
+				ports: [{ target: 80, published: '8888' }, { target: 443 }],
+				environment: { APP_URL: 'http://192.168.20.20/secret-marker' }
+			}
+		},
+		volumes: { data: { name: 'shared-data' }, shared: { external: true } }
+	};
+}
+
+test('instance planner remaps fixture offsets and scopes names without copying environment values', () => {
+	const config = instanceFixture();
+	const before = JSON.stringify(config);
+	const plan = instancePlan.planComposeInstance(config, 21);
+	assert.equal(plan.project, 'example-i21');
+	assert.equal(plan.addressPlan.subnets[0].to, '10.231.21.0/24');
+	assert.deepEqual(plan.override.networks.demo.ipam.value.config, [
+		{
+			subnet: '10.231.21.0/24',
+			gateway: '10.231.21.1',
+			ip_range: '10.231.21.128/25',
+			aux_addresses: { db: '10.231.21.20' }
+		}
+	]);
+	assert.equal(plan.override.networks.shared, undefined);
+	assert.deepEqual(plan.override.services.web.networks.demo, {
+		ipv4_address: '10.231.21.10',
+		aliases: ['example-web']
+	});
+	assert.equal(plan.override.services.web.networks.shared, undefined);
+	assert.deepEqual(plan.override.services.web.extra_hosts.value, [
+		'db=10.231.21.20',
+		'mirror=10.231.21.21',
+		'local=::1'
+	]);
+	assert.deepEqual(plan.override.services.web.ports.value, [
+		{ target: 80, protocol: 'tcp', host_ip: '127.0.0.1' },
+		{ target: 443, protocol: 'tcp', host_ip: '127.0.0.1' }
+	]);
+	assert.equal(plan.override.volumes.data.name, 'example-i21_data');
+	assert.equal(plan.override.volumes.shared, undefined);
+	assert.match(plan.warnings[0], /APP_URL/);
+	assert.doesNotMatch(JSON.stringify(plan), /secret-marker/);
+	assert.equal(JSON.stringify(config), before);
+});
+
+test('instance planner refuses collisions, shared static addresses, unsupported namespaces and IPv6', () => {
+	const plan = instancePlan.planComposeInstance;
+	assert.throws(
+		() => plan(instanceFixture(), 21, { occupiedSubnets: ['10.231.0.0/16'] }),
+		/overlaps/
+	);
+	assert.throws(
+		() => plan(instanceFixture(), 21, { occupiedProjects: ['example-i21'] }),
+		/already in use/
+	);
+	assert.throws(
+		() => plan(instanceFixture(), 20, { defaultSubnet: '192.168.{slot}.0/24' }),
+		/overlaps/
+	);
+	assert.throws(() => plan(instanceFixture(), 256), /outside the instance pool/);
+	const config = instanceFixture();
+	config.services.web.networks.shared = { ipv4_address: '10.1.1.10' };
+	assert.throws(() => plan(config, 21), /remappable subnet/);
+	config.services.web.networks.shared = null;
+	config.services.web.network_mode = 'host';
+	assert.throws(() => plan(config, 21), /namespace/);
+	delete config.services.web.network_mode;
+	config.networks.demo.enable_ipv6 = true;
+	assert.throws(() => plan(config, 21), /IPv4-only/);
 });

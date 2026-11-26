@@ -1,3 +1,4 @@
+import type { KindDescriptor } from './stackKinds/types.js';
 export interface ContainerData {
 	id: string;
 	name: string;
@@ -200,6 +201,7 @@ export interface ComposeStackContainer {
 
 /** Result of resolving one Compose selection and comparing it with live Docker state. */
 export interface ComposeInspection {
+	kind: KindDescriptor;
 	projectName: string;
 	/** Absolute project directory used for relative paths and the default `.env` */
 	projectDirectory: string;

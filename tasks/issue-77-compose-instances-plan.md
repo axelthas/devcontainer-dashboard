@@ -1,9 +1,9 @@
 # Compose instances
 
 - Issue: [#77](https://github.com/axelthas/devharbour/issues/77)
-- Baseline: 2c567eb (`main`). Source is unchanged since the design review at
+- Baseline: `2c567eb7b882059214d3d7b4de83637559cd808a` (`main`). Source is unchanged since the design review at
   8df870c; only documentation changed.
-- Status: Planned
+- Status: In progress. Steps 0–3 complete; planner review pending.
 - References:
   [Compose instances (proposed)](../specification/feature_compose_instances/feature_specification_compose_instances.md),
   [Compose sandboxes](../specification/feature_compose_sandbox/feature_specification_compose_sandbox.md),
@@ -33,7 +33,7 @@ Constraints that every step keeps:
 - No environment values, secrets or build arguments in responses or in files.
 - Client components do not import `$lib/server/`. Svelte 5 runes and Nord styling.
 
-## Step 0 recommendations (pending review)
+## Step 0 decisions (approved)
 
 Keep this work in the draft PR for #77. Review the kinds and presenters as a
 separate slice in the same PR. A presenter must not depend on the instance store.
@@ -43,7 +43,7 @@ separate slice in the same PR. A presenter must not depend on the instance store
 - Keep the `devcontainer-dashboard.*` label prefix for compatibility.
 - Use the workspace-local `.devharbour/instances` directory. Verify that the
   Docker daemon can resolve its bind paths before enabling rendered-file mounts.
-- Make the default pool configurable. Use `10.231.{slot}.0/24` as the proposed
+- Make the default pool configurable. Use `10.231.{slot}.0/24` as the
   default, support reserved CIDRs, and fail closed on overlap or exhaustion.
 - Keep volumes on removal. Do not add a volume-delete option.
 - Bind published instance ports to loopback and let Docker allocate the ports.
@@ -56,7 +56,9 @@ separate slice in the same PR. A presenter must not depend on the instance store
 - Gate instances at runtime on Compose 2.24.4 or later. Do not change the
   Compose version requirement for the original sandbox.
 
-The plan remains at step 0 until these recommendations are reviewed.
+Before integrating the store, settle the retained-volume case: reusing a slot
+must not silently attach a previous instance’s data. Treat retained resource
+identity separately from the slot, or refuse implicit adoption.
 
 ## Prerequisites and stop conditions
 
@@ -75,14 +77,15 @@ The plan remains at step 0 until these recommendations are reviewed.
    update the specification. Checkpoint: no open decision blocks steps 1 to 4.
    Requires review.
 1. **Kind descriptor.** Add client-safe types in `src/lib/stackKinds/types.ts`
-   (`KindDescriptor`, `StackView`, `StackActionRequest`, `InstanceSummary`). Add
+   (`KindDescriptor` first; add the instance and presenter contracts with their
+   consumers). Add
    `src/lib/server/kindDescriptor.ts`: parse and validate the top-level
    `x-devharbour` block, refuse unknown keys, limit sizes, validate container
    paths as absolute and repository paths as relative. The implementer selects
    a hand-written validator or a JSON Schema library; a new dependency requires
    review. Checkpoint: tests for valid, unknown-key, oversize and path-escape
    descriptors.
-2. **Kind resolution.** Extend `inspectComposeSelection` in
+2. **Kind resolution.** Extend `inspectComposeTarget` in
    `src/lib/server/composeSandbox.ts` to return `kind` and its source. Add the
    fallback order: descriptor, operator profile, label, heuristics, `generic`.
    Keep the current response redaction. Checkpoint: `/api/compose` returns the
@@ -136,6 +139,20 @@ The plan remains at step 0 until these recommendations are reviewed.
     to `ARCHITECTURE.md` and operator steps to `README.md`. Checkpoint: links
     and example paths resolve.
 
+## Step 3 review evidence
+
+With Compose 5.8.0, the `example` fixture at slot 21 planned the project
+`example-i21`. Its subnet changed from `192.168.20.0/24` to `10.231.21.0/24`.
+The web service kept host offset `.10` and gained the `example-web` alias.
+Ports 80 and 443 were bound to `127.0.0.1` without fixed host ports. Compose
+accepted a test serialization of the overlay through `config --format json`.
+No daemon was contacted. The production override writer is still step 5.
+
+`npm run test:compose` passed 53 tests. `npm run check` reported no errors and
+2 existing Svelte warnings. Both production builds passed. Prettier, ESLint
+and `git diff --check` passed for the changed files. The full test suite and
+real-Docker lifecycle checks did not run.
+
 ## Acceptance checks
 
 - [ ] `npm run check` reports no errors.
@@ -160,8 +177,8 @@ The plan remains at step 0 until these recommendations are reviewed.
 
 ## Delivery and recovery
 
-- Deliver in the draft PR for #77, or split steps 1, 2 and 9 (kinds and
-  presenters) into a separate issue if review prefers two PRs.
+- Deliver in the draft PR for #77. Keep the kind and presenter changes
+  reviewable as a separate slice.
 - No migration. Existing sandboxes are not renamed or converted. Removing the
   feature leaves instance directories under `.devharbour/instances`; delete
   them after removing their stacks.
