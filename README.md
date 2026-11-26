@@ -28,7 +28,7 @@ SSH agent that DevHarbour can verify on the Docker host. You do not need Node.js
    Only run the installer from a source you trust.
 
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/axelthas/devcontainer-dashboard/main/scripts/install-devharbour.sh | bash
+   curl -fsSL https://raw.githubusercontent.com/axelthas/devharbour/main/scripts/install-devharbour.sh | bash
    ```
 
 2. Start DevHarbour and set a login password of at least 12 characters when asked.
