@@ -1,18 +1,15 @@
 import { json, error } from '@sveltejs/kit';
-import { WORKSPACE_ROOT } from '$lib/server/workspaces';
-import { listLocalBranches, listTags, readGitHead, readCurrentTag } from '$lib/server/git';
+import { validateRepoPath } from '$lib/server/repoPath';
+import {
+	gitFailureMessage,
+	listLocalBranches,
+	listRefs,
+	listTags,
+	readGitHead,
+	readCurrentTag
+} from '$lib/server/git';
+import type { GitRefs, RepoRefsResponse } from '$lib/types';
 import type { RequestHandler } from './$types';
-
-function validateRepoPath(path: string | null): string {
-	if (typeof path !== 'string' || !path.startsWith(WORKSPACE_ROOT + '/')) {
-		throw error(400, 'Invalid repository path');
-	}
-	const normalized = new URL('file://' + path).pathname;
-	if (!normalized.startsWith(WORKSPACE_ROOT + '/')) {
-		throw error(400, 'Invalid repository path');
-	}
-	return normalized;
-}
 
 export const GET: RequestHandler = async ({ url }) => {
 	const repoPath = validateRepoPath(url.searchParams.get('path'));
@@ -24,7 +21,17 @@ export const GET: RequestHandler = async ({ url }) => {
 			readGitHead(repoPath)
 		]);
 		const currentTag = !currentBranch ? await readCurrentTag(repoPath) : undefined;
-		return json({ branches, tags, currentBranch, currentTag });
+		// The ordered refs need the git binary. The name lists above do not, so they stay
+		// available as a fallback when git refuses the repository (for example safe.directory).
+		let refs: GitRefs | undefined;
+		let refsError: string | undefined;
+		try {
+			refs = await listRefs(repoPath);
+		} catch (cause) {
+			refsError = gitFailureMessage(cause);
+		}
+		const body: RepoRefsResponse = { branches, tags, currentBranch, currentTag, refs, refsError };
+		return json(body);
 	} catch (err: unknown) {
 		const message = err instanceof Error ? err.message : 'Unknown error';
 		throw error(500, message);

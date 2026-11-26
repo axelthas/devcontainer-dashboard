@@ -113,8 +113,10 @@ npm run test             # deployment + unit + e2e combined
 | `/api/bootstrap/run` (POST)                    | Starts a bootstrap run for a preset or custom command                                        |
 | `/api/bootstrap/pull` (POST)                   | Pulls the active bootstrap provider repository                                               |
 | `/api/bootstrap/checkout` (POST)               | Checks out a branch in the active bootstrap provider repository                              |
-| `/api/repos/branches` (GET)                    | Returns branches, tags, and current ref information for a repository path                    |
-| `/api/repos/checkout` (POST)                   | Checks out a branch or tag in a repository path                                              |
+| `/api/repos/branches` (GET)                    | Returns local/remote branches and tags (newest first) and the current ref of a repository    |
+| `/api/repos/checkout` (POST)                   | Checks out a local branch, remote branch or tag in a repository path                         |
+| `/api/repos/fetch` (POST)                      | Fetches all remotes of a repository path and prunes deleted remote branches                  |
+| `/api/repos/pull` (POST)                       | Fast-forwards the current branch of a repository path from its upstream                      |
 | `/api/compose/tags` (GET)                      | Registry tags for the selected registry images of a Compose selection                        |
 | `/api/compose/remove` (GET, POST)              | Sandbox removal preview with token; removal keeps volumes, images and shared networks        |
 | `/api/devcontainer/build` (POST)               | Starts a devcontainer build session for a repository                                         |
@@ -244,6 +246,7 @@ Project skills live in `.opencode/skills/` and are invoked explicitly:
 - [specification/initial_specification.md](specification/initial_specification.md): Core product behavior and terminology
 - [specification/feature_bootstrap/feature_specification_bootstrap.md](specification/feature_bootstrap/feature_specification_bootstrap.md): Bootstrap workflow details
 - [specification/feature_brain_access/feature_specification_brain_access.md](specification/feature_brain_access/feature_specification_brain_access.md): Brain MCP shell access, grants, and trust model
+- [specification/feature_git_refs/feature_specification_git_refs.md](specification/feature_git_refs/feature_specification_git_refs.md): Git ref menu: sections, search, fetch and pull
 - [src/lib/types.ts](src/lib/types.ts): Shared data models and session state shapes
 - [src/routes/api/\*_/_.ts](src/routes/api): Route names, request validation, and response contracts
 - [src/server.ts](src/server.ts): Production server entry point and PORT handling
