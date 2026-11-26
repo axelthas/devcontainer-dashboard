@@ -41,7 +41,7 @@ def arguments():
     p.add_argument('--source', type=Path, help='Install from a local checkout, including intentional uncommitted CLI edits')
     p.add_argument('--no-env-file', action='store_true', help='Do not create the default devcontainer environment file')
     p.add_argument('--config-dir', type=Path, default=Path(os.environ.get('XDG_CONFIG_HOME', str(Path.home() / '.config'))) / 'devharbour', help='Directory of the default DevHarbour configuration')
-    p.add_argument('--no-checkout', action='store_true', help='Install CLI only; source is cloned later if a local build is selected')
+    p.add_argument('--no-checkout', action='store_true', help=argparse.SUPPRESS)  # Already the default.
     p.add_argument('--ref', default='main', help='GitHub commit/tag/branch; pin a full commit for reproducibility')
     p.add_argument('--bin-dir', type=Path, default=Path.home() / '.local/bin')
     p.add_argument('--data-dir', type=Path, default=Path(os.environ.get('XDG_DATA_HOME', str(Path.home() / '.local/share'))) / 'devharbour')
@@ -91,21 +91,12 @@ def download_error(step, error):
     return InstallError(f'{step}: check network access, proxy and TLS configuration.')
 
 
-def source_checkout(args, identity, runtime):
-    """Retain a clean pinned remote checkout, never reset an existing working copy."""
+def source_metadata(args, identity):
+    """Record the source revision for on-demand builds without cloning it."""
     if args.source:
         result = subprocess.run(['git', '-C', str(args.source), 'rev-parse', 'HEAD'], text=True, capture_output=True)
-        return {'repository': REPOSITORY, 'revision': result.stdout.strip() if result.returncode == 0 else 'main', 'ref': args.ref}
-    metadata = {'repository': REPOSITORY, 'revision': identity, 'ref': args.ref}
-    if not args.no_checkout:
-        sys.path.insert(0, str(runtime))
-        from devharbour_source import SourceError, acquire
-        try:
-            checkout, revision = acquire({'mode': 'build', 'ref': identity}, args.data_dir / 'source')
-        except SourceError as error:
-            raise InstallError('Prepare the Git checkout: ' + str(error)) from error
-        metadata.update({'checkout': str(checkout), 'revision': revision})
-    return metadata
+        identity = result.stdout.strip() if result.returncode == 0 else 'main'
+    return {'repository': REPOSITORY, 'revision': identity, 'ref': args.ref}
 
 
 def python_environment(args, runtime):
@@ -181,7 +172,7 @@ def install(args):
             finally:
                 if staging.exists():
                     shutil.rmtree(staging)
-        metadata = source_checkout(args, identity, runtime)
+        metadata = source_metadata(args, identity)
         if (runtime / 'SOURCE.json').is_symlink():
             raise InstallError('Refusing source metadata symlink')
         fd_metadata, temp_metadata = tempfile.mkstemp(prefix='.source-', dir=runtime)
@@ -206,7 +197,7 @@ def install(args):
     if str(args.bin_dir) not in os.environ.get('PATH', '').split(os.pathsep):
         print('Add this directory to PATH: export PATH=' + shlex.quote(str(args.bin_dir)) + ':"$PATH"')
         print('Or run directly:', destination)
-    print('Source checkout:', metadata.get('checkout', 'cloned on demand if a local build is selected'))
+    print('Source checkout: cloned on demand if a local build is selected')
     if env_path:
         print('Devcontainer environment:', env_path, '(created with defaults and a generated OPENCODE_PASSWORD)' if env_created else '(existing file kept unchanged)')
     print('Run devharbour for localhost startup; use devharbour setup for advanced settings. Existing configuration and containers were not changed.')

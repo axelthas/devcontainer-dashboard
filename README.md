@@ -20,7 +20,7 @@ agent activity.
 ## Quickstart
 
 **You need:** A Linux host with running Docker that your user can access, Bash,
-`curl`, Git, and Python 3.9+ with `venv` and `pip`. The quickstart also needs one
+`curl`, and Python 3.9+ with `venv` and `pip`. The quickstart also needs one
 SSH agent that DevHarbour can verify on the Docker host. You do not need Node.js.
 
 1. On the Docker host, run the [installer](scripts/install-devharbour.sh) as your
@@ -42,15 +42,16 @@ SSH agent that DevHarbour can verify on the Docker host. You do not need Node.js
 
 3. Open [http://127.0.0.1:3000](http://127.0.0.1:3000) on the host and sign in.
 
-The installer only installs the CLI. The first run uses the published Docker
-image and binds to localhost. If DevHarbour cannot identify your host account or
+The installer installs the CLI without cloning the repository. The first run
+uses `ghcr.io/axelthas/devharbour:latest` and binds to localhost. DevHarbour pulls
+the image if it is not already present. If DevHarbour cannot identify your host account or
 SSH agent, run `devharbour setup` to choose them explicitly.
 
 **Use `devharbour setup`** for a custom workspace, private Tailscale HTTPS, or a
 local image build. Choose **Save only**, then run `devharbour apply` to review and
 start the deployment. Merging to `main` does not publish a Docker image. To use
 changes that are not in a release yet, select a local build from `main` in setup
-(requires Docker Buildx).
+(requires Git and Docker Buildx).
 
 ## Open your first project
 

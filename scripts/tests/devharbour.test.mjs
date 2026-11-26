@@ -513,15 +513,21 @@ test('atomic write failure preserves the previous configuration and removes temp
 	ok(spawnSync('python3', ['-c', program, cli, f.config], { env: f.env, encoding: 'utf8' }));
 	assert.equal(readFileSync(f.config, 'utf8'), before);
 });
-test('download installation resolves one immutable revision and reads only allowlisted archive members', (t) => {
+test('default download installation uses a pinned archive without running Git', (t) => {
 	const f = fixture(t);
 	const bin = join(f.dir, 'download-bin');
 	const data = join(f.dir, 'download-data');
-	const program = `import io,json,sys,tarfile,urllib.request\nfrom pathlib import Path\nroot=Path(sys.argv[1]); revision='a'*40; archive=io.BytesIO()\nwith tarfile.open(fileobj=archive,mode='w:gz') as t:\n for name in ['devharbour.schema.json','devharbour_schema.py','devharbour_quickstart.py','devharbour_settings.py','devharbour.py','devharbour_ui.py','devharbour_source.py','devharbour_env.py','devharbour_banner.py','requirements-cli.txt','run-dashboard.sh']:\n  body=(root/'scripts'/name).read_bytes();info=tarfile.TarInfo('devharbour-'+revision+'/scripts/'+name); info.size=len(body);t.addfile(info,io.BytesIO(body))\n defbody=b'not extracted'; info=tarfile.TarInfo('../../escape');info.size=len(defbody);t.addfile(info,io.BytesIO(defbody))\ncalls=[]\ndef fetch(request,**kwargs):\n url=request.full_url if hasattr(request,'full_url') else request;calls.append(url)\n return io.BytesIO(json.dumps({'sha':revision}).encode() if '/commits/' in url else archive.getvalue())\nurllib.request.urlopen=fetch\nsource=(root/'scripts/install-devharbour.sh').read_text().split("<<'PY'\\n",1)[1].rsplit('\\nPY',1)[0]\nsys.argv=['installer','--no-checkout','--no-env-file','--bin-dir',sys.argv[2],'--data-dir',sys.argv[3],'--ref','feature/test']\ndefinitions=source.split('\\ntry:\\n    main()',1)[0]\nscope={}\nexec(compile(definitions,'installer','exec'),scope)\n# This test covers archive installation; do not install menu libraries from PyPI.\nscope['python_environment']=lambda args,runtime: Path(sys.executable)\nscope['main']()\nassert calls==['https://api.github.com/repos/axelthas/devharbour/commits/feature%2Ftest', 'https://codeload.github.com/axelthas/devharbour/tar.gz/'+revision]\n`;
+	const program = `import io,json,sys,tarfile,urllib.request\nfrom pathlib import Path\nroot=Path(sys.argv[1]); revision='a'*40; archive=io.BytesIO()\nwith tarfile.open(fileobj=archive,mode='w:gz') as t:\n for name in ['devharbour.schema.json','devharbour_schema.py','devharbour_quickstart.py','devharbour_settings.py','devharbour.py','devharbour_ui.py','devharbour_source.py','devharbour_env.py','devharbour_banner.py','requirements-cli.txt','run-dashboard.sh']:\n  body=(root/'scripts'/name).read_bytes();info=tarfile.TarInfo('devharbour-'+revision+'/scripts/'+name); info.size=len(body);t.addfile(info,io.BytesIO(body))\n defbody=b'not extracted'; info=tarfile.TarInfo('../../escape');info.size=len(defbody);t.addfile(info,io.BytesIO(defbody))\ncalls=[]\ndef fetch(request,**kwargs):\n url=request.full_url if hasattr(request,'full_url') else request;calls.append(url)\n return io.BytesIO(json.dumps({'sha':revision}).encode() if '/commits/' in url else archive.getvalue())\nurllib.request.urlopen=fetch\nsource=(root/'scripts/install-devharbour.sh').read_text().split("<<'PY'\\n",1)[1].rsplit('\\nPY',1)[0]\nsys.argv=['installer','--no-env-file','--bin-dir',sys.argv[2],'--data-dir',sys.argv[3],'--ref','feature/test']\ndefinitions=source.split('\\ntry:\\n    main()',1)[0]\nscope={}\nexec(compile(definitions,'installer','exec'),scope)\n# This test covers archive installation; do not install menu libraries from PyPI.\nscope['python_environment']=lambda args,runtime: Path(sys.executable)\ndef disallow_subprocess(*args,**kwargs):\n raise AssertionError('Default installation must not invoke Git or Docker')\nscope['subprocess'].run=disallow_subprocess\nscope['main']()\nassert calls==['https://api.github.com/repos/axelthas/devharbour/commits/feature%2Ftest', 'https://codeload.github.com/axelthas/devharbour/tar.gz/'+revision]\n`;
 	ok(spawnSync('python3', ['-c', program, root, bin, data], { env: f.env, encoding: 'utf8' }));
 	const r = spawnSync(join(bin, 'devharbour'), ['--version'], { env: f.env, encoding: 'utf8' });
 	ok(r);
 	assert.match(r.stdout, /aaaaaaaa/);
+	assert.equal(existsSync(join(data, 'source')), false);
+	assert.deepEqual(JSON.parse(readFileSync(join(data, 'a'.repeat(40), 'SOURCE.json'), 'utf8')), {
+		repository: 'https://github.com/axelthas/devharbour.git',
+		revision: 'a'.repeat(40),
+		ref: 'feature/test'
+	});
 });
 
 test('managed launch explicitly pins the application port after env files', (t) => {
