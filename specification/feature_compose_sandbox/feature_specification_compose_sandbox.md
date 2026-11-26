@@ -75,7 +75,7 @@ provide arbitrary Compose command entry or a volume removal action.
 
 ## Out of scope
 
-The dashboard does not assign a unique project name to each checkout. It does
+The dashboard does not assign a unique project name to each checkout. **Proposed:** [Compose instances](../feature_compose_instances/feature_specification_compose_instances.md) ([#77](https://github.com/axelthas/devharbour/issues/77)). It does
 not restore active Compose commands after a server restart. Deleting a workspace
 releases its run tracking but does not remove the stack.
 
