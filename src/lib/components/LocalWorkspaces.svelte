@@ -4,7 +4,6 @@
 		ChevronDown,
 		FolderGit2,
 		GitBranch,
-		Tag,
 		Play,
 		Loader,
 		RefreshCw,
@@ -18,12 +17,7 @@
 		Boxes
 	} from 'lucide-svelte';
 	import { onDestroy, untrack } from 'svelte';
-	import {
-		errorMessage,
-		latestRequest,
-		requestJson,
-		RequestError as RequestFailure
-	} from '$lib/requests';
+	import { errorMessage, requestJson, RequestError as RequestFailure } from '$lib/requests';
 	import RequestError from './RequestError.svelte';
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import { generateId } from '$lib/index';
@@ -36,6 +30,8 @@
 	import ComposeSandboxPanel from './ComposeSandboxPanel.svelte';
 	import { resolve } from '$app/paths';
 	import TerminalTab from './TerminalTab.svelte';
+	import GitRefMenu from './GitRefMenu.svelte';
+	import type { RefTarget } from '$lib/gitRefs';
 
 	interface Props {
 		workspaceRoot: string;
@@ -92,23 +88,17 @@
 	// Read-only viewer for the kept log of a failed build or bootstrap run
 	let logViewer = $state<{ id: string; title: string } | null>(null);
 
-	// Branch picker state
+	// Repository whose Git ref menu is open. One menu is open at a time.
 	let branchPickerRepo = $state<string | null>(null);
-	let branchPickerBranches = $state<string[]>([]);
-	let branchPickerTags = $state<string[]>([]);
-	let branchPickerLoading = $state(false);
 	let checkoutInProgress = $state<string | null>(null);
 	let startingRepos = $state<Set<string>>(new Set());
 	let refreshError = $state('');
 	let operationErrors = $state<Record<string, string>>({});
 	const pendingOperations = new SvelteSet<string>();
-	const branchReads = latestRequest();
-	let branchRevision = 0;
 	let refreshCount = 0;
 	let disposed = false;
 	onDestroy(() => {
 		disposed = true;
-		branchReads.cancel();
 	});
 
 	// Poll while a Compose run is active, so a collapsed row still shows completion.
@@ -306,58 +296,25 @@
 		});
 	}
 
-	async function openBranchPicker(repoPath: string) {
-		const revision = ++branchRevision;
-		if (branchPickerRepo === repoPath) {
-			branchReads.cancel();
-			branchPickerRepo = null;
-			return;
-		}
-		branchPickerRepo = repoPath;
-		branchPickerLoading = true;
-		branchPickerBranches = [];
-		branchPickerTags = [];
-		operationErrors[repoPath] = '';
-		try {
-			await branchReads.run(
-				(signal) =>
-					requestJson<{ branches: string[]; tags?: string[] }>(
-						`/api/repos/branches?path=${encodeURIComponent(repoPath)}`,
-						{ signal }
-					),
-				(data) => {
-					branchPickerBranches = data.branches;
-					branchPickerTags = data.tags ?? [];
-				}
-			);
-		} catch (cause) {
-			if (!disposed && branchPickerRepo === repoPath)
-				operationErrors[repoPath] = errorMessage(cause);
-		} finally {
-			if (!disposed && revision === branchRevision) branchPickerLoading = false;
-		}
+	function toggleBranchPicker(repoPath: string) {
+		branchPickerRepo = branchPickerRepo === repoPath ? null : repoPath;
 	}
 
-	async function checkoutBranch(repo: RepositoryData, branch: string) {
-		await checkoutRef(repo, { branch }, branch === repo.currentBranch);
-	}
-
-	async function checkoutTag(repo: RepositoryData, tag: string) {
-		await checkoutRef(repo, { tag }, tag === repo.currentTag);
+	/** Check out a local branch, a remote branch or a tag from the Git ref menu. */
+	async function checkoutTarget(repo: RepositoryData, target: RefTarget) {
+		const current =
+			('branch' in target && target.branch === repo.currentBranch) ||
+			('tag' in target && target.tag === repo.currentTag);
+		await checkoutRef(repo, target, current);
 	}
 
 	/** Share branch/tag failure handling while preserving the explicit dirty-tree confirmation. */
-	async function checkoutRef(
-		repo: RepositoryData,
-		ref: { branch?: string; tag?: string },
-		current: boolean
-	) {
+	async function checkoutRef(repo: RepositoryData, ref: RefTarget, current: boolean) {
 		if (pendingOperations.has(repo.path)) return;
 		if (current) {
 			branchPickerRepo = null;
 			return;
 		}
-		branchReads.cancel();
 		checkoutInProgress = repo.path;
 		await operate(repo.path, async () => {
 			const checkout = (force = false) =>
@@ -658,96 +615,17 @@
 									<!-- Branch column: fixed width, left-aligned so branches line up -->
 									<div class="flex w-[210px] shrink-0 items-center">
 										{#if repo.currentBranch || repo.currentTag}
-											<div class="relative">
-												<button
-													onclick={(e) => {
-														e.stopPropagation();
-														openBranchPicker(repo.path);
-													}}
-													class="flex items-center gap-1 rounded bg-[#e5e9f0] px-2 py-0.5 text-xs dark:bg-[#434c5e] {repo.currentTag
-														? 'text-[#a3be8c] dark:text-[#a3be8c]'
-														: 'text-[#5e81ac] dark:text-[#88c0d0]'} border border-[#d8dee9] transition-colors hover:bg-[#d8dee9] dark:border-[#4c566a] dark:hover:bg-[#4c566a]"
-													type="button"
-													title={repo.currentBranch ?? repo.currentTag}
-												>
-													{#if checkoutInProgress === repo.path}
-														<Loader size={10} class="animate-spin" />
-													{:else if repo.currentTag}
-														<Tag size={10} />
-													{/if}
-													<span class="max-w-[180px] truncate"
-														>{repo.currentBranch ?? repo.currentTag}</span
-													>
-													<ChevronDown size={10} />
-												</button>
-												{#if branchPickerRepo === repo.path}
-													<div
-														class="absolute top-full left-0 z-20 mt-1 max-h-60 w-56 overflow-y-auto rounded-lg border border-[#d8dee9] bg-white shadow-lg dark:border-[#4c566a] dark:bg-[#3b4252]"
-													>
-														{#if branchPickerLoading}
-															<div class="px-3 py-2 text-xs text-[#4c566a] dark:text-[#d8dee9]/60">
-																Loading…
-															</div>
-														{:else}
-															{#if branchPickerBranches.length > 0}
-																<div
-																	class="border-b border-[#d8dee9] px-3 py-1.5 text-[10px] font-semibold tracking-wide text-[#4c566a] uppercase dark:border-[#4c566a] dark:text-[#d8dee9]/50"
-																>
-																	Branches
-																</div>
-																{#each branchPickerBranches as branch (branch)}
-																	<button
-																		onclick={() => checkoutBranch(repo, branch)}
-																		class="w-full px-3 py-1.5 text-left text-xs transition-colors hover:bg-[#e5e9f0] dark:hover:bg-[#434c5e] {branch ===
-																		repo.currentBranch
-																			? 'font-bold text-[#88c0d0]'
-																			: 'text-[#2e3440] dark:text-[#d8dee9]'}"
-																		type="button"
-																	>
-																		{branch}
-																		{#if branch === repo.currentBranch}
-																			<span class="ml-1 text-[#a3be8c]">✓</span>
-																		{/if}
-																	</button>
-																{/each}
-															{/if}
-															{#if branchPickerTags.length > 0}
-																<div
-																	class="border-b border-[#d8dee9] px-3 py-1.5 text-[10px] font-semibold tracking-wide text-[#4c566a] uppercase dark:border-[#4c566a] dark:text-[#d8dee9]/50 {branchPickerBranches.length >
-																	0
-																		? 'border-t'
-																		: ''}"
-																>
-																	Tags
-																</div>
-																{#each branchPickerTags as tagName (tagName)}
-																	<button
-																		onclick={() => checkoutTag(repo, tagName)}
-																		class="flex w-full items-center gap-1 px-3 py-1.5 text-left text-xs transition-colors hover:bg-[#e5e9f0] dark:hover:bg-[#434c5e] {tagName ===
-																		repo.currentTag
-																			? 'font-bold text-[#a3be8c]'
-																			: 'text-[#2e3440] dark:text-[#d8dee9]'}"
-																		type="button"
-																	>
-																		<Tag size={10} class="shrink-0" />
-																		{tagName}
-																		{#if tagName === repo.currentTag}
-																			<span class="ml-1 text-[#a3be8c]">✓</span>
-																		{/if}
-																	</button>
-																{/each}
-															{/if}
-															{#if branchPickerBranches.length === 0 && branchPickerTags.length === 0 && !operationErrors[repo.path]}
-																<div
-																	class="px-3 py-2 text-xs text-[#4c566a] italic dark:text-[#d8dee9]/60"
-																>
-																	No branches or tags found
-																</div>
-															{/if}
-														{/if}
-													</div>
-												{/if}
-											</div>
+											<GitRefMenu
+												repoPath={repo.path}
+												currentBranch={repo.currentBranch}
+												currentTag={repo.currentTag}
+												open={branchPickerRepo === repo.path}
+												checkingOut={checkoutInProgress === repo.path}
+												onToggle={() => toggleBranchPicker(repo.path)}
+												onClose={() => (branchPickerRepo = null)}
+												onCheckout={(target) => checkoutTarget(repo, target)}
+												onPulled={onRefreshWorkspaces}
+											/>
 										{/if}
 									</div>
 
