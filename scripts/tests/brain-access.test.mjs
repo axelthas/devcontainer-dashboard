@@ -184,6 +184,118 @@ test('stdin content is never written to the audit log', async () => {
 	assert.ok(grant.id);
 });
 
+test('the operator extends a live grant from its current end', async () => {
+	const containers = new Map([[ID, runningContainer(ID)]]);
+	install(containers);
+	const now = Date.now();
+	const grant = brain.access.createGrant(target(ID), 15, now);
+	await assert.rejects(brain.access.extendGrant(grant.id, 30, now), /Choose/);
+	const extended = await brain.access.extendGrant(grant.id, 60, now + 10 * 60_000);
+	// Added to the end, not to the time of the click.
+	assert.equal(extended.expiresAt, now + 75 * 60_000);
+	await brain.access.extendGrant(grant.id, 240, now + 11 * 60_000);
+	assert.equal(grant.expiresAt, now + 315 * 60_000);
+	const entry = brain.state.brainState.audit.at(-1);
+	assert.equal(entry.tool, 'extend');
+	assert.equal(entry.grantId, grant.id);
+	assert.match(entry.detail, /^by 240 minutes, ends /);
+	const listed = (await call('list_targets', {})).data.targets[0];
+	assert.equal(listed.expires_at, new Date(grant.expiresAt).toISOString());
+	assert.ok(listed.seconds_left > 300 * 60 - 120);
+});
+
+test('an ended or restarted grant cannot be extended', async () => {
+	const containers = new Map([[ID, runningContainer(ID)]]);
+	install(containers);
+	const now = Date.now();
+	const grant = brain.access.createGrant(target(ID), 15, now);
+	await assert.rejects(
+		brain.access.extendGrant(grant.id, 15, now + 15 * 60_000),
+		(cause) => cause.status === 404 && /already ended/.test(cause.message)
+	);
+	const second = brain.access.createGrant(target(ID), 15);
+	containers.set(ID, runningContainer(ID, '2026-11-18T21:00:00.000000000Z'));
+	await assert.rejects(
+		brain.access.extendGrant(second.id, 15),
+		(cause) => cause.status === 410 && /Grant access again/.test(cause.message)
+	);
+	assert.equal(brain.state.brainState.grants.size, 0);
+	assert.equal(
+		brain.state.brainState.audit.some((entry) => entry.tool === 'extend'),
+		false
+	);
+});
+
+test('Brain can ask for more time, but only the operator extends', async () => {
+	install(new Map([[ID, runningContainer(ID)]]));
+	const grant = brain.access.createGrant(target(ID), 15);
+	const end = grant.expiresAt;
+	for (const args of [
+		{ target_id: grant.id, minutes: 30, reason: 'Tests run long.' },
+		{ target_id: grant.id, minutes: 60, reason: '  ' },
+		{ target_id: grant.id, minutes: 60, reason: 'x'.repeat(201) }
+	]) {
+		const refused = await call('request_more_time', args);
+		assert.equal(refused.result.isError, true);
+	}
+	assert.equal(grant.timeRequest, undefined);
+	const asked = await call('request_more_time', {
+		target_id: grant.id,
+		minutes: 60,
+		reason: ' The browser suite needs 35 more minutes. '
+	});
+	assert.equal(asked.result.isError, undefined);
+	assert.equal(asked.data.status, 'pending');
+	// A request never moves the end.
+	assert.equal(grant.expiresAt, end);
+	const view = brain.access.grantView(grant);
+	assert.equal(view.timeRequest.minutes, 60);
+	assert.equal(view.timeRequest.reason, 'The browser suite needs 35 more minutes.');
+	let listed = (await call('list_targets', {})).data.targets[0];
+	assert.equal(listed.time_request.status, 'pending');
+	const entry = brain.state.brainState.audit.at(-2);
+	assert.equal(entry.tool, 'request_more_time');
+	assert.equal(entry.grantId, grant.id);
+
+	assert.equal(brain.access.dismissTimeRequest(grant.id), true);
+	assert.equal(brain.access.dismissTimeRequest(grant.id), false);
+	assert.equal(brain.access.grantView(grant).timeRequest, undefined);
+	listed = (await call('list_targets', {})).data.targets[0];
+	assert.equal(listed.time_request.status, 'dismissed');
+	assert.equal(grant.expiresAt, end);
+
+	await call('request_more_time', { target_id: grant.id, minutes: 15, reason: 'Again.' });
+	await brain.access.extendGrant(grant.id, 15);
+	assert.equal(grant.timeRequest, undefined);
+	listed = (await call('list_targets', {})).data.targets[0];
+	assert.equal(listed.time_request, undefined);
+	assert.equal(listed.expires_at, new Date(end + 15 * 60_000).toISOString());
+
+	const outside = await call('request_more_time', {
+		target_id: 'g_unknown',
+		minutes: 15,
+		reason: 'Not granted.'
+	});
+	assert.equal(outside.result.isError, true);
+	assert.equal(brain.state.brainState.audit.at(-1).outcome, 'denied');
+});
+
+test('command results report when the grant ends', async () => {
+	install(new Map([[ID, runningContainer(ID)]]));
+	const grant = brain.access.createGrant(target(ID), 60);
+	const ran = await call('execute', {
+		target_id: grant.id,
+		command: 'echo hello',
+		goal: 'Print a greeting.',
+		wait_seconds: 1
+	});
+	assert.equal(ran.data.grant_expires_at, new Date(grant.expiresAt).toISOString());
+	assert.ok(ran.data.grant_seconds_left > 59 * 60);
+	await brain.access.extendGrant(grant.id, 15);
+	const read = await call('read_output', { execution_id: ran.data.execution_id });
+	assert.equal(read.data.grant_expires_at, new Date(grant.expiresAt).toISOString());
+});
+
 test('reach analysis flags sockets, privileges, root and credentials', () => {
 	const { analyzeExposure, requiresAcceptance } = brain.exposure;
 	const exposure = analyzeExposure(

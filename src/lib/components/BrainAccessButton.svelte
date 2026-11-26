@@ -1,7 +1,8 @@
 <script lang="ts">
-	import { BrainCircuit } from 'lucide-svelte';
+	import { BrainCircuit, Clock } from 'lucide-svelte';
 	import type { ContainerData } from '$lib/types';
 	import { formatRemaining, useBrainAccess } from '$lib/brainAccess.svelte';
+	import { isEndingSoon } from '$lib/brainAlerts';
 	import BrainAccessDialog from './BrainAccessDialog.svelte';
 
 	interface Props {
@@ -16,6 +17,7 @@
 	const visible = $derived(
 		Boolean(access?.enabled) && (container.state === 'running' || Boolean(grant))
 	);
+	const ending = $derived(Boolean(grant && access && isEndingSoon(grant, access.now)));
 	let open = $state(false);
 
 	/** On the dashboard, show this container's group in the Brain pane; else the dialog. */
@@ -30,10 +32,15 @@
 		<button
 			type="button"
 			onclick={showGrant}
-			title={`Brain has shell access as ${grant.user}. Show its work.`}
-			class="flex items-center gap-1.5 rounded-lg bg-[#b48ead] px-2 py-1 text-xs font-medium whitespace-nowrap text-[#2e3440] transition-opacity hover:opacity-90"
+			title={ending
+				? `Brain access ends soon. Show its work and extend access.`
+				: `Brain has shell access as ${grant.user}. Show its work.`}
+			class="flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium whitespace-nowrap text-[#2e3440] transition-opacity hover:opacity-90 {ending
+				? 'bg-[#ebcb8b]'
+				: 'bg-[#b48ead]'}"
+			data-ending={ending ? '' : undefined}
 		>
-			<BrainCircuit size={12} />
+			{#if ending}<Clock size={12} />{:else}<BrainCircuit size={12} />{/if}
 			Brain · {formatRemaining(grant.expiresAt, access.now)}
 		</button>
 	{:else}

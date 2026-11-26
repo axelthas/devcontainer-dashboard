@@ -1,0 +1,415 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"title": "DevHarbour configuration",
+	"type": "object",
+	"additionalProperties": false,
+	"required": ["schemaVersion", "instanceName", "restartPolicy", "settings"],
+	"properties": {
+		"schemaVersion": {
+			"type": "integer",
+			"const": 1
+		},
+		"instanceName": {
+			"type": "string",
+			"pattern": "^[a-z0-9][a-z0-9_.-]{0,79}$"
+		},
+		"restartPolicy": {
+			"type": "string",
+			"enum": ["always", "unless-stopped", "on-failure", "no"]
+		},
+		"settings": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"host-gid",
+				"host-home",
+				"host-uid",
+				"host-user",
+				"password-file",
+				"ssh-agent-socket"
+			],
+			"properties": {
+				"ai-port": {
+					"type": "integer",
+					"title": "OpenChamber web port",
+					"description": "OpenChamber web interface. Tailscale uses a dynamic loopback port instead.",
+					"x-section": "ai",
+					"x-apply": "recreate",
+					"minimum": 1,
+					"maximum": 65535,
+					"default": 3002
+				},
+				"ai-state-volume": {
+					"type": "string",
+					"title": "Ai state volume",
+					"description": "Managed launcher setting: --ai-state-volume",
+					"x-section": "ai",
+					"x-apply": "recreate",
+					"minLength": 1,
+					"maxLength": 4096,
+					"pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+				},
+				"bind-address": {
+					"type": "string",
+					"title": "Bind address",
+					"description": "Managed launcher setting: --bind-address",
+					"x-section": "access",
+					"x-apply": "recreate",
+					"minLength": 1,
+					"maxLength": 4096,
+					"pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+					"default": "127.0.0.1"
+				},
+				"bootstrap": {
+					"type": "boolean",
+					"title": "Bootstrap",
+					"description": "Install the bundled dev-bootstrap hook when DevHarbour starts. Requires Git access.",
+					"x-section": "bootstrap",
+					"x-apply": "recreate",
+					"default": false
+				},
+				"brain": {
+					"type": "boolean",
+					"title": "MCP server",
+					"description": "Separate listener for AI agents. Enablement grants no container access.",
+					"x-section": "ai",
+					"x-apply": "recreate",
+					"default": false
+				},
+				"brain-funnel": {
+					"type": "boolean",
+					"title": "Public MCP access (Tailscale Funnel)",
+					"description": "DevHarbour publishes only the bearer-protected MCP listener and removes its route on shutdown. Requires Tailscale HTTPS.",
+					"x-section": "ai",
+					"x-apply": "recreate",
+					"default": false
+				},
+				"brain-funnel-port": {
+					"type": "integer",
+					"title": "Funnel HTTPS port",
+					"description": "Managed launcher setting: --brain-funnel-port",
+					"x-section": "ai",
+					"x-apply": "recreate",
+					"minimum": 1,
+					"maximum": 65535,
+					"default": 10000
+				},
+				"brain-port": {
+					"type": "integer",
+					"title": "MCP listener port",
+					"description": "Managed launcher setting: --brain-port",
+					"x-section": "ai",
+					"x-apply": "recreate",
+					"minimum": 1,
+					"maximum": 65535,
+					"default": 3100
+				},
+				"brain-token-file": {
+					"type": "string",
+					"title": "MCP token file",
+					"description": "Optional existing token reference. The value is never returned.",
+					"x-section": "ai",
+					"x-apply": "recreate",
+					"minLength": 1,
+					"maxLength": 4096,
+					"pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+				},
+				"env-file": {
+					"type": "array",
+					"title": "Environment files (in precedence order)",
+					"description": "Later files override earlier ones. Docker environment changes require recreation.",
+					"x-section": "env",
+					"x-apply": "recreate",
+					"maxItems": 32,
+					"items": {
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 4096
+					}
+				},
+				"gateway": {
+					"type": "boolean",
+					"title": "Gateway",
+					"description": "Managed launcher setting: --gateway",
+					"x-section": "access",
+					"x-apply": "recreate",
+					"default": false
+				},
+				"gateway-host": {
+					"type": "string",
+					"title": "Gateway host",
+					"description": "Managed launcher setting: --gateway-host",
+					"x-section": "access",
+					"x-apply": "recreate",
+					"minLength": 1,
+					"maxLength": 4096,
+					"pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+				},
+				"gateway-ports": {
+					"type": "string",
+					"title": "Gateway ports",
+					"description": "Managed launcher setting: --gateway-ports",
+					"x-section": "access",
+					"x-apply": "recreate",
+					"minLength": 1,
+					"maxLength": 4096,
+					"pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+				},
+				"health-timeout": {
+					"type": "integer",
+					"title": "Health timeout",
+					"description": "Managed launcher setting: --health-timeout",
+					"x-section": "general",
+					"x-apply": "recreate",
+					"minimum": 1,
+					"maximum": 86400,
+					"default": 180
+				},
+				"host-gid": {
+					"type": "integer",
+					"title": "Host gid",
+					"description": "Managed launcher setting: --host-gid",
+					"x-section": "host",
+					"x-apply": "recreate",
+					"minimum": 1,
+					"maximum": 2147483647
+				},
+				"host-home": {
+					"type": "string",
+					"title": "Host home",
+					"description": "Managed launcher setting: --host-home",
+					"x-section": "host",
+					"x-apply": "recreate",
+					"minLength": 1,
+					"maxLength": 4096,
+					"pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+				},
+				"host-name": {
+					"type": "string",
+					"title": "Host label",
+					"description": "Managed launcher setting: --host-name",
+					"x-section": "general",
+					"x-apply": "recreate",
+					"minLength": 1,
+					"maxLength": 4096,
+					"pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+				},
+				"host-uid": {
+					"type": "integer",
+					"title": "Host uid",
+					"description": "Managed launcher setting: --host-uid",
+					"x-section": "host",
+					"x-apply": "recreate",
+					"minimum": 1,
+					"maximum": 2147483647
+				},
+				"host-user": {
+					"type": "string",
+					"title": "Host user",
+					"description": "Non-root operator on the Docker host.",
+					"x-section": "host",
+					"x-apply": "recreate",
+					"minLength": 1,
+					"maxLength": 4096,
+					"pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+				},
+				"image": {
+					"type": "string",
+					"title": "Image",
+					"description": "Managed launcher setting: --image",
+					"x-section": "general",
+					"x-apply": "recreate",
+					"minLength": 1,
+					"maxLength": 4096,
+					"pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+					"default": "ghcr.io/axelthas/devcontainer-dashboard:latest"
+				},
+				"name": {
+					"type": "string",
+					"title": "Name",
+					"description": "Managed launcher setting: --name",
+					"x-section": "general",
+					"x-apply": "recreate",
+					"minLength": 1,
+					"maxLength": 4096,
+					"pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+					"x-web-editable": false
+				},
+				"no-create-workspace": {
+					"type": "boolean",
+					"title": "No create workspace",
+					"description": "Managed launcher setting: --no-create-workspace",
+					"x-section": "host",
+					"x-apply": "recreate",
+					"default": false
+				},
+				"origin": {
+					"type": "string",
+					"title": "Origin",
+					"description": "External HTTP(S) origin without a path. Tailscale requires an HTTPS ts.net origin.",
+					"x-section": "access",
+					"x-apply": "recreate",
+					"minLength": 1,
+					"maxLength": 4096,
+					"pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+				},
+				"password-file": {
+					"type": "string",
+					"title": "Password file",
+					"description": "Managed launcher setting: --password-file",
+					"x-section": "access",
+					"x-apply": "recreate",
+					"minLength": 1,
+					"maxLength": 4096,
+					"pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+					"x-web-editable": false
+				},
+				"platform": {
+					"type": "string",
+					"title": "Platform",
+					"description": "Managed launcher setting: --platform",
+					"x-section": "general",
+					"x-apply": "recreate",
+					"minLength": 1,
+					"maxLength": 4096,
+					"pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+					"x-web-editable": false
+				},
+				"port": {
+					"type": "integer",
+					"title": "DevHarbour web port",
+					"description": "Host port for DevHarbour, not the port inside devcontainers.",
+					"x-section": "access",
+					"x-apply": "recreate",
+					"minimum": 1,
+					"maximum": 65535,
+					"default": 3000
+				},
+				"socket": {
+					"type": "string",
+					"title": "Docker socket",
+					"description": "Managed launcher setting: --socket",
+					"x-section": "host",
+					"x-apply": "recreate",
+					"minLength": 1,
+					"maxLength": 4096,
+					"pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+					"default": "/var/run/docker.sock"
+				},
+				"source-checkout": {
+					"type": "string",
+					"title": "Source checkout",
+					"description": "Managed launcher setting: --source-checkout",
+					"x-section": "general",
+					"x-apply": "recreate",
+					"minLength": 1,
+					"maxLength": 4096,
+					"pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+					"x-web-editable": false
+				},
+				"ssh-agent-socket": {
+					"type": "string",
+					"title": "SSH agent socket",
+					"description": "Managed launcher setting: --ssh-agent-socket",
+					"x-section": "host",
+					"x-apply": "recreate",
+					"minLength": 1,
+					"maxLength": 4096,
+					"pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+				},
+				"ssh-known-hosts": {
+					"type": "string",
+					"title": "known_hosts",
+					"description": "Only this trusted file is mounted read-only. Private keys are never mounted.",
+					"x-section": "host",
+					"x-apply": "recreate",
+					"minLength": 1,
+					"maxLength": 4096,
+					"pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+				},
+				"tailscale-allow-wildcard-bindings": {
+					"type": "boolean",
+					"title": "Tailscale allow wildcard bindings",
+					"description": "Managed launcher setting: --tailscale-allow-wildcard-bindings",
+					"x-section": "access",
+					"x-apply": "recreate",
+					"default": false
+				},
+				"tailscale-gateway-port": {
+					"type": "integer",
+					"title": "Tailscale gateway port",
+					"description": "Managed launcher setting: --tailscale-gateway-port",
+					"x-section": "access",
+					"x-apply": "recreate",
+					"minimum": 1,
+					"maximum": 65535,
+					"default": 3003
+				},
+				"tailscale-ports": {
+					"type": "string",
+					"title": "Tailscale ports",
+					"description": "Managed launcher setting: --tailscale-ports",
+					"x-section": "access",
+					"x-apply": "recreate",
+					"minLength": 1,
+					"maxLength": 4096,
+					"pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+					"default": "8400-8499"
+				},
+				"tailscale-socket": {
+					"type": "string",
+					"title": "Tailscale socket",
+					"description": "Opt-in broad control of the host tailscaled. Configure Tailscale on the host first.",
+					"x-section": "access",
+					"x-apply": "recreate",
+					"minLength": 1,
+					"maxLength": 4096,
+					"pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+				},
+				"vscode-ssh-host": {
+					"type": "string",
+					"title": "Vscode ssh host",
+					"description": "Managed launcher setting: --vscode-ssh-host",
+					"x-section": "bootstrap",
+					"x-apply": "recreate",
+					"minLength": 1,
+					"maxLength": 4096,
+					"pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+				},
+				"workspace": {
+					"type": "string",
+					"title": "Workspace",
+					"description": "Managed launcher setting: --workspace",
+					"x-section": "host",
+					"x-apply": "recreate",
+					"minLength": 1,
+					"maxLength": 4096,
+					"pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+				}
+			}
+		},
+		"source": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["mode"],
+			"properties": {
+				"mode": {
+					"type": "string",
+					"enum": ["published", "build"]
+				},
+				"ref": {
+					"type": "string",
+					"minLength": 1
+				},
+				"checkout": {
+					"type": "string",
+					"minLength": 1
+				},
+				"revision": {
+					"type": "string",
+					"pattern": "^[a-f0-9]{40}$"
+				}
+			}
+		}
+	}
+}

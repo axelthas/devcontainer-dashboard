@@ -638,13 +638,21 @@ if [ "$1" = run ]; then printf '<%s>\\n' "$@"; fi
 		'--host-gid',
 		'3456',
 		'--host-home',
-		'/home/operator'
+		'/home/operator',
+		'--ssh-agent-socket',
+		'/run/user/2345/agent'
 	];
 	const run = (extra) =>
 		spawnSync('bash', [...base, ...extra], {
 			cwd: new URL('../../', import.meta.url),
 			encoding: 'utf8',
-			env: { ...process.env, PATH: `${directory}:${process.env.PATH}`, SSH_AUTH_SOCK: '' }
+			env: {
+				...process.env,
+				PATH: `${directory}:${process.env.PATH}`,
+				SSH_AUTH_SOCK: '/ignored/agent',
+				SUDO_USER: 'ignored',
+				HOSTNAME: 'ignored'
+			}
 		});
 	const result = run(['--tailscale-socket', '/run/tailscale.sock', '--origin', dashboardOrigin]);
 	assert.equal(result.status, 0, result.stderr);
@@ -652,7 +660,9 @@ if [ "$1" = run ]; then printf '<%s>\\n' "$@"; fi
 	assert.match(result.stdout, /TAILSCALE_SERVE_PORTS=8400-8499/);
 	assert.match(result.stdout, /SERVICE_PROXY_ENABLED=1/);
 	assert.match(result.stdout, /target=\/var\/run\/tailscale\/tailscaled.sock/);
-	assert.doesNotMatch(result.stdout, /--publish|not-logged/);
+	assert.match(result.stdout, /SSH_AUTH_SOCK=\/run\/user\/2345\/agent/);
+	assert.match(result.stdout, /<HOST_HOSTNAME=>/);
+	assert.doesNotMatch(result.stdout, /--publish|not-logged|\/ignored\/agent/);
 	assert.match(result.stdout, /TAILSCALE_ALLOW_WILDCARD_BINDINGS=0/);
 	const compatible = run([
 		'--tailscale-socket',

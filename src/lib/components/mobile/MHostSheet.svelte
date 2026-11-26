@@ -43,6 +43,13 @@
 			/>
 		</label>
 	</MGroup>
+	<MGroup title="DevHarbour"
+		><MRow
+			title="Settings"
+			subtitle="Host configuration, access, SSH and AI"
+			href={resolve('/settings')}
+		/></MGroup
+	>
 	<MGroup title="Appearance">
 		<div class="grid grid-cols-2 gap-1 p-2" role="radiogroup" aria-label="Appearance">
 			{#each [{ light: false, label: 'Dark', icon: Moon }, { light: true, label: 'Light', icon: Sun }] as option (option.label)}

@@ -28,7 +28,15 @@ test('the tool set is fixed and offers no grant, Docker or host tools', async ()
 	const reply = await brain.mcp.handleMcpMessage(request('tools/list'));
 	assert.deepEqual(
 		reply.result.tools.map((tool) => tool.name),
-		['list_targets', 'open_shell', 'execute', 'read_output', 'write_stdin', 'cancel_execution']
+		[
+			'list_targets',
+			'open_shell',
+			'execute',
+			'read_output',
+			'write_stdin',
+			'cancel_execution',
+			'request_more_time'
+		]
 	);
 	for (const tool of reply.result.tools) assert.equal(tool.inputSchema.type, 'object');
 	// The dashboard shows each command under the goal that Brain gives for it.

@@ -4,8 +4,15 @@ _Last updated: 2026-08-11_
 
 This document is a living architecture reference for DevHarbour (formerly Devcontainer Dashboard). It follows the structure of the architecture.md template, but it is tailored to this repository’s actual runtime, data flow, and deployment model.
 
-The name change is visual only. Existing deployment identifiers, configuration keys,
-saved browser settings, volumes, and the MCP server identifier remain compatible.
+New CLI and direct registry launches use the container name `devharbour`.
+Isolated checkout builds default to unique `devharbour-local-*` names. Existing
+saved configurations keep their name until an explicit save-only legacy migration
+with `devharbour configure --instance-name devharbour`. This does not rename or
+remove a Docker container. Both default names use the existing `dashboard_data`,
+`ddash_zsh_data` and `dashboard_ai` volumes; reusing retained volumes needs the
+normal adoption review, and volumes attached to another container are refused.
+Repository/image references, configuration keys, saved browser settings and the
+MCP server identifier remain compatible.
 
 ## 1. Project Structure
 
@@ -297,3 +304,36 @@ Devcontainer: A containerized development environment tied to a local repository
 SSR: Server-side rendering.
 
 WS: WebSocket.
+
+## Managed configuration Settings
+
+The authenticated `/settings` page and `/api/settings` endpoint use
+`src/lib/server/settings.ts` to invoke the fixed Python Settings bridge over
+bounded stdin. `scripts/devharbour_settings.py` shares the host CLI's JSON Schema,
+flock, no-Docker validation and atomic write contract. It returns only redacted
+state. Credential and managed-environment replacement publishes a new private
+input reference, keeping previous files for recovery.
+
+Managed deployments mount the private configuration directory at its canonical
+host path through `--managed-config` and `DEVHARBOUR_CONFIG`. Direct deployments
+without this mount show Settings as unavailable. The config ownership label stays
+based on the host path. Save changes desired state only; host `devharbour apply`
+performs the existing reviewed replacement flow. Every current field is marked
+Recreate. Live/per-build readers and an external apply helper are deferred.
+
+## Reviewed browser apply
+
+`POST /api/settings/apply` creates a private, expiring review and queues only its
+explicitly approved candidate. `scripts/devharbour_apply.py` is an independent
+one-shot Docker helper using the current immutable image. It calls the existing
+Python CLI with a revision guard inside the config lock and an exact-container
+precondition before replacement. Image preparation precedes stop/remove. The
+CLI alone records last-applied state after readiness.
+
+A private sibling `.apply.json` stores redacted progress outside the CLI lock,
+so `GET /api/settings/apply` remains available during a build/replacement. The
+requesting process is not responsible for completion. Sessions are process-local:
+a new login is required after recreation. No automatic rollback is claimed.
+The shared banner appears in desktop, mobile and Settings. Read-only Settings
+reads use shared locks with a short bounded acquisition wait; writes and lifecycle
+commands retain exclusive locks.

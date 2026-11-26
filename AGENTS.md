@@ -4,10 +4,27 @@ Formerly Devcontainer Dashboard. Use DevHarbour in visible product text. The Nor
 puffin icon is `src/lib/assets/favicon.svg`; the full logo is `static/devharbour-logo.svg`.
 `static/apple-touch-icon.png` is rendered from the puffin icon by
 `node scripts/generate-app-icons.mjs`; regenerate and commit it when the icon changes.
-Keep existing deployment names, configuration keys, storage keys, volume names and
-the MCP server identifier compatible. Do not rename these as part of visual branding.
+New CLI and direct registry launches use the container name `devharbour`.
+Isolated checkout builds default to unique `devharbour-local-*` names. Existing
+saved configurations retain their name unless the operator explicitly runs
+`devharbour configure --instance-name devharbour` to migrate the legacy default.
+That command saves configuration only and makes no Docker calls. Both default
+names retain `dashboard_data`, `ddash_zsh_data` and `dashboard_ai`; never rename
+or delete those volumes as part of this change. Keep repository/image references,
+configuration keys, storage keys and the MCP server identifier compatible.
 
 A SvelteKit web dashboard for managing and monitoring local Docker containers. Displays devcontainers and sandbox services with their exposed ports, and provides start/stop/restart controls with an integrated terminal.
+
+## Managed Settings
+
+`/settings` edits the same host JSON as the Python CLI through
+`src/lib/server/settings.ts` and `scripts/devharbour_settings.py`. The fixed
+bridge owns the shared schema, flock and atomic writes. Keep secrets out of read
+responses and preserve stale-editor checks. Save only is desired state. `devharbour_apply.py` runs reviewed recreation in a
+separate, one-shot same-image helper, never by removing the web process from
+inside itself. Keep the exact-container/revision guards, shared CLI lock and
+redacted persistent ledger. Progress must reflect real phases and readiness.
+See the Settings feature specification.
 
 ## Build & Test
 
@@ -80,36 +97,37 @@ npm run test             # deployment + unit + e2e combined
 
 ### Route structure
 
-| Route                                      | Purpose                                                                                      |
-| ------------------------------------------ | -------------------------------------------------------------------------------------------- |
-| `/`                                        | Main dashboard: SSR loads containers via `+page.server.ts`, polls `/api/containers` every 5s |
-| `/service`                                 | Identity-validated service viewer; SSR load decides the iframe target                        |
-| `/service-proxy/[id]/[port]/`              | Opt-in authenticated streaming gateway to a running container web service                    |
-| `/demo/playwright`                         | Playwright test target page                                                                  |
-| `/healthz`                                 | Public production readiness (GET or HEAD)                                                    |
-| `/api/containers` (GET)                    | Returns all containers with exposed ports as JSON                                            |
-| `/api/containers/[id]/[action]` (POST)     | Executes `start`, `stop`, `restart`, or `delete` on a container                              |
-| `/api/presets` (GET)                       | Returns bootstrap presets from `PRESETS_FILE`                                                |
-| `/api/workspaces` (GET, DELETE)            | Returns discovered local workspaces or removes a workspace directory with `path` in the body |
-| `/api/bootstrap` (GET)                     | Returns active bootstrap provider install status, branches, and version                      |
-| `/api/bootstrap/providers` (GET)           | Returns configured bootstrap providers and fallback provider info                            |
-| `/api/bootstrap/run` (POST)                | Starts a bootstrap run for a preset or custom command                                        |
-| `/api/bootstrap/pull` (POST)               | Pulls the active bootstrap provider repository                                               |
-| `/api/bootstrap/checkout` (POST)           | Checks out a branch in the active bootstrap provider repository                              |
-| `/api/repos/branches` (GET)                | Returns branches, tags, and current ref information for a repository path                    |
-| `/api/repos/checkout` (POST)               | Checks out a branch or tag in a repository path                                              |
-| `/api/compose/tags` (GET)                  | Registry tags for the selected registry images of a Compose selection                        |
-| `/api/compose/remove` (GET, POST)          | Sandbox removal preview with token; removal keeps volumes, images and shared networks        |
-| `/api/devcontainer/build` (POST)           | Starts a devcontainer build session for a repository                                         |
-| `/api/terminal` (WebSocket)                | PTY terminal sessions via upgrade on the HTTP server                                         |
-| `/api/brain` (GET)                         | Brain endpoint status, grants checked against Docker, recent commands, and activity          |
-| `/api/brain/targets/[id]` (GET)            | Preview of a grant: user, start directory, and reach. Grants nothing                         |
-| `/api/brain/grants` (POST, DELETE)         | Grants one reviewed container run, or revokes every grant                                    |
-| `/api/brain/grants/[id]` (DELETE)          | Revokes one grant and stops its running commands                                             |
-| `/api/brain/executions/[id]` (GET, DELETE) | Reads retained output from a cursor, or stops the command                                    |
-| `/api/brain/executions/[id]` (PATCH)       | Gives terminal input to the operator (`controller: "operator"`) or back to Brain             |
-| `/api/brain/terminal` (WebSocket)          | Live output of one Brain command for its drawer tab; operator keys after Take over           |
-| `POST /mcp` on `BRAIN_MCP_PORT`            | MCP endpoint for Brain; bearer token, separate listener                                      |
+| Route                                          | Purpose                                                                                      |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `/`                                            | Main dashboard: SSR loads containers via `+page.server.ts`, polls `/api/containers` every 5s |
+| `/service`                                     | Identity-validated service viewer; SSR load decides the iframe target                        |
+| `/service-proxy/[id]/[port]/`                  | Opt-in authenticated streaming gateway to a running container web service                    |
+| `/demo/playwright`                             | Playwright test target page                                                                  |
+| `/healthz`                                     | Public production readiness (GET or HEAD)                                                    |
+| `/api/containers` (GET)                        | Returns all containers with exposed ports as JSON                                            |
+| `/api/containers/[id]/[action]` (POST)         | Executes `start`, `stop`, `restart`, or `delete` on a container                              |
+| `/api/presets` (GET)                           | Returns bootstrap presets from `PRESETS_FILE`                                                |
+| `/api/workspaces` (GET, DELETE)                | Returns discovered local workspaces or removes a workspace directory with `path` in the body |
+| `/api/bootstrap` (GET)                         | Returns active bootstrap provider install status, branches, and version                      |
+| `/api/bootstrap/providers` (GET)               | Returns configured bootstrap providers and fallback provider info                            |
+| `/api/bootstrap/run` (POST)                    | Starts a bootstrap run for a preset or custom command                                        |
+| `/api/bootstrap/pull` (POST)                   | Pulls the active bootstrap provider repository                                               |
+| `/api/bootstrap/checkout` (POST)               | Checks out a branch in the active bootstrap provider repository                              |
+| `/api/repos/branches` (GET)                    | Returns branches, tags, and current ref information for a repository path                    |
+| `/api/repos/checkout` (POST)                   | Checks out a branch or tag in a repository path                                              |
+| `/api/compose/tags` (GET)                      | Registry tags for the selected registry images of a Compose selection                        |
+| `/api/compose/remove` (GET, POST)              | Sandbox removal preview with token; removal keeps volumes, images and shared networks        |
+| `/api/devcontainer/build` (POST)               | Starts a devcontainer build session for a repository                                         |
+| `/api/terminal` (WebSocket)                    | PTY terminal sessions via upgrade on the HTTP server                                         |
+| `/api/brain` (GET)                             | Brain endpoint status, grants checked against Docker, recent commands, and activity          |
+| `/api/brain/targets/[id]` (GET)                | Preview of a grant: user, start directory, and reach. Grants nothing                         |
+| `/api/brain/grants` (POST, DELETE)             | Grants one reviewed container run, or revokes every grant                                    |
+| `/api/brain/grants/[id]` (DELETE, PATCH)       | Revokes one grant and stops its commands, or extends it by `minutes` from its current end    |
+| `/api/brain/grants/[id]/time-request` (DELETE) | Dismisses Brain's pending request for more time                                              |
+| `/api/brain/executions/[id]` (GET, DELETE)     | Reads retained output from a cursor, or stops the command                                    |
+| `/api/brain/executions/[id]` (PATCH)           | Gives terminal input to the operator (`controller: "operator"`) or back to Brain             |
+| `/api/brain/terminal` (WebSocket)              | Live output of one Brain command for its drawer tab; operator keys after Take over           |
+| `POST /mcp` on `BRAIN_MCP_PORT`                | MCP endpoint for Brain; bearer token, separate listener                                      |
 
 ### Key files
 
@@ -130,7 +148,7 @@ npm run test             # deployment + unit + e2e combined
 | `src/routes/service/+page.server.ts`      | Validated viewer contract; server decides the iframe target from live Docker state             |
 | `src/lib/brainTypes.ts`                   | Client-safe Brain access shapes: previews, grants, executions, audit entries                   |
 | `src/lib/server/brain/gateway.ts`         | Brain MCP listener: configuration, bearer authentication, request limits                       |
-| `src/lib/server/brain/access.ts`          | Brain grant lifecycle: expiry, revocation, container-run checks                                |
+| `src/lib/server/brain/access.ts`          | Brain grant lifecycle: expiry, extension, time requests, revocation, container-run checks      |
 | `src/lib/server/brain/executions.ts`      | Brain commands in a Docker exec PTY: output, stdin, input control, verified cancellation       |
 | `src/lib/server/brain/viewers.ts`         | Brain terminal viewer protocol: replay, live output, operator input and PTY size               |
 | `src/lib/server/brainTerminal.ts`         | WebSocket transport for Brain terminal tabs on the dashboard listener                          |

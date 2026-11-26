@@ -17,6 +17,26 @@ export type BrainTargetKind = 'devcontainer' | 'service';
 export const BRAIN_GRANT_MINUTES = [15, 60, 240] as const;
 export type BrainGrantMinutes = (typeof BRAIN_GRANT_MINUTES)[number];
 
+/** The dashboard warns the operator this many minutes before a grant ends. */
+export const BRAIN_GRANT_WARNING_MINUTES = 5;
+
+/**
+ * Brain's request for more time on one grant. A request grants nothing: only the operator
+ * extends a grant. `pending` until the operator extends the grant or dismisses the request.
+ */
+export interface BrainTimeRequest {
+	minutes: BrainGrantMinutes;
+	/** Why Brain needs the time, in Brain's words */
+	reason: string;
+	at: string;
+	status: 'pending' | 'dismissed';
+}
+
+/** Body of PATCH /api/brain/grants/[id]: add `minutes` to the current end of the grant. */
+export interface BrainGrantExtension {
+	minutes: BrainGrantMinutes;
+}
+
 /** What a grant allows, read from live Docker state before the operator confirms it. */
 export interface BrainTargetPreview {
 	/** Short (12 character) container ID */
@@ -52,6 +72,8 @@ export interface BrainGrantView extends BrainTargetPreview {
 	id: string;
 	/** The broader task Brain last supplied for this grant. */
 	intent?: string;
+	/** Brain's pending request for more time; a dismissed request is not shown */
+	timeRequest?: BrainTimeRequest;
 	createdAt: string;
 	expiresAt: string;
 	runningExecutions: number;
@@ -169,6 +191,8 @@ export interface BrainAuditEntry {
 	commandId?: string;
 	/** Goal that Brain gave with an `execute` call */
 	goal?: string;
+	/** Grant that an extension or a time request concerns, so the group shows it */
+	grantId?: string;
 }
 
 /** Response of GET /api/brain. */

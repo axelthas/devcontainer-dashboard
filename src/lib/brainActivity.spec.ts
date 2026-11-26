@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { buildActivity, findStep, headline, stepOutcome, stepResult } from './brainActivity';
+import {
+	buildActivity,
+	findStep,
+	grantEventText,
+	headline,
+	stepOutcome,
+	stepResult,
+	timelineOf
+} from './brainActivity';
 import type {
 	BrainAuditEntry,
 	BrainExecutionView,
@@ -167,5 +175,54 @@ describe('step helpers', () => {
 		expect(findStep(activity, 'x1', null)?.group.containerName).toBe(grant.containerName);
 		expect(findStep(activity, 'x1', 'c9')).toBeUndefined();
 		expect(findStep(activity, 'missing')).toBeUndefined();
+	});
+});
+
+describe('grant events', () => {
+	it('shows extensions and time requests in their group, in time order', () => {
+		const status: BrainStatus = {
+			enabled: true,
+			grants: [grant],
+			executions: [execution({ id: 'x1', startedAt: '2026-11-23T14:01:00.000Z' })],
+			audit: [
+				audit({
+					at: '2026-11-23T14:03:00.000Z',
+					tool: 'extend',
+					grantId: 'g1',
+					detail: 'by 60 minutes, ends 2026-11-23T19:00:00.000Z'
+				}),
+				audit({
+					at: '2026-11-23T14:02:00.000Z',
+					tool: 'request_more_time',
+					grantId: 'g1',
+					detail: '60 minutes: The suite needs more time.'
+				}),
+				// A refused request names no live grant and stays a refused call.
+				audit({
+					at: '2026-11-23T14:00:30.000Z',
+					tool: 'request_more_time',
+					target: 'nice_saha',
+					detail: '30 minutes: wrong',
+					outcome: 'error'
+				})
+			]
+		};
+		const [group] = buildActivity(status).groups;
+		expect(group.events.map((entry) => entry.tool)).toEqual(['request_more_time', 'extend']);
+		expect(group.refused.map((entry) => entry.detail)).toEqual(['30 minutes: wrong']);
+		expect(timelineOf(group.steps, group.events).map((item) => item.kind)).toEqual([
+			'step',
+			'event',
+			'event'
+		]);
+		expect(grantEventText(group.events[0])).toEqual({
+			title: 'Brain asked for 1 hour more',
+			detail: 'The suite needs more time.'
+		});
+		expect(grantEventText(group.events[1]).title).toBe('You extended access by 1 hour');
+		expect(grantEventText(group.events[1]).detail).toMatch(/^Ends /);
+		expect(
+			grantEventText(audit({ tool: 'dismiss_time_request', detail: '15 minutes' })).title
+		).toBe("You dismissed Brain's request for 15 minutes more");
 	});
 });

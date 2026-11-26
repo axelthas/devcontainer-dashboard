@@ -19,12 +19,16 @@
 		"test:brain": "node --experimental-strip-types --test scripts/tests/brain-access.test.mjs scripts/tests/brain-executions.test.mjs scripts/tests/brain-gateway.test.mjs scripts/tests/brain-mcp.test.mjs scripts/tests/brain-shells.test.mjs scripts/tests/brain-startup.test.mjs scripts/tests/brain-viewers.test.mjs",
 		"test:compose": "node --experimental-strip-types --test scripts/tests/compose-sandbox.test.mjs scripts/tests/compose-query.test.mjs",
 		"test:terminal-engines": "node --experimental-strip-types --test scripts/tests/terminal-engines.test.mjs",
-		"test:deployment": "node --test scripts/tests/deployment.test.mjs scripts/tests/run-dashboard.test.mjs scripts/tests/bootstrap-hook.test.mjs scripts/tests/socket-symlink.test.mjs",
+		"test:deployment": "node --test scripts/tests/deployment.test.mjs scripts/tests/entrypoint-config.test.mjs scripts/tests/run-dashboard.test.mjs scripts/tests/bootstrap-hook.test.mjs scripts/tests/socket-symlink.test.mjs",
+		"test:ssh": "node --experimental-strip-types --test scripts/tests/devcontainer-agent.test.mjs scripts/tests/devcontainer-rebuild.test.mjs",
 		"test:production": "node scripts/tests/production-smoke.mjs",
 		"test:gateway": "node --test scripts/tests/service-gateway.test.mjs && npm run test:tailscale && npm run test:ai && npm run test:brain",
 		"test:tailscale": "node --experimental-strip-types --test scripts/tests/tailscale-*.test.mjs",
-		"test": "npm run test:deployment && npm run test:ai && npm run test:brain && npm run test:compose && npm run test:terminal-engines && npm run test:unit -- --run && npm run test:e2e",
-		"test:e2e": "playwright install && playwright test"
+		"test": "npm run test:cli && npm run test:settings && npm run test:deployment && npm run test:ssh && npm run test:ai && npm run test:brain && npm run test:compose && npm run test:terminal-engines && npm run test:unit -- --run && npm run test:e2e",
+		"test:e2e": "playwright install && playwright test",
+		"test:settings:production": "node scripts/tests/settings-production.mjs",
+		"test:settings": "node --test scripts/tests/settings.test.mjs scripts/tests/apply.test.mjs",
+		"test:cli": "node --test scripts/tests/devharbour.test.mjs scripts/tests/devharbour-wizard.test.mjs scripts/tests/devharbour-source.test.mjs"
 	},
 	"devDependencies": {
 		"@eslint/compat": "^2.0.4",

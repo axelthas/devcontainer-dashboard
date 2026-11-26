@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { after, before, beforeEach, test } from 'node:test';
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { stripTypeScriptTypes } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -242,8 +242,9 @@ test('rejects configuration symlink escapes', async () => {
 
 test('preserves literal argv, exact labels and cache-enabled recreation', () => {
 	const command = targets.devcontainerCommand(repo, config, labels);
-	assert.equal(command.file, 'devcontainer');
+	assert.equal(command.file, process.execPath);
 	assert.deepEqual(command.args, [
+		resolve('scripts/devcontainer-agent.mjs'),
 		'up',
 		'--workspace-folder',
 		repo,
@@ -260,8 +261,9 @@ test('preserves literal argv, exact labels and cache-enabled recreation', () => 
 
 test('ordinary build command does not request container removal', () => {
 	assert.deepEqual(targets.devcontainerCommand(repo, '.devcontainer/other/devcontainer.json'), {
-		file: 'devcontainer',
+		file: process.execPath,
 		args: [
+			resolve('scripts/devcontainer-agent.mjs'),
 			'up',
 			'--workspace-folder',
 			repo,
@@ -472,7 +474,7 @@ test('structured terminal spawn preserves argv and filters only the existing exc
 			kind: 'devcontainer-build'
 		});
 		const spawn = state.ptySpawns[0];
-		assert.equal(spawn.file, 'devcontainer');
+		assert.equal(spawn.file, process.execPath);
 		assert.deepEqual(spawn.args, command.args);
 		assert.equal(spawn.options.env.DASHBOARD_PASSWORD, undefined);
 		assert.equal(spawn.options.env.DDASH_TEST_LOCAL_ENV, 'fixture-value');

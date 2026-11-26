@@ -59,6 +59,7 @@ esac`,
 		runuser: `echo "drop $*" >> "$LOG"
 shift 3
 exec "$@"`,
+		'ssh-add': 'echo "agent:$USER" >> "$LOG"; exit "${AGENT_STATUS:-0}"',
 		node: 'echo "server:$USER:$LOGNAME:$HOME:$HISTFILE"'
 	};
 	for (const [name, body] of Object.entries(mocks)) {
@@ -67,6 +68,7 @@ exec "$@"`,
 	// Repoint fixed production paths only in this disposable copy so mocks cannot touch host storage.
 	const source = read('docker-entrypoint.sh')
 		.replaceAll('/var/run/docker.sock', socket)
+		.replaceAll('/etc/ssh/ssh_known_hosts', join(dir, 'known_hosts'))
 		.replaceAll('/opt/dashboard-shell', join(dir, 'shell'))
 		.replaceAll('/opt/dashboard/plugins', join(dir, 'bundled'))
 		.replaceAll('/docker-entrypoint.d', join(dir, 'hooks'))
@@ -95,6 +97,8 @@ exec "$@"`,
 					HOST_UID: '2345',
 					HOST_GID: '3456',
 					HOST_HOME: home,
+					SSH_AUTH_SOCK: socket,
+					DEVHARBOUR_KNOWN_HOSTS: '',
 					LOG: log,
 					...env
 				}
@@ -116,6 +120,38 @@ test('creates host-matched account and drops privileges before startup', async (
 	assert.match(calls, /drop -u operator -- \/bin\/sh -c/);
 	assert.doesNotMatch(calls, /chown.*operator home.*\.ssh/);
 	assert.doesNotMatch(calls, /chown.*-hR.*operator home/);
+});
+
+test('agent is checked after privilege dropping and permits an empty identity list', async (t) => {
+	const f = await fixture(t);
+	const result = f.run({ AGENT_STATUS: '1' });
+	assert.equal(result.status, 0, result.stderr);
+	assert.match(result.stdout, /no identities are loaded/);
+	const calls = readFileSync(f.log, 'utf8');
+	assert.ok(calls.indexOf('drop -u') < calls.lastIndexOf('agent:operator'));
+});
+
+test('missing, stale and inaccessible agents fail before server startup', async (t) => {
+	const f = await fixture(t);
+	for (const env of [
+		{ SSH_AUTH_SOCK: '' },
+		{ SSH_AUTH_SOCK: join(f.dir, 'missing') },
+		{ AGENT_STATUS: '2' },
+		{ AGENT_STATUS: '124' }
+	]) {
+		const result = f.run(env);
+		assert.notEqual(result.status, 0);
+		assert.match(result.stderr, /SSH_AUTH_SOCK|SSH agent is unreachable/);
+		assert.doesNotMatch(result.stdout, /server:/);
+	}
+	assert.doesNotMatch(readFileSync(f.log, 'utf8'), /chmod.*docker\.sock/);
+});
+
+test('known_hosts input must be a regular readable file', async (t) => {
+	const f = await fixture(t);
+	assert.notEqual(f.run({ DEVHARBOUR_KNOWN_HOSTS: '1' }).status, 0);
+	writeFileSync(join(f.dir, 'known_hosts'), '# trusted fixture\n');
+	assert.equal(f.run({ DEVHARBOUR_KNOWN_HOSTS: '1' }).status, 0);
 });
 
 test('reuses a compatible account without changing its primary group', async (t) => {
@@ -196,6 +232,10 @@ test('Dockerfile keeps the dashboard tools prefix and healthcheck contract', () 
 	assert.match(read('Dockerfile'), /NPM_CONFIG_PREFIX=\/opt\/dashboard-tools/);
 	assert.match(read('Dockerfile'), /HEALTHCHECK[\s\S]*\/healthz/);
 	assert.match(read('Dockerfile'), /plugins\/tern-dev-bootstrap\.sh/);
+	assert.match(
+		read('Dockerfile'),
+		/COPY scripts\/devcontainer-agent\.mjs \/app\/scripts\/devcontainer-agent\.mjs/
+	);
 });
 
 // Run the actual Dockerfile instruction with fake downloads and a harmless installer.

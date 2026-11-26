@@ -68,6 +68,8 @@
 		if (!preview || !canGrant) return;
 		working = true;
 		failure = '';
+		// The browser allows the permission prompt only after an operator action like this one.
+		void access.enableNotifications();
 		try {
 			await access.grant({
 				containerId: container.id,
