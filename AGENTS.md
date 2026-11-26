@@ -115,14 +115,14 @@ npm run test             # deployment + unit + e2e combined
 | `/api/bootstrap/checkout` (POST)               | Checks out a branch or tag in the active bootstrap provider repository                       |
 | `/api/repos/branches` (GET)                    | Returns local/remote branches and tags (newest first) and the current ref of a repository    |
 | `/api/repos/checkout` (POST)                   | Checks out a local branch, remote branch or tag in a repository path                         |
-| `/api/repos/fetch` (POST)                      | Fetches all remotes of a repository path and prunes deleted remote-tracking branches          |
+| `/api/repos/fetch` (POST)                      | Fetches all remotes of a repository path and prunes deleted remote-tracking branches         |
 | `/api/repos/pull` (POST)                       | Fast-forwards the current branch of a repository path from its upstream                      |
 | `/api/compose/tags` (GET)                      | Registry tags for the selected registry images of a Compose selection                        |
 | `/api/compose/remove` (GET, POST)              | Sandbox removal preview with token; removal keeps volumes, images and shared networks        |
 | `/api/devcontainer/build` (POST)               | Starts a devcontainer build session for a repository                                         |
 | `/api/terminal` (WebSocket)                    | PTY terminal sessions via upgrade on the HTTP server                                         |
 | `/api/brain` (GET)                             | Brain endpoint status, grants checked against Docker, recent commands, and activity          |
-| `/api/brain/targets/[id]` (GET)                 | Preview of a grant: user, start directory, and reach. Grants nothing                         |
+| `/api/brain/targets/[id]` (GET)                | Preview of a grant: user, start directory, and reach. Grants nothing                         |
 | `/api/brain/grants` (POST, DELETE)             | Grants one reviewed container run, or revokes every grant                                    |
 | `/api/brain/grants/[id]` (DELETE, PATCH)       | Revokes one grant and stops its commands, or extends it by `minutes` from its current end    |
 | `/api/brain/grants/[id]/time-request` (DELETE) | Dismisses Brain's pending request for more time                                              |
@@ -137,7 +137,7 @@ npm run test             # deployment + unit + e2e combined
 | ----------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | `src/lib/server/auth.ts`                  | Password validation, login throttling, opaque sessions, and cookie helpers                     |
 | `src/lib/server/docker.ts`                | Dockerode client singleton                                                                     |
-| `src/lib/server/terminal.ts`              | WebSocket PTY server (attaches to Vite dev or production HTTP server)                           |
+| `src/lib/server/terminal.ts`              | WebSocket PTY server (attaches to Vite dev or production HTTP server)                          |
 | `src/lib/server/workspaces.ts`            | Scans `WORKSPACE_ROOT` for task/repo pairs with `.devcontainer`                                |
 | `src/lib/server/bootstrap.ts`             | Loads bootstrap providers and resolves the active provider                                     |
 | `src/lib/server/bootstrapRuns.ts`         | Tracks bootstrap run sessions in memory                                                        |
@@ -148,7 +148,7 @@ npm run test             # deployment + unit + e2e combined
 | `src/lib/server/serviceGateway.ts`        | Streaming gateway core: auth, origin checks, cookie scoping, redirects, upgrades               |
 | `src/lib/server/serviceGatewayRuntime.ts` | Docker/session wiring, opt-in flag, `SERVICE_PROXY_PORTS` policy overrides                     |
 | `src/routes/service/+page.server.ts`      | Validated viewer contract; server decides the iframe target from live Docker state             |
-| `src/lib/brainTypes.ts`                    | Client-safe Brain access shapes: previews, grants, executions, audit entries                   |
+| `src/lib/brainTypes.ts`                   | Client-safe Brain access shapes: previews, grants, executions, audit entries                   |
 | `src/lib/server/brain/gateway.ts`         | Brain MCP listener: configuration, bearer authentication, request limits                       |
 | `src/lib/server/brain/access.ts`          | Brain grant lifecycle: expiry, extension, time requests, revocation, container-run checks      |
 | `src/lib/server/brain/executions.ts`      | Brain commands in a Docker exec PTY: output, stdin, input control, verified cancellation       |
