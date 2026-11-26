@@ -2,7 +2,7 @@
 
 Status: implemented in draft PR #66. Disposable real-Docker acceptance is still required before merge.
 
-Authoritative scope and acceptance criteria: [issue #65](https://github.com/axelthas/devcontainer-dashboard/issues/65).
+Authoritative scope and acceptance criteria: [issue #65](https://github.com/axelthas/devharbour/issues/65).
 
 ## Baseline
 
@@ -13,11 +13,11 @@ independent deployment implementation.
 
 The original planning baseline predates the following work. The CLI branch is now stacked on PR #64 and includes its head `2e234f285e33769c64bec8cdb22af917be619660`:
 
-- [Issue #63](https://github.com/axelthas/devcontainer-dashboard/issues/63) and
-  [PR #64](https://github.com/axelthas/devcontainer-dashboard/pull/64): explicit
+- [Issue #63](https://github.com/axelthas/devharbour/issues/63) and
+  [PR #64](https://github.com/axelthas/devharbour/pull/64): explicit
   host identity and SSH-agent socket, trusted known_hosts, and no private-key
   directory mounts.
-- [PR #43](https://github.com/axelthas/devcontainer-dashboard/pull/43): detached
+- [PR #43](https://github.com/axelthas/devharbour/pull/43): detached
   startup and Docker restart policy.
 
 The implementation uses the parent PR's explicit identity and SSH contract.
