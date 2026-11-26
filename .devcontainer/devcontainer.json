@@ -29,7 +29,7 @@
 		"source=ddash-copilot-cli,target=/home/${localEnv:USER}/.copilot,type=volume",
 		"source=ddash-devbootstrap,target=/home/${localEnv:USER}/.devbootstrap,type=volume",
 		"source=${localEnv:SSH_AUTH_SOCK},target=/tmp/ssh-agent.socket,type=bind,consistency=cached",
-        "source=${localEnv:HOME}/.ssh/known_hosts,target=${localEnv:HOME}/.ssh/known_hosts,type=bind",
+		"source=${localEnv:HOME}/.ssh/known_hosts,target=${localEnv:HOME}/.ssh/known_hosts,type=bind",
 		"source=${localEnv:HOME}/git.workspaces/,target=${localEnv:HOME}/git.workspaces,type=bind"
 	],
 
