@@ -11,7 +11,7 @@ host instance works in a different clone, copy this file over before branching.
 
 ## 0. First actions (do these before any code change)
 
-1. Create the GitHub issue on `axelthas/devcontainer-dashboard`:
+1. Create the GitHub issue on `axelthas/devharbour`:
 
    Title: `Simplify production deployment: single args-driven launcher, remove Compose, relocate bootstrap plugins`
 
@@ -38,7 +38,7 @@ host instance works in a different clone, copy this file over before branching.
 2. Branch and PR (stacked on top of PR #22):
 
    ```bash
-   gh issue create --repo axelthas/devcontainer-dashboard --title '...' --body '...'
+   gh issue create --repo axelthas/devharbour --title '...' --body '...'
    git fetch origin
    git switch -c refactor/<N>-simplify-deployment origin/fix/https-service-embedding
    git mv tasks/simplify-deployment-handoff.md tasks/ISSUE-<N>-HANDOFF.md
@@ -50,7 +50,7 @@ host instance works in a different clone, copy this file over before branching.
      itself is stacked on `fix/18-production-host-bind-mounts`.
    - Commit this handoff (renamed) as the first commit on the new branch, then keep
      updating it as a continuation log while the work proceeds.
-   - `gh pr create --repo axelthas/devcontainer-dashboard --base fix/https-service-embedding --head refactor/<N>-simplify-deployment`
+   - `gh pr create --repo axelthas/devharbour --base fix/https-service-embedding --head refactor/<N>-simplify-deployment`
    - Note in the PR body: stacked PR, retarget to `main` after #22 merges. CI
      (`lint-and-test.yml`) only triggers on PRs targeting `main`, so the local
      validation matrix (section 8) is mandatory before requesting review.
@@ -71,7 +71,7 @@ host instance works in a different clone, copy this file over before branching.
 ## 2. Current state (for orientation)
 
 - `scripts/run-dashboard.sh` — curl|bash installer; pulls
-  `ghcr.io/axelthas/devcontainer-dashboard:latest`, runs foreground with `--rm`.
+  `ghcr.io/axelthas/devharbour:latest`, runs foreground with `--rm`.
   Inputs via env vars (`WORKSPACE_ROOT`, `DASHBOARD_PASSWORD`, `DDASH_*` switches,
   `DASHBOARD_IMAGE`, `DOCKER_SOCKET`, `ORIGIN`/`DDASH_ORIGIN`,
   `DASHBOARD_BIND_ADDRESS`) and `/dev/tty` prompts.
@@ -148,7 +148,7 @@ prepare_arguments → run_registry|run_build`, one `main` at the end.
 | `--vscode-ssh-host VALUE`                       | `VSCODE_SSH_HOST` passthrough (was Compose-only)                                                                                                                                     |
 | `--help`, `-h`                                  | full usage; needs no daemon/identity/password                                                                                                                                        |
 
-Registry-only: `--image REF` (default `ghcr.io/axelthas/devcontainer-dashboard:latest`).
+Registry-only: `--image REF` (default `ghcr.io/axelthas/devharbour:latest`).
 Build-only: `--platform VALUE`, `--name NAME`, `--health-timeout SECONDS`.
 Mode violations (`--image` with `--build`, build flags in registry mode) fail with
 clear errors.
@@ -262,7 +262,7 @@ Real-world (host, before merge):
 bash scripts/run-dashboard.sh --build --port 3001 \
 	--non-interactive --password-file /path/to/pw --workspace /abs/host/path
 # Registry mode, curl|bash form
-curl -sL https://raw.githubusercontent.com/axelthas/devcontainer-dashboard/<branch>/scripts/run-dashboard.sh \
+curl -sL https://raw.githubusercontent.com/axelthas/devharbour/<branch>/scripts/run-dashboard.sh \
 	| bash -s -- --non-interactive --password-file /path/to/pw --workspace /abs/host/path
 ```
 
@@ -300,12 +300,12 @@ Optional gateway live validation follows PR #22's operator steps (Tailscale +
 - 2026-11-04: plan agreed with the operator (see decision record); handoff saved
   in-repo as `tasks/simplify-deployment-handoff.md`. No code changes yet.
 - 2026-11-04: executed on the host. GitHub issue
-  [axelthas/devcontainer-dashboard#24](https://github.com/axelthas/devcontainer-dashboard/issues/24)
+  [axelthas/devharbour#24](https://github.com/axelthas/devharbour/issues/24)
   created; branch `refactor/24-simplify-deployment` cut from
   `origin/fix/https-service-embedding`; handoff renamed to
   `tasks/ISSUE-24-HANDOFF.md` and committed first (the file was untracked, so a
   plain `mv` + `git add` replaced the planned `git mv`); stacked PR
-  [axelthas/devcontainer-dashboard#25](https://github.com/axelthas/devcontainer-dashboard/pull/25)
+  [axelthas/devharbour#25](https://github.com/axelthas/devharbour/pull/25)
   opened with `--base fix/https-service-embedding`.
 - 2026-11-04: commit 1 — `plugins/tern-dev-bootstrap.sh`, Dockerfile copies to
   `/opt/dashboard/plugins/`, entrypoint glob updated, deployment fixture rewrite
