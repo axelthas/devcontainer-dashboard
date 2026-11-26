@@ -1,143 +1,61 @@
-# **Feature Specification: Local Workspaces, Terminal & Bootstrap**
+# Local workspaces, terminals, and bootstrap
 
-## **1\. Feature Overview**
+## Purpose and scope
 
-This specification details the addition of three major features to the existing Devcontainer Dashboard SvelteKit application:
+An operator can find repositories in the configured workspace root, run a
+bootstrap preset or custom command, and build a Dev Container from a repository
+that has a Dev Container configuration. The dashboard displays active operations
+with the workspace data.
 
-1. **Local Workspaces Discovery:** A file-system scanner that displays "Root" and "Task" workspaces, including nested Git repositories and their .devcontainer configuration status.
-2. **Multi-Tab Persistent Terminal:** An integrated, interactive terminal UI capable of managing multiple concurrent terminal sessions (both generic shells and dedicated task runners).
-3. **Bootstrap Script Execution:** A modal interface utilizing user-defined presets to launch a generic bootstrapping script (dev-bootstrap) directly into a dedicated terminal tab.
+## Behavior
 
-## **2\. Updated Data Models**
+1. **Local workspaces** lists project folders and their repositories. The server
+   combines repository discovery with active bootstrap runs and Dev Container
+   builds so that work can appear before it finishes.
+2. **Run Bootstrap** starts a run from a preset or a custom command. A run name
+   and command are required. A destination is optional for an interactive run.
+   When supplied, it must be a simple directory name below the workspace root.
+3. **Build & Start** starts a separate tracked build for the selected repository.
+   Its progress is visible without holding open the original browser view.
+4. A terminal session is independent of a WebSocket viewer. Collapsing the
+   drawer, reloading, or disconnecting does not stop the process. Reattach to the
+   existing session to resume viewing it. Explicit session close is not the same
+   as disconnect. Use the action for that operation to cancel or dismiss it.
 
-The backend must provide the following new data structures via the SvelteKit API:
+## Interfaces and constraints
 
-// Represents a Git Repository inside a Task Workspace  
-interface RepositoryData {  
- name: string;  
- path: string; // Absolute path on host  
- hasDevcontainer: boolean; // True if \`.devcontainer\` folder exists  
- isRunning: boolean; // True if a container matching this path/project is active  
-}
+- `WORKSPACE_ROOT` selects the workspace root. The default in the dashboard
+  runtime is `/workspaces`. See the [CLI reference](../../scripts/README.md) for
+  the host path and mount contract.
+- `PRESETS_FILE` selects the preset file. The default is `/data/presets.json`.
+  The presets API supports reading, saving, and deleting presets. Presets require
+  a name and command; they can also carry interactive mode and field definitions.
+- The [bootstrap provider module](../../src/lib/server/bootstrap.ts) owns provider
+  loading and fallback. The [workspace module](../../src/lib/server/workspaces.ts)
+  owns discovery. The [shared types](../../src/lib/types.ts) own data shapes.
+- See the [workspace](../../src/routes/api/workspaces/),
+  [bootstrap run](../../src/routes/api/bootstrap/run/),
+  [presets](../../src/routes/api/presets/), and
+  [Dev Container build](../../src/routes/api/devcontainer/build/) routes. The
+  [custom server](../../src/server.ts) serves the production terminal WebSocket.
+- Bootstrap commands are operator-controlled inputs. Use trusted presets and
+  providers. Do not use a real operator workspace for validation.
 
-// Represents a Task Workspace (a directory containing multiple repos)  
-interface LocalWorkspaceData {  
- id: string; // Unique identifier (e.g., base64 of path)  
- name: string; // Folder name (e.g., TASK-4042)  
- path: string; // Absolute path on host  
- repos: RepositoryData\[\];  
-}
+## Out of scope
 
-// Represents a Bootstrap Preset  
-interface BootstrapPreset {  
- id: string;  
- name: string;  
- command: string; // The full execution string  
-}
+This feature does not define the Dev Container terminal engine switcher or remote
+agent access. See [terminal engines](../feature_terminal_engines/feature_specification_terminal_engines.md)
+and [Brain access](../feature_brain_access/feature_specification_brain_access.md).
 
-## **3\. Backend API Additions (SvelteKit Routes)**
+## Verification
 
-The Node.js backend must handle local file system operations and terminal process management.
-
-### **GET /api/workspaces**
-
-- **Action:** Scans the "Root Workspace" directory, configured via the `WORKSPACE_ROOT` environment variable (default: `/bootstrap_workspaces`). This directory is bind-mounted from the host machine.
-- **Processing Rules:**
-  1. Read `WORKSPACE_ROOT` to find immediate child subdirectories — these are **Task Workspaces** (e.g., `TASK-4042`).
-  2. For each Task subdirectory, find immediate child subdirectories that contain a `.git` folder — these are **Git Repositories**. Subdirectories without `.git` are skipped.
-  3. Check if a `.devcontainer` folder exists within each repository directory (`hasDevcontainer`).
-  4. For `isRunning`: compare `repo.path` against the `devcontainer.local_folder` Docker label of all running containers. A repo is considered running if any running container's label value matches.
-  5. Task Workspaces with zero qualifying repositories are excluded from the response.
-
-### **GET /api/presets**
-
-- **Action:** Returns the saved Bootstrap presets.
-- **Storage:** Stored in a JSON file at a path configured via the `PRESETS_FILE` environment variable (default: `/data/presets.json`). The `docker-compose.yml` must mount a named volume or host directory to `/data` for persistence across container restarts. If the file does not exist on startup, the backend initialises it with an empty array (no crash on first run).
-
-### **POST /api/presets**
-
-- **Action:** Saves or updates a Bootstrap preset to persistent storage.
-
-### **WebSocket Integration: Terminal Sessions (/api/terminal)**
-
-Due to the interactive, streaming nature of terminals, standard HTTP routes are insufficient. The backend must implement WebSockets via a **custom server entry point** — SvelteKit's `build/index.js` manages its own HTTP server and cannot be directly extended.
-
-- **Custom Server Entry (`src/server.ts`):** Must be created to:
-  1. Create a Node `http.Server` instance.
-  2. Attach the SvelteKit `handler` (from `build/handler.js`) to handle all HTTP requests.
-  3. Attach a `ws.Server` to handle WebSocket upgrades on the same port.
-  4. The Dockerfile `CMD` must change from `node build/index.js` to `node build/server.js`.
-- **Connection:** Frontend establishes a WebSocket connection for a specific terminal session (UUID).
-- **Spawn (node-pty):** The backend uses `node-pty` to spawn a pseudo-terminal process (`/bin/bash` or `sh`). **Note:** `node-pty` is a native addon requiring `python3`, `make`, and `g++` at compile time. The Dockerfile build stage must include these tools.
-- **Data Stream:**
-  - Backend → Frontend: stdout/stderr from the pty process.
-  - Frontend → Backend: stdin keystrokes from the user.
-- **Execution:** Upon WebSocket connection, an optional `command` parameter triggers automatic script execution (e.g., `dev-bootstrap` or `devcontainer up`). **Prerequisite:** the `devcontainer` CLI must be installed and in PATH for "Build & Start" actions.
-- **Session Lifetime:** pty sessions are persistent server-side processes, independent of any single WebSocket connection. Navigating away, reloading, or closing the browser detaches viewers but leaves the process running; any browser can reattach later by connecting with the same session id, replaying buffered output. A session only terminates when its process exits or a client explicitly closes/dismisses it (`DELETE /api/terminal/sessions`, `/api/devcontainer/build`, or bootstrap-run dismissal).
-
-## **4\. Frontend Specification Additions (Svelte 5\)**
-
-### **4.1 Local Workspaces UI (Section 2\)**
-
-- **Structure:** Expandable accordion list. Task Workspaces are headers; expanding reveals child Git Repositories. The section heading displays the configured `WORKSPACE_ROOT` path (e.g., `Local Workspaces (/bootstrap_workspaces)`).
-- **Repo Actions:**
-  - If hasDevcontainer is true AND \!isRunning: Show "Build & Start" button.
-  - If hasDevcontainer is true AND isRunning: Show "Active Above" status.
-  - If hasDevcontainer is false: Show "No configuration" status.
-- **Action Handler:** Clicking "Build & Start" requests a new Terminal session from the backend, passing the command devcontainer up \--workspace-folder \<repo.path\>, and automatically opens the Terminal UI to that new tab.
-
-### **4.2 Multi-Tab Terminal UI**
-
-- **Layout:** A **bottom-anchored collapsible drawer** within `+page.svelte`. A toggle button in the header shows/hides the drawer. Any action that spawns a terminal (Bootstrap modal, "Build & Start") automatically opens the drawer.
-- **Root Terminal:** On first open, a **Root Terminal** tab is automatically created. It spawns a generic shell (`/bin/bash`) with the working directory set to `WORKSPACE_ROOT`. This tab is **permanent and cannot be closed**.
-- **State Management:** Maintain an array of active terminal sessions (`{ id, name, socket }`). The Root Terminal is always index 0.
-- **Tab Bar:** Horizontal scrollable area. Clicking a tab switches the active view. A `+` button opens a new generic shell session. All tabs except Root Terminal include an `×` button to terminate the session.
-- **Terminal View:** Uses **xterm.js** with `xterm-addon-fit` for full ANSI rendering and correct sizing. Must auto-scroll to bottom on new output. The xterm.js `Terminal` instance must be initialised inside a Svelte `$effect` after its DOM container is mounted.
-- **Session Lifetime:** pty sessions persist in the background once created; closing a tab (×) explicitly kills the underlying process via `DELETE /api/terminal/sessions`, but merely closing the browser or reloading the page does not. On load, the dashboard fetches `GET /api/terminal/sessions` (polled alongside container state) to rehydrate the drawer with any sessions still running server-side, including ones started from another browser.
-
-### **4.3 Bootstrap Modal**
-
-- **Trigger:** A **"Run Bootstrap" button** is placed in the top header of `+page.svelte`, alongside the existing theme toggle. Clicking it opens the modal.
-- **Fields:** Dropdown for Presets, Text Input for Full Command.
-- **Behavior:**
-  - Selecting a preset populates the Command input.
-  - Editing the Command input switches the dropdown to "Custom".
-  - Clicking "Save as Preset" triggers a save prompt and calls `POST /api/presets`.
-- **Action Handler:** Clicking "Run in Terminal" requests a new Terminal session, passing the Command input value, and automatically opens the Terminal drawer to that new tab.
-
-## **5\. Implementation Plan (For Svelte 5 Integration)**
-
-**Phase 0: Infrastructure & Configuration**
-
-1. Update `.devcontainer/devcontainer.json`: add `source=${localEnv:HOME}/git.workspaces,target=/bootstrap_workspaces,type=bind` to `mounts`; add `WORKSPACE_ROOT=/bootstrap_workspaces` to `containerEnv`.
-2. Update `docker-compose.yml`: add a bind mount of the host workspaces directory to `/bootstrap_workspaces`; add a named volume for `/data` (preset storage); add env vars `WORKSPACE_ROOT=/bootstrap_workspaces` and `PRESETS_FILE=/data/presets.json`.
-3. Create `src/server.ts` — the custom Node entry point that creates `http.Server`, attaches the SvelteKit `handler`, and registers `ws.Server` for WebSocket upgrades.
-4. Update `Dockerfile`: add `python3 make g++` to the build stage (required by `node-pty`); change `CMD` to `node build/server.js`.
-
-**Phase 1: Backend File System & Presets API**
-
-1. Implement GET /api/workspaces using Node's fs/promises to read directories and check for .devcontainer folders.
-2. Implement a simple JSON file-backed storage mechanism for Presets.
-3. Create GET and POST routes for /api/presets.
-
-**Phase 2: Frontend State & UI Components (Svelte 5\)**
-
-1. Create the LocalWorkspaces.svelte component (Section 2 UI) and integrate data fetching using Svelte 5 Runes (e.g., $state, $effect).
-2. Update the BootstrapModal.svelte component to fetch presets and handle the simplified Command string logic.
-
-**Phase 3: WebSocket & Pseudo-Terminal Backend (node-pty)**
-
-1. Install `node-pty` and `ws` as production dependencies; add `@types/ws` as a dev dependency.
-2. Create `src/lib/server/terminal.ts` to manage WebSocket connections: on connection, spawn a `node-pty` instance, route `pty.onData` to the WebSocket and WebSocket messages to `pty.write`. Support an optional `command` parameter for script execution.
-3. Register the WebSocket upgrade handler from `terminal.ts` in `src/server.ts` (created in Phase 0).
-
-**Phase 4: Frontend Terminal Emulator (xterm.js)**
-
-1. Integrate xterm.js and xterm-addon-fit into the frontend for robust ANSI escape code rendering and standard terminal behavior.
-2. Create a TerminalTab.svelte component that wraps the xterm.js instance and manages the WebSocket connection for a specific session ID.
-3. Create the TerminalManager.svelte component (the drawer) that holds the tab state, tab bar UI, and dynamically renders the active TerminalTab.svelte.
-
-**Phase 5: Wiring Actions**
-
-1. Connect the "Run in Terminal" modal button to trigger the creation of a new tab in TerminalManager, passing the bootstrap command.
-2. Connect the "Build & Start" workspace button to trigger a new tab, passing the devcontainer up command.
+1. Discover a test repository with a Dev Container configuration in a disposable
+   workspace.
+2. Start a bootstrap run and a Dev Container build. Verify that each appears
+   with its own progress.
+3. Reload while a shell is running. Reopen its viewer and verify that the same
+   process and retained output are still available.
+4. Cancel a disposable run explicitly. Verify the final state separately from
+   the behavior of closing a viewer.
+5. Submit an invalid destination. Verify that the server refuses it before a
+   run starts.
