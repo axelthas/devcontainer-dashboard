@@ -74,6 +74,10 @@ test('reads one shared schema, defaults and redacted inputs', (t) => {
 	const f = fixture(t);
 	const data = read(f);
 	assert.equal(data.schema.properties.settings.properties.port.default, 3000);
+	assert.equal(
+		data.schema.properties.settings.properties.workspace.default,
+		'/home/operator/devharbour-workspaces'
+	);
 	assert.equal(data.pending, true);
 	assert.equal(data.environment.find((v) => v.name === 'OPENCODE_PASSWORD').value, undefined);
 	assert.equal(data.environment.find((v) => v.name === 'CUSTOM_TOKEN').value, undefined);

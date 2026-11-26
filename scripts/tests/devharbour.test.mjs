@@ -269,6 +269,16 @@ test('first run creates one detached owned instance and verifies application and
 	assert.ok(existsSync(f.config + '.state.json'));
 	assert.equal(JSON.stringify(calls).includes(secret), false);
 });
+test('first managed run uses the default workspace when none is configured', (t) => {
+	const f = fixture(t);
+	ok(f.exec(f.identity.slice(0, -2)));
+	const launch = f.calls().find((a) => a[0] === 'run');
+	assert.ok(
+		launch.includes(
+			'type=bind,source=/home/operator/devharbour-workspaces,target=/home/operator/devharbour-workspaces'
+		)
+	);
+});
 test('unchanged run reuses the same instance without pulling or recreating', (t) => {
 	const f = fixture(t);
 	ok(f.exec(f.identity));

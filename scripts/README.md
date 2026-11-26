@@ -40,30 +40,30 @@ internal environment variable is not an implicit launcher input.
 
 Common flags:
 
-| Flag                                             | Meaning                                                                                                                                          |
-| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `--host-user NAME`                               | Required non-root Docker-host operator name.                                                                                                     |
-| `--host-uid UID`                                 | Required Docker-host operator UID.                                                                                                               |
-| `--host-gid GID`                                 | Required Docker-host operator primary GID.                                                                                                       |
-| `--host-home PATH`                               | Required canonical absolute Docker-host operator home.                                                                                           |
-| `--ssh-agent-socket PATH`                        | Required existing Docker-host SSH agent socket.                                                                                                  |
-| `--host-name NAME`                               | Optional host label; defaults to unset, not host HOSTNAME.                                                                                       |
-| `--workspace PATH`                               | Workspace bind, source and target identical. Registry default `HOST_HOME/ddash-workspace`, build default `HOST_HOME/ddash-production-workspace`. |
-| `--socket PATH`                                  | Docker-host socket (default `/var/run/docker.sock`).                                                                                             |
-| `--port N`                                       | Published host port (registry default 3000, build default 3001).                                                                                 |
-| `--bind-address ADDR`                            | Registry-mode publication address (default `127.0.0.1`). Build mode stays loopback-only.                                                         |
-| `--origin URL`                                   | External HTTP(S) origin, forwarded only when set.                                                                                                |
-| `--password VALUE`                               | Explicit password (visible in process lists; prefer the file or prompt).                                                                         |
-| `--password-file PATH`                           | Read the password from a file, trimming one trailing newline.                                                                                    |
-| `--env-file PATH`                                | Extend the container environment from a Docker env file; repeatable in both modes.                                                               |
-| `--bootstrap`                                    | Enable the dev-bootstrap startup hook. Omit the flag to keep it disabled.                                                                        |
-| `--ssh-known-hosts PATH`                         | One trusted known_hosts file, mounted read-only in the dashboard. No key-directory mount.                                                        |
-| `--no-create-workspace`                          | Skip local workspace creation for remote daemons.                                                                                                |
-| `--non-interactive`                              | Disable all prompts; requires `--password` or `--password-file`.                                                                                 |
-| `--gateway`, `--gateway-host`, `--gateway-ports` | Opt-in service-gateway passthroughs.                                                                                                             |
-| `--vscode-ssh-host VALUE`                        | `VSCODE_SSH_HOST` passthrough.                                                                                                                   |
-| `--image REF`                                    | Registry mode only: image reference.                                                                                                             |
-| `--platform`, `--name`, `--health-timeout`       | Build mode only. Cross-mode flags fail with clear errors.                                                                                        |
+| Flag                                             | Meaning                                                                                                                                                |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--host-user NAME`                               | Required non-root Docker-host operator name.                                                                                                           |
+| `--host-uid UID`                                 | Required Docker-host operator UID.                                                                                                                     |
+| `--host-gid GID`                                 | Required Docker-host operator primary GID.                                                                                                             |
+| `--host-home PATH`                               | Required canonical absolute Docker-host operator home.                                                                                                 |
+| `--ssh-agent-socket PATH`                        | Required existing Docker-host SSH agent socket.                                                                                                        |
+| `--host-name NAME`                               | Optional host label; defaults to unset, not host HOSTNAME.                                                                                             |
+| `--workspace PATH`                               | Workspace bind, source and target identical. Registry default `HOST_HOME/devharbour-workspaces`, build default `HOST_HOME/ddash-production-workspace`. |
+| `--socket PATH`                                  | Docker-host socket (default `/var/run/docker.sock`).                                                                                                   |
+| `--port N`                                       | Published host port (registry default 3000, build default 3001).                                                                                       |
+| `--bind-address ADDR`                            | Registry-mode publication address (default `127.0.0.1`). Build mode stays loopback-only.                                                               |
+| `--origin URL`                                   | External HTTP(S) origin, forwarded only when set.                                                                                                      |
+| `--password VALUE`                               | Explicit password (visible in process lists; prefer the file or prompt).                                                                               |
+| `--password-file PATH`                           | Read the password from a file, trimming one trailing newline.                                                                                          |
+| `--env-file PATH`                                | Extend the container environment from a Docker env file; repeatable in both modes.                                                                     |
+| `--bootstrap`                                    | Enable the dev-bootstrap startup hook. Omit the flag to keep it disabled.                                                                              |
+| `--ssh-known-hosts PATH`                         | One trusted known_hosts file, mounted read-only in the dashboard. No key-directory mount.                                                              |
+| `--no-create-workspace`                          | Skip local workspace creation for remote daemons.                                                                                                      |
+| `--non-interactive`                              | Disable all prompts; requires `--password` or `--password-file`.                                                                                       |
+| `--gateway`, `--gateway-host`, `--gateway-ports` | Opt-in service-gateway passthroughs.                                                                                                                   |
+| `--vscode-ssh-host VALUE`                        | `VSCODE_SSH_HOST` passthrough.                                                                                                                         |
+| `--image REF`                                    | Registry mode only: image reference.                                                                                                                   |
+| `--platform`, `--name`, `--health-timeout`       | Build mode only. Cross-mode flags fail with clear errors.                                                                                              |
 
 `--no-bootstrap`, `--ssh-dir` and `--no-ssh-dir` have been removed. They fail with
 migration guidance rather than silently changing behavior. `--help` needs none
@@ -224,7 +224,7 @@ bash scripts/run-dashboard.sh --non-interactive \
   --host-user axel --host-uid 1000 --host-gid 1000 --host-home /home/axel \
   --ssh-agent-socket /run/user/1000/ssh-agent.socket \
   --password-file /home/axel/.secrets/dashboard-password \
-  --workspace /home/axel/ddash-workspace
+  --workspace /home/axel/devharbour-workspaces
 ```
 
 The application grants full operator capability; these mounts are not isolation.
@@ -588,8 +588,11 @@ image ID in `settings.image` after successful build, before the instance lifecyc
   Launcher validators enforce actual ranges, origins and feature combinations.
 - Defaults are dashboard port 3000, AI port 3002, loopback binding, the existing
   `latest` image reference and `/var/run/docker.sock`. Workspace defaults to
-  `host-home/ddash-workspace` (the separate build default uses
+  `host-home/devharbour-workspaces` (the separate build default uses
   `ddash-production-workspace`). Advanced integrations are off by default.
+  An explicit `workspace` path is unchanged. To keep a previous implicit path,
+  set it with `devharbour configure --workspace /absolute/path` before applying.
+  Changing the default does not move any repositories.
 
 Relative file and bind-source paths resolve against the config directory, not the
 shell's current directory. They are not shell expressions; `~`, `$VAR` and command

@@ -87,7 +87,7 @@ with patch('devharbour_settings.cli.run',return_value=subprocess.CompletedProces
  assert current['Image'] in argv
  assert '--entrypoint' in argv and 'python3' in argv
  assert not any('source=/home/operator,target=/home/operator' == value for value in argv)
- assert any(value.endswith('target=/home/operator/ddash-workspace,readonly') for value in argv)
+ assert any(value.endswith('target=/home/operator/devharbour-workspaces,readonly') for value in argv)
  assert queued['operation']['phase']=='queued'
  try: settings.apply_queue(path,config,{'token':review['token'],'confirmRecreate':True})
  except settings.SettingsError: pass

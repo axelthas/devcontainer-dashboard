@@ -35,6 +35,7 @@ HOST_PATHS = {'workspace', 'socket', 'host-home', 'ssh-agent-socket', 'ssh-known
 REQUIRED = {'host-user', 'host-uid', 'host-gid', 'host-home', 'ssh-agent-socket', 'password-file'}
 DEFAULTS = {'socket': '/var/run/docker.sock', 'port': 3000, 'ai-port': 3002,
             'bind-address': '127.0.0.1', 'image': 'ghcr.io/axelthas/devcontainer-dashboard:latest'}
+DEFAULT_WORKSPACE_NAME = 'devharbour-workspaces'
 LABEL_OWNER = 'devharbour.config-owner'
 LABEL_FINGERPRINT = 'devharbour.config-fingerprint'
 
@@ -401,7 +402,8 @@ def normalized(config, directory, build=False):
         settings.pop('bind-address', None)
         if 'port' not in config['settings']:
             settings['port'] = 3001
-    settings.setdefault('workspace', settings.get('host-home', '') + ('/ddash-production-workspace' if build else '/ddash-workspace'))
+    workspace_name = 'ddash-production-workspace' if build else DEFAULT_WORKSPACE_NAME
+    settings.setdefault('workspace', settings.get('host-home', '') + '/' + workspace_name)
     for key in LOCAL_PATHS | HOST_PATHS:
         if key in settings:
             path = Path(settings[key])

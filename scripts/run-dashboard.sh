@@ -262,9 +262,9 @@ read_secrets() {
   if [[ -z "$WORKSPACE" ]]; then
     if [[ "$MODE" == registry && "$NON_INTERACTIVE" != 1 ]]; then
       terminal_available || fail 'Workspace prompt needs a terminal; use --workspace or --non-interactive'
-      read -r -p "Workspace directory [$HOST_HOME/ddash-workspace]: " answer </dev/tty
-      WORKSPACE="${answer:-$HOST_HOME/ddash-workspace}"
-    elif [[ "$MODE" == registry ]]; then WORKSPACE="$HOST_HOME/ddash-workspace"
+      read -r -p "Workspace directory [$HOST_HOME/devharbour-workspaces]: " answer </dev/tty
+      WORKSPACE="${answer:-$HOST_HOME/devharbour-workspaces}"
+    elif [[ "$MODE" == registry ]]; then WORKSPACE="$HOST_HOME/devharbour-workspaces"
     else WORKSPACE="$HOST_HOME/ddash-production-workspace"
     fi
   fi

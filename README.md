@@ -45,7 +45,7 @@ changes that are not in a release yet, select a local build from `main` in setup
 
 1. Put a Git repository with a `devcontainer.json` under your workspace root in
    `<workspace-root>/<project>/<repository>` order. The quickstart workspace
-   root is `~/ddash-workspace`.
+   root is `~/devharbour-workspaces`.
 2. In **Local Workspaces**, find the repository and select **Build & Start**.
 3. Use **Open with** to open a terminal or editor. Use **Services** to open the
    ports the container publishes.
@@ -56,9 +56,9 @@ Open **Settings** in the desktop header or the mobile **Host** sheet to edit the
 same configuration as the CLI. **Save only** does not change the running
 instance. Use **Save & recreate** to review and apply new edits, or **Review and
 recreate** to apply changes you already saved. Recreation retains named volumes,
-but ends DevHarbour login sessions, Brain grants, and active terminals. Direct
-launcher deployments do not have managed Settings by default. Older managed deployments may
-need one reviewed recreation from the CLI to make Settings available.
+but ends DevHarbour login sessions, agent grants, and active terminals. Direct
+launcher deployments do not have managed Settings by default. Older managed
+instances may need one reviewed recreation from the CLI to enable Settings.
 
 | Command              | What it does                                            |
 | -------------------- | ------------------------------------------------------- |
@@ -74,19 +74,20 @@ data. It does not update the running Docker image. See the
 [CLI reference](scripts/README.md#installed-devharbour-cli) for image choices,
 unattended setup, and upgrades from Devcontainer Dashboard.
 
-## Optional: give ClickUp Brain access
+## Optional: connect an external agent over MCP
 
-The MCP server is off by default. Enable it in Settings or the setup wizard.
-For hosted ClickUp Brain, make the MCP endpoint reachable over HTTPS. Add the
-`/mcp` URL shown in the **Brain** panel to your ClickUp MCP connection and set
-`Authorization: Bearer <token>`. Then select **Grant Brain** on each running container you want
-Brain to use. You can extend or revoke a grant. Brain can ask for more time, but
-only the operator can extend it.
+Enable the DevHarbour MCP server in Settings or the setup wizard. It is off by
+default. In your agent's MCP client, enter the `/mcp` URL shown in the **Brain**
+panel and set `Authorization: Bearer <token>`. If the agent runs off-host, it
+needs a reachable HTTPS endpoint.
+
+Select **Grant Brain** on each running container the agent may use. Agents can
+ask for more time, but only the operator can extend or revoke access.
 
 DevHarbour has Docker access, and anyone who can sign in has operator access.
 Keep the dashboard on localhost or a trusted private network. Optional Tailscale
 Funnel exposes the token-protected MCP endpoint, not the dashboard. See the
-[Brain access guide](specification/feature_brain_access/feature_specification_brain_access.md)
+[MCP access guide](specification/feature_brain_access/feature_specification_brain_access.md)
 for connection details and grant behavior.
 
 ## Develop DevHarbour

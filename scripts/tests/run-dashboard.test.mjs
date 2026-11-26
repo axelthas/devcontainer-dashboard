@@ -215,7 +215,7 @@ test('registry mode: pulls the default image and runs attached with stable volum
 	assert.ok(run.args.includes('type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock'));
 	assert.ok(
 		run.args.includes(
-			'type=bind,source=/home/operator/ddash-workspace,target=/home/operator/ddash-workspace'
+			'type=bind,source=/home/operator/devharbour-workspaces,target=/home/operator/devharbour-workspaces'
 		)
 	);
 	assert.deepEqual(
@@ -316,7 +316,7 @@ test('registry mode: interactive workspace prompt through a curl-piped PTY', asy
 	assert.match(r.output, /Workspace directory/);
 	assert.ok(
 		runCall(r).args.includes(
-			'type=bind,source=/home/operator/ddash-workspace,target=/home/operator/ddash-workspace'
+			'type=bind,source=/home/operator/devharbour-workspaces,target=/home/operator/devharbour-workspaces'
 		)
 	);
 });
@@ -396,7 +396,7 @@ test('ignores the removed environment-variable interface', (t) => {
 	assert.deepEqual([run.user, run.uid], ['operator', '2345']);
 	assert.ok(
 		run.args.includes(
-			'type=bind,source=/home/operator/ddash-workspace,target=/home/operator/ddash-workspace'
+			'type=bind,source=/home/operator/devharbour-workspaces,target=/home/operator/devharbour-workspaces'
 		)
 	);
 	assert.equal(run.passwordChars, 14);

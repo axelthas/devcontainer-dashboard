@@ -111,7 +111,7 @@ def snapshot(path, config):
     schema = copy.deepcopy(SCHEMA)
     definitions = schema['properties']['settings']['properties']
     definitions['ai-state-volume']['default'] = cli.resource_names(config)[2]
-    definitions['workspace']['default'] = settings['host-home'] + '/ddash-workspace'
+    definitions['workspace']['default'] = settings['host-home'] + '/' + cli.DEFAULT_WORKSPACE_NAME
     return {'available': True, 'config': config, 'revision': revision(path, config),
             'schema': schema, 'path': str(path), 'pending': pending,
             'appliedAt': state.get('appliedAt') if type(state.get('appliedAt')) is int else None,

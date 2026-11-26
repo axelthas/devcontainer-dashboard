@@ -425,7 +425,7 @@ class Setup:
                         note('Enter a positive number other than 0 (root).' if key in self.c.NUMBERS else 'This value is required.')
         section('Workspace')
         note('DevHarbour lists, clones and edits repositories in this folder on the Docker host.')
-        workspace = self.settings.get('workspace', self.settings['host-home'] + '/ddash-workspace')
+        workspace = self.settings.get('workspace', self.settings['host-home'] + '/' + self.c.DEFAULT_WORKSPACE_NAME)
         if not hasattr(self.args, 'workspace'):
             action = self.t.select('Which folder should hold your workspaces?', [
                 ('Use ' + workspace, 'keep', 'Created if it does not exist yet.' if self.local else None), ('Enter another folder', 'change', None)])
