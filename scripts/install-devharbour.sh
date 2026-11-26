@@ -18,6 +18,7 @@ import stat
 import sys
 import tarfile
 import tempfile
+import urllib.error
 import urllib.parse
 import urllib.request
 import subprocess
@@ -25,6 +26,13 @@ import venv
 
 FILES = ('devharbour.schema.json', 'devharbour_schema.py', 'devharbour_quickstart.py', 'devharbour_settings.py', 'devharbour.py', 'devharbour_ui.py', 'devharbour_source.py', 'devharbour_env.py', 'devharbour_banner.py', 'requirements-cli.txt', 'run-dashboard.sh')
 MARKER = '# devharbour-managed-command-v1'
+REPO_SLUG = 'axelthas/devharbour'
+REPO_NAME = REPO_SLUG.rsplit('/', 1)[1]
+REPOSITORY = 'https://github.com/' + REPO_SLUG + '.git'
+
+
+class InstallError(RuntimeError):
+    """An install error whose message is safe to show to the operator."""
 
 
 def arguments():
@@ -46,33 +54,56 @@ def payloads(args):
         content = {name: (args.source / 'scripts' / name).read_bytes() for name in FILES}
         identity = 'local-' + hashlib.sha256(b''.join(content.values())).hexdigest()[:20]
         return content, identity
-    request = urllib.request.Request('https://api.github.com/repos/axelthas/devcontainer-dashboard/commits/' + urllib.parse.quote(args.ref, safe=''), headers={'Accept': 'application/vnd.github+json', 'User-Agent': 'devharbour-installer'})
-    with urllib.request.urlopen(request, timeout=30) as response:
-        revision = json.load(response)['sha']
-    with urllib.request.urlopen('https://codeload.github.com/axelthas/devcontainer-dashboard/tar.gz/' + revision, timeout=60) as response:
-        archive = response.read(32 * 1024 * 1024 + 1)
+    request = urllib.request.Request('https://api.github.com/repos/' + REPO_SLUG + '/commits/' + urllib.parse.quote(args.ref, safe=''), headers={'Accept': 'application/vnd.github+json', 'User-Agent': 'devharbour-installer'})
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            revision = json.load(response)['sha']
+    except (KeyError, ValueError, TypeError) as error:
+        raise InstallError('GitHub did not return a commit for the selected ref.') from error
+    except OSError as error:
+        raise download_error('Resolve the selected GitHub ref', error) from error
+    try:
+        with urllib.request.urlopen('https://codeload.github.com/' + REPO_SLUG + '/tar.gz/' + revision, timeout=60) as response:
+            archive = response.read(32 * 1024 * 1024 + 1)
+    except OSError as error:
+        raise download_error('Download the GitHub source archive', error) from error
     if len(archive) > 32 * 1024 * 1024:
-        raise ValueError('Archive exceeds installer size limit')
-    with tarfile.open(fileobj=io.BytesIO(archive), mode='r:gz') as bundle:
-        content = {}
-        for name in FILES:
-            member = bundle.getmember('devcontainer-dashboard-' + revision + '/scripts/' + name)
-            if not member.isfile() or member.size > 2 * 1024 * 1024:
-                raise ValueError('Invalid runtime archive member')
-            content[name] = bundle.extractfile(member).read()
+        raise InstallError('GitHub source archive exceeds the installer size limit.')
+    try:
+        with tarfile.open(fileobj=io.BytesIO(archive), mode='r:gz') as bundle:
+            content = {}
+            for name in FILES:
+                member = bundle.getmember(REPO_NAME + '-' + revision + '/scripts/' + name)
+                if not member.isfile() or member.size > 2 * 1024 * 1024:
+                    raise InstallError('Invalid installer payload in the GitHub archive: ' + name)
+                content[name] = bundle.extractfile(member).read()
+    except KeyError as error:
+        raise InstallError('GitHub source archive is missing the expected installer file: ' + name) from error
+    except (OSError, EOFError, tarfile.TarError) as error:
+        raise InstallError('Could not read the GitHub source archive.') from error
     return content, revision
+
+
+def download_error(step, error):
+    """Report the failed network step without exposing URLs or credentials."""
+    if isinstance(error, urllib.error.HTTPError):
+        return InstallError(f'{step}: HTTP {error.code}.')
+    return InstallError(f'{step}: check network access, proxy and TLS configuration.')
 
 
 def source_checkout(args, identity, runtime):
     """Retain a clean pinned remote checkout, never reset an existing working copy."""
     if args.source:
         result = subprocess.run(['git', '-C', str(args.source), 'rev-parse', 'HEAD'], text=True, capture_output=True)
-        return {'repository': 'https://github.com/axelthas/devcontainer-dashboard.git', 'revision': result.stdout.strip() if result.returncode == 0 else 'main', 'ref': args.ref}
-    metadata = {'repository': 'https://github.com/axelthas/devcontainer-dashboard.git', 'revision': identity, 'ref': args.ref}
+        return {'repository': REPOSITORY, 'revision': result.stdout.strip() if result.returncode == 0 else 'main', 'ref': args.ref}
+    metadata = {'repository': REPOSITORY, 'revision': identity, 'ref': args.ref}
     if not args.no_checkout:
         sys.path.insert(0, str(runtime))
-        from devharbour_source import acquire
-        checkout, revision = acquire({'mode': 'build', 'ref': identity}, args.data_dir / 'source')
+        from devharbour_source import SourceError, acquire
+        try:
+            checkout, revision = acquire({'mode': 'build', 'ref': identity}, args.data_dir / 'source')
+        except SourceError as error:
+            raise InstallError('Prepare the Git checkout: ' + str(error)) from error
         metadata.update({'checkout': str(checkout), 'revision': revision})
     return metadata
 
@@ -82,19 +113,22 @@ def python_environment(args, runtime):
     identity = hashlib.sha256((runtime / 'requirements-cli.txt').read_bytes()).hexdigest()[:16] + '-' + sys.implementation.cache_tag
     destination = args.data_dir / ('venv-' + identity)
     if destination.is_symlink():
-        raise ValueError('Refusing symlink Python environment')
+        raise InstallError('Refusing symlink Python environment')
     python = destination / 'bin/python'
     if not python.exists():
         try:
             venv.EnvBuilder(with_pip=True).create(destination)
             destination.chmod(0o700)
         except (OSError, subprocess.SubprocessError) as error:
-            raise ValueError('Python venv/pip is required; install your distro python3-venv package and retry.') from error
+            raise InstallError('Create the Python virtual environment: check venv and pip (some Linux distributions require python3-venv).') from error
     check = subprocess.run([str(python), '-c', 'import questionary,prompt_toolkit,wcwidth'], capture_output=True)
     marker = destination / '.devharbour-requirements'
     if check.returncode or not marker.exists() or marker.read_text() != identity:
         print('Installing menu dependencies in a private Python environment...', flush=True)
-        subprocess.run([str(python), '-m', 'pip', 'install', '--require-virtualenv', '--disable-pip-version-check', '-r', str(runtime / 'requirements-cli.txt')], check=True)
+        try:
+            subprocess.run([str(python), '-m', 'pip', 'install', '--require-virtualenv', '--disable-pip-version-check', '-r', str(runtime / 'requirements-cli.txt')], check=True)
+        except (OSError, subprocess.SubprocessError) as error:
+            raise InstallError('Install the Python menu dependencies: check the pip output above.') from error
         marker.write_text(identity)
     return python
 
@@ -119,20 +153,23 @@ def install(args):
     args.data_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     info = args.data_dir.lstat()
     if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
-        raise ValueError('data-dir must be owned by you, not a symlink, and mode 0700')
+        raise InstallError('data-dir must be owned by you, not a symlink, and mode 0700')
     destination = args.bin_dir / 'devharbour'
     lockfd = os.open(args.data_dir / 'install.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     with os.fdopen(lockfd, 'w') as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise InstallError('Another DevHarbour installation is already running.') from error
         if destination.exists() or destination.is_symlink():
             info = destination.lstat()
             if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or MARKER not in destination.read_text().splitlines()[:3]:
-                raise ValueError('Refusing to overwrite an unrelated executable or symlink')
+                raise InstallError('Refusing to overwrite an unrelated executable or symlink')
         content, identity = payloads(args)
         runtime = args.data_dir / identity
         if runtime.exists():
             if runtime.is_symlink() or any((runtime / name).is_symlink() or (runtime / name).read_bytes() != data for name, data in content.items()):
-                raise ValueError('Existing version directory differs; refusing overwrite')
+                raise InstallError('Existing version directory differs; refusing overwrite')
         else:
             staging = Path(tempfile.mkdtemp(prefix='.install-', dir=args.data_dir))
             try:
@@ -146,7 +183,7 @@ def install(args):
                     shutil.rmtree(staging)
         metadata = source_checkout(args, identity, runtime)
         if (runtime / 'SOURCE.json').is_symlink():
-            raise ValueError('Refusing source metadata symlink')
+            raise InstallError('Refusing source metadata symlink')
         fd_metadata, temp_metadata = tempfile.mkstemp(prefix='.source-', dir=runtime)
         with os.fdopen(fd_metadata, 'w') as output:
             output.write(json.dumps(metadata, indent=2) + '\n')
@@ -177,8 +214,10 @@ def install(args):
 
 def main():
     """Validate the runtime and report installation errors without a traceback."""
-    if sys.version_info < (3, 9) or sys.platform != 'linux':
-        raise ValueError('Installer requires Linux and Python 3.9+')
+    if sys.platform != 'linux':
+        raise InstallError('This installer requires Linux. Native macOS is not supported.')
+    if sys.version_info < (3, 9):
+        raise InstallError('This installer requires Python 3.9 or later.')
     install(arguments())
 
 
@@ -187,7 +226,13 @@ try:
 except KeyboardInterrupt:
     print('Installation cancelled. The existing command and configuration were not replaced.', file=sys.stderr)
     sys.exit(130)
-except (OSError, ValueError, KeyError, tarfile.TarError, subprocess.SubprocessError, RuntimeError):
-    print('Installation failed. Check Git, Python venv/pip, source/ref, directory ownership and connectivity; no host packages were installed.', file=sys.stderr)
+except InstallError as error:
+    print('Installation failed: ' + str(error), file=sys.stderr)
+    sys.exit(1)
+except OSError as error:
+    print('Installation failed while accessing local files: ' + (error.strerror or type(error).__name__), file=sys.stderr)
+    sys.exit(1)
+except (ValueError, KeyError, subprocess.SubprocessError, RuntimeError) as error:
+    print('Installation failed with an unexpected ' + type(error).__name__ + '.', file=sys.stderr)
     sys.exit(1)
 PY
