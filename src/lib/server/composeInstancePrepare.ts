@@ -92,7 +92,10 @@ export async function prepareInstance(input: PrepareInstanceInput): Promise<Inst
 		const override = join(directory, 'override.yaml');
 		await writeInstanceOverride(
 			override,
-			composeInstanceOverrideYaml(input.plan, record.volumeIdentity, mounts)
+			composeInstanceOverrideYaml(input.plan, record.volumeIdentity, mounts, {
+				kind: input.kind.kind,
+				presenter: input.kind.presenter
+			})
 		);
 		verifyInstanceConfig(
 			await input.checkConfig(record, override),

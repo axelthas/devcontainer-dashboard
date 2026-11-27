@@ -88,6 +88,20 @@ export async function loadDashboardData() {
 		const labels = c.Labels ?? {};
 		const composeProject = labels['com.docker.compose.project'] ?? undefined;
 		const sandboxTag = labels[SANDBOX_TAG_LABEL];
+		// Instance labels count only when they name this container's own project.
+		const slotText = labels['devcontainer-dashboard.slot'];
+		const composeInstanceSlot =
+			composeProject &&
+			labels['devcontainer-dashboard.instance'] === composeProject &&
+			/^\d{1,3}$/.test(slotText ?? '')
+				? Number(slotText)
+				: undefined;
+		const kindText = labels['devcontainer-dashboard.kind'];
+		const composeKind = /^[a-z0-9][a-z0-9-]{0,63}$/.test(kindText ?? '') ? kindText : undefined;
+		const presenterText = labels['devcontainer-dashboard.presenter'];
+		const composePresenter = (['generic', 'web', 'database', 'profile'] as const).find(
+			(item) => item === presenterText
+		);
 
 		// Exclude containers with no exposed ports, unless they belong to a compose project
 		if (Object.keys(ports).length === 0 && !composeProject) continue;
@@ -116,6 +130,9 @@ export async function loadDashboardData() {
 			composeService: labels['com.docker.compose.service'] ?? undefined,
 			composeWorkingDir: labels['com.docker.compose.project.working_dir'] || undefined,
 			sandboxTag: isImageTag(sandboxTag) ? sandboxTag : undefined,
+			...(composeInstanceSlot !== undefined ? { composeInstanceSlot } : {}),
+			...(composeKind ? { composeKind } : {}),
+			...(composePresenter ? { composePresenter } : {}),
 			networks: containerNetworks(c.NetworkSettings?.Networks),
 			networkPresets: resolveNetworkPresets(labels)
 		});

@@ -18,6 +18,7 @@
 	import SandboxRow from './SandboxRow.svelte';
 	import ComposeNetworks from './ComposeNetworks.svelte';
 	import SandboxVersionChip from './SandboxVersionChip.svelte';
+	import StackKindChips from './stack/StackKindChips.svelte';
 	import SandboxRemoveDialog from './SandboxRemoveDialog.svelte';
 
 	interface Props {
@@ -144,6 +145,7 @@
 			</h4>
 
 			<SandboxVersionChip project={projectName} containers={versionContainers} />
+			<StackKindChips {containers} />
 
 			<!-- Running count badge -->
 			<span

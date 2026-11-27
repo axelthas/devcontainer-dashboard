@@ -3,7 +3,8 @@ import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import docker from '$lib/server/docker';
 import { resolveComposeTarget, ComposeTargetError } from '$lib/server/composeSandbox';
-import { listInstanceRecords } from '$lib/server/composeInstances';
+import { instanceRoot, listInstanceRecords } from '$lib/server/composeInstances';
+import { join } from 'node:path';
 import {
 	createInstance,
 	instanceHttpStatus,
@@ -34,13 +35,18 @@ export const GET: RequestHandler = async ({ url }) => {
 			profiles: url.searchParams.getAll('profile')
 		});
 		const all = await listInstanceRecords(WORKSPACE_ROOT);
+		const root = await instanceRoot(WORKSPACE_ROOT);
 		const instances = all
 			.filter(
 				(item) =>
 					item.canonicalRepoPath === target.canonicalRepoPath &&
 					sameSelection(item.selection, target.selection)
 			)
-			.map((item) => ({ ...instanceSummary(item), actions: kindActionState(item.project) }));
+			.map((item) => ({
+				...instanceSummary(item),
+				overrideFile: join(root, item.project, 'override.yaml'),
+				actions: kindActionState(item.project)
+			}));
 		return json({ instances }, { headers: { 'cache-control': 'no-store' } });
 	} catch (cause) {
 		if (cause instanceof ComposeTargetError) throw error(400, cause.message);

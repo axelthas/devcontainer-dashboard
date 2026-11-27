@@ -3,7 +3,7 @@
 - Issue: [#77](https://github.com/axelthas/devharbour/issues/77)
 - Baseline: `2c567eb7b882059214d3d7b4de83637559cd808a` (`main`). Source is unchanged since the design review at
   8df870c; only documentation changed.
-- Status: In progress. Steps 0–4 complete; steps 5–6 in progress; UI review pending.
+- Status: In progress. Steps 0–9 implemented; UI review pending (step 9 stop). Step 10 waits for the review.
 - References:
   [Compose instances (proposed)](../specification/feature_compose_instances/feature_specification_compose_instances.md),
   [Compose sandboxes](../specification/feature_compose_sandbox/feature_specification_compose_sandbox.md),
@@ -168,6 +168,19 @@ selection-scoped summaries, and a removal preview checks resource ownership.
 The remaining work is to wire creation, lifecycle, safe removal and recovery,
 choice actions, and the UI. Real-Docker lifecycle checks remain unrun. Do not mark the proposal current
 until those paths are implemented and tested.
+
+## Step 9 review notes
+
+- The Sandbox panel has Target, New instance, Review plan, Remove instance and
+  declared choice actions. The original sandbox keeps the baseline behavior.
+- Docker Services shows the kind and the instance slot from container labels.
+  The full Header, Row, Actions and Panels split of `ComposeGroupRow.svelte` is
+  not done: the generic group renders every kind. Decide at the review whether
+  that split is needed before release.
+- The address pool comes from `DEVHARBOUR_INSTANCE_POOL` and
+  `DEVHARBOUR_INSTANCE_RESERVED`. Settings integration is open.
+- Declared action results are kept in process memory only.
+- Real-Docker lifecycle checks did not run. Run them on a disposable Docker host.
 
 ## Acceptance checks
 

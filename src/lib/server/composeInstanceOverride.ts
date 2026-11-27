@@ -9,6 +9,8 @@ import type { InstanceMount } from './composeInstanceFiles.js';
 export const INSTANCE_LABEL = 'devcontainer-dashboard.instance';
 export const SLOT_LABEL = 'devcontainer-dashboard.slot';
 export const VOLUME_IDENTITY_LABEL = 'devcontainer-dashboard.volume-identity';
+export const KIND_LABEL = 'devcontainer-dashboard.kind';
+export const PRESENTER_LABEL = 'devcontainer-dashboard.presenter';
 
 /** Apply Compose dollar escaping to JSON strings before Compose interpolates YAML. */
 function yamlValue(value: unknown): string {
@@ -34,7 +36,8 @@ function replacement(value: unknown): value is { value: unknown; replace: true }
 export function composeInstanceOverrideYaml(
 	plan: ComposeInstancePlan,
 	volumeIdentity: string,
-	mounts: Record<string, InstanceMount[]> = {}
+	mounts: Record<string, InstanceMount[]> = {},
+	kind?: { kind: string; presenter: string }
 ): string {
 	if (!/^[a-f0-9]{32}$/.test(volumeIdentity)) throw new Error('Invalid instance volume identity');
 	const services: Record<string, Record<string, unknown>> = Object.create(null);
@@ -45,7 +48,12 @@ export function composeInstanceOverrideYaml(
 			labels: {
 				[INSTANCE_LABEL]: plan.project,
 				[SLOT_LABEL]: String(plan.slot),
-				[VOLUME_IDENTITY_LABEL]: volumeIdentity
+				[VOLUME_IDENTITY_LABEL]: volumeIdentity,
+				...(kind &&
+				/^[a-z0-9][a-z0-9-]{0,63}$/.test(kind.kind) &&
+				/^[a-z]{1,16}$/.test(kind.presenter)
+					? { [KIND_LABEL]: kind.kind, [PRESENTER_LABEL]: kind.presenter }
+					: {})
 			}
 		};
 	}
