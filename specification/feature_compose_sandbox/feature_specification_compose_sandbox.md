@@ -30,8 +30,8 @@ its sandbox.
 The service selection controls which services build, start, or appear in the
 log stream. All services are selected by default. Dependencies of selected
 services stay included. A service outside the selection keeps its state unless
-stopped explicitly. The browser remembers deselected services for the sandbox
-kind, defined by repository name and ordered file selection. Newly added services
+stopped explicitly. The browser remembers deselected services for the selection
+key, defined by repository name and ordered file selection. Newly added services
 therefore start selected.
 
 - **Build** builds selected services.
@@ -56,6 +56,13 @@ resources before confirming. A stale preview requires a fresh review. Removal
 keeps volumes, images, source files, and shared networks. The sandbox does not
 provide arbitrary Compose command entry or a volume removal action.
 
+### Run more copies of a sandbox
+
+The Sandbox panel can also create instances of the selection. Each instance is
+a separate Compose project with its own subnets, container names, and published
+ports. The panel **Target** control selects the original sandbox or an
+instance. See [Compose instances](../feature_compose_instances/feature_specification_compose_instances.md).
+
 ## Interfaces and constraints
 
 - The server resolves and validates paths below the workspace root, including
@@ -75,7 +82,7 @@ provide arbitrary Compose command entry or a volume removal action.
 
 ## Out of scope
 
-The dashboard does not assign a unique project name to each checkout. **Proposed:** [Compose instances](../feature_compose_instances/feature_specification_compose_instances.md) ([#77](https://github.com/axelthas/devharbour/issues/77)). It does
+The dashboard does not assign a unique project name to each checkout. It does
 not restore active Compose commands after a server restart. Deleting a workspace
 releases its run tracking but does not remove the stack.
 

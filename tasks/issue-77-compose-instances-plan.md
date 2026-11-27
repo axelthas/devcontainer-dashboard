@@ -3,9 +3,9 @@
 - Issue: [#77](https://github.com/axelthas/devharbour/issues/77)
 - Baseline: `2c567eb7b882059214d3d7b4de83637559cd808a` (`main`). Source is unchanged since the design review at
   8df870c; only documentation changed.
-- Status: In progress. Steps 0–9 implemented, including the presenter split. Step 10 in progress.
+- Status: In progress. Steps 0–10 implemented. Real-Docker acceptance checks remain.
 - References:
-  [Compose instances (proposed)](../specification/feature_compose_instances/feature_specification_compose_instances.md),
+  [Compose instances](../specification/feature_compose_instances/feature_specification_compose_instances.md),
   [Compose sandboxes](../specification/feature_compose_sandbox/feature_specification_compose_sandbox.md),
   [Managed Settings](../specification/feature_settings/feature_specification_settings.md),
   `feature/polaris-instances` (`e572dad`, `56917fd`) as a requirements source only.
@@ -160,14 +160,15 @@ A malformed reservation or failed Docker snapshot blocks allocation. The Compose
 command builders and persistent run tracker support instance projects while
 preserving the original sandbox arguments and directory lock. The generated
 Compose override and rendered-file helpers are implemented but are not wired to
-an API or UI. No instance workflow is available yet.
+an API or UI.
 
 Preparation helpers now validate source and descriptor digests, Compose version,
 host path mapping and the merged configuration. A read-only API lists safe
 selection-scoped summaries, and a removal preview checks resource ownership.
 The remaining work is to wire creation, lifecycle, safe removal and recovery,
-choice actions, and the UI. Real-Docker lifecycle checks remain unrun. Do not mark the proposal current
-until those paths are implemented and tested.
+choice actions, and the UI. Steps 7 to 10 completed that work. The
+specification now describes current behavior. Do not merge until the
+real-Docker acceptance checks pass.
 
 ## Step 9 review notes
 

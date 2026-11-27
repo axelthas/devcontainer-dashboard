@@ -62,6 +62,20 @@ changes that are not in a release yet, select a local build from `main` in setup
 3. Use **Open with** to open a terminal or editor. Use **Services** to open the
    ports the container publishes.
 
+## Run more copies of a Compose sandbox
+
+1. In **Local Workspaces**, open the **Sandbox** panel of a repository with a
+   Compose file.
+2. Select **New instance**. DevHarbour reserves a free slot and prepares the
+   instance. Nothing starts.
+3. In **Target**, select the instance. Select **Start**.
+4. To remove the instance, select **Remove instance** and review the preview.
+   Volumes stay.
+
+Instances need Docker Compose 2.24.4 or later. Instance subnets come from
+`10.231.{slot}.0/24` by default. Set `DEVHARBOUR_INSTANCE_POOL` to change the
+template and `DEVHARBOUR_INSTANCE_RESERVED` to keep CIDR ranges free.
+
 ## Manage DevHarbour
 
 Open **Settings** in the desktop header or the mobile **Host** sheet to edit the
@@ -122,5 +136,7 @@ screenshots from demo data.
   saved versus applied configuration and recovery after a failed recreation.
 - [Compose sandbox guide](specification/feature_compose_sandbox/feature_specification_compose_sandbox.md):
   run sandboxes and connect devcontainers to their networks.
+- [Compose instances guide](specification/feature_compose_instances/feature_specification_compose_instances.md):
+  instances, kinds, the `x-devharbour` descriptor and presenters.
 - [Developer guide](AGENTS.md) and [architecture](ARCHITECTURE.md): local
   development, project conventions, and checks.

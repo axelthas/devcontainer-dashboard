@@ -10,7 +10,7 @@ work log or a list of implementation steps.
 - [Local workspaces, terminals, and bootstrap](feature_bootstrap/feature_specification_bootstrap.md)
 - [Brain shell access over MCP](feature_brain_access/feature_specification_brain_access.md)
 - [Compose sandboxes](feature_compose_sandbox/feature_specification_compose_sandbox.md)
-- [Compose instances (proposed)](feature_compose_instances/feature_specification_compose_instances.md)
+- [Compose instances](feature_compose_instances/feature_specification_compose_instances.md)
 - [Git ref menu](feature_git_refs/feature_specification_git_refs.md)
 - [Managed Settings and recreation](feature_settings/feature_specification_settings.md)
 - [Terminal engine switcher](feature_terminal_engines/feature_specification_terminal_engines.md)

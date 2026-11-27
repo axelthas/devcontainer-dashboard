@@ -39,6 +39,7 @@ MCP server identifier remain compatible.
 │       ├── +page.server.ts
 │       ├── +page.svelte
 │       ├── api/
+│       │   ├── compose/
 │       │   ├── containers/
 │       │   ├── presets/
 │       │   ├── workspaces/
@@ -48,8 +49,9 @@ MCP server identifier remain compatible.
 │       ├── demo/
 │       └── service/
 ├── specification/
+│   ├── README.md
 │   ├── initial_specification.md
-│   └── feature_bootstrap/
+│   └── feature_<slug>/
 └── tasks/
 ```
 
@@ -289,7 +291,7 @@ Repository URL: Local repository workspace
 
 Primary Contact/Team: Repository owner / current maintainer
 
-Date of Last Update: 2026-06-15
+Date of Last Update: 2026-11-27
 
 ## 11. Glossary / Acronyms
 
@@ -298,6 +300,10 @@ Bootstrap preset: A reusable command definition that starts a workspace bootstra
 Bootstrap provider: A repository-backed tool source that can be updated, rerun, or checked out.
 
 Compose project: A Docker Compose group identified by the `com.docker.compose.project` label.
+
+Compose instance: A copy of one Compose selection under a generated project name and override file.
+
+Kind: The classification of a Compose system that selects its presenter in Docker Services.
 
 Devcontainer: A containerized development environment tied to a local repository path.
 
@@ -337,3 +343,35 @@ a new login is required after recreation. No automatic rollback is claimed.
 The shared banner appears in desktop, mobile and Settings. Read-only Settings
 reads use shared locks with a short bounded acquisition wait; writes and lifecycle
 commands retain exclusive locks.
+
+## Compose instances and kinds
+
+The Sandbox panel creates instances of one Compose selection. The server keeps
+each instance in `<WORKSPACE_ROOT>/.devharbour/instances/<project>/`:
+`instance.json`, the generated `override.yaml` and rendered `files/`.
+`src/lib/server/composeInstances.ts` reserves slots under an in-process mutex
+and a `flock` lock file, and writes records by atomic rename.
+`composeInstancePlan.ts` is a pure planner from `docker compose config` JSON to
+an address plan and override. `composeInstanceService.ts` creates, reviews and
+resolves instances and runs declared kind actions. Kind action results stay in
+process memory.
+
+Instance runs reuse the Compose run tracker with `--project-name` and the
+override as the last `--file`, and lock the instance project. Removal
+(`composeInstanceRemoval.ts`) reads only the instance record, checks ownership
+labels and keeps volumes. Kind resolution (`composeKinds.ts`) reads the
+top-level `x-devharbour` block, then an operator profile in
+`/data/compose-kind-profiles/`, then labels and heuristics.
+
+Routes:
+
+- `GET, POST /api/compose/instances`: list, create and review plan.
+- `GET, POST /api/compose/instances/remove`: removal preview and token removal.
+- `POST /api/compose/action`: run one declared choice action.
+- `GET /api/compose/stack?project=`: kind and instance summary for Docker
+  Services presenters.
+- `POST /api/compose/run`: accepts an `instance` target.
+
+Client presenters live in `src/lib/components/stack/`. `ComposeGroupRow.svelte`
+is the shared shell. See the
+[Compose instances specification](specification/feature_compose_instances/feature_specification_compose_instances.md).
