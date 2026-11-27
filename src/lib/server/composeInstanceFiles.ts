@@ -94,7 +94,7 @@ export async function renderInstanceFiles(options: {
 	declarations: FileDeclaration[];
 	plan: ComposeInstancePlan;
 	kind: KindDescriptor;
-	verifyHostPath: (path: string) => Promise<boolean>;
+	hostPath: (path: string) => Promise<string | undefined>;
 }): Promise<Record<string, InstanceMount[]>> {
 	const directory = join(options.instanceDirectory, 'files');
 	try {
@@ -120,15 +120,15 @@ export async function renderInstanceFiles(options: {
 		ids.add(declaration.id);
 		const targetServices = targets(declaration, options.plan, options.kind);
 		const path = join(directory, declaration.id);
-		if (!(await options.verifyHostPath(path)))
-			invalid('Docker cannot resolve the instance file path');
+		const source = await options.hostPath(path);
+		if (!source || !isAbsolute(source)) invalid('Docker cannot resolve the instance file path');
 		const contents = await sourceFile(options.canonicalRepoPath, declaration.from.path);
 		await writeInstanceOverride(path, rewriteInstanceAddresses(contents, options.plan), 0o644);
 		for (const service of targetServices) {
 			const list = (mounts[service] ??= []);
 			if (list.some((mount) => mount.target === declaration.mount.target))
 				invalid('Instance file mounts repeat a target');
-			list.push({ type: 'bind', source: path, target: declaration.mount.target, read_only: true });
+			list.push({ type: 'bind', source, target: declaration.mount.target, read_only: true });
 		}
 	}
 	return mounts;

@@ -1,11 +1,12 @@
 /** Reserve Compose instance slots without creating any Docker resources. */
 import { spawn } from 'node:child_process';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { lstat, mkdir, open, readdir, realpath, rename, unlink } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { ipv4Range } from './composeInstanceAddresses.js';
 import type { ComposeSelection } from '../composeCommands.js';
+import type { KindDescriptor } from '../stackKinds/types.js';
 import {
 	ComposeInstancePlanError,
 	planComposeInstance,
@@ -26,6 +27,10 @@ export interface InstanceRecord {
 	project: string;
 	slot: number;
 	volumeIdentity: string;
+	sourceDigest: string;
+	planDigest: string;
+	policyDigest: string;
+	kindDigest: string;
 	state: InstanceState;
 	createdAt: string;
 	canonicalRepoPath: string;
@@ -47,6 +52,7 @@ export interface ReserveInstanceInput {
 	resolvedConfig: unknown;
 	pool?: InstancePool;
 	policy?: KindInstanceConfig;
+	kind: KindDescriptor;
 	slot?: number;
 	getOccupancy: () => Promise<DockerOccupancy>;
 }
@@ -181,6 +187,10 @@ async function readRecord(directory: string, project: string): Promise<InstanceR
 			value.slot < 0 ||
 			value.slot > 255 ||
 			!IDENTITY.test(value.volumeIdentity) ||
+			!/^[a-f0-9]{64}$/.test(value.sourceDigest) ||
+			!/^[a-f0-9]{64}$/.test(value.planDigest) ||
+			!/^[a-f0-9]{64}$/.test(value.policyDigest) ||
+			!/^[a-f0-9]{64}$/.test(value.kindDigest) ||
 			!STATES.includes(value.state) ||
 			typeof value.createdAt !== 'string' ||
 			typeof value.canonicalRepoPath !== 'string' ||
@@ -293,6 +303,11 @@ async function validateSource(repo: string, selection: ComposeSelection): Promis
 	}
 }
 
+/** Hash server-side data without persisting its values. */
+export function instanceDigest(value: unknown): string {
+	return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+}
+
 /** Reserve one slot while the live Docker snapshot and records are locked. */
 export async function reserveInstance(
 	input: ReserveInstanceInput
@@ -352,6 +367,10 @@ export async function reserveInstance(
 				project: plan.project,
 				slot,
 				volumeIdentity,
+				sourceDigest: instanceDigest(input.resolvedConfig),
+				planDigest: instanceDigest(plan),
+				policyDigest: instanceDigest(input.policy ?? null),
+				kindDigest: instanceDigest(input.kind),
 				state: 'planned',
 				createdAt: new Date().toISOString(),
 				canonicalRepoPath: input.canonicalRepoPath,
@@ -381,7 +400,7 @@ export async function setInstanceState(
 	to: InstanceState
 ): Promise<InstanceRecord> {
 	const allowed: Record<InstanceState, InstanceState[]> = {
-		planned: ['ready', 'failed', 'removing'],
+		planned: ['failed', 'removing'],
 		ready: ['failed', 'removing'],
 		failed: ['planned', 'removing'],
 		removing: ['removing']
@@ -396,5 +415,30 @@ export async function setInstanceState(
 		const updated: InstanceRecord = { ...record, state: to };
 		await writeRecord(path, updated);
 		return updated;
+	});
+}
+
+/** Execute preparation under the reservation lock. A failure retains the record and slot. */
+export async function prepareReservedInstance(
+	workspaceRoot: string,
+	project: string,
+	prepare: (record: InstanceRecord, directory: string) => Promise<void>
+): Promise<InstanceRecord> {
+	if (!PROJECT.test(project)) throw new InstanceStoreError('Invalid instance project');
+	return withInstanceLock(workspaceRoot, async (root) => {
+		const directory = join(root, project);
+		const path = join(directory, 'instance.json');
+		const record = await readRecord(directory, project);
+		if (record.state !== 'planned')
+			throw new InstanceStoreError('Instance is not ready for preparation');
+		try {
+			await prepare(record, directory);
+			const ready: InstanceRecord = { ...record, state: 'ready' };
+			await writeRecord(path, ready);
+			return ready;
+		} catch (cause) {
+			await writeRecord(path, { ...record, state: 'failed' });
+			throw cause;
+		}
 	});
 }

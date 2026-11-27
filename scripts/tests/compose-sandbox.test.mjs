@@ -34,8 +34,12 @@ let instanceStore;
 let instanceOccupancy;
 let instanceOverride;
 let instanceFiles;
+let instanceHostPath;
+let instanceVerify;
+let instancePrepare;
 let runs;
 let inspectRoute;
+let instanceListRoute;
 let runRoute;
 let image;
 let registry;
@@ -161,6 +165,28 @@ export default {
 			'./composeInstanceOverride.js': './instance-override.mjs'
 		}
 	);
+	instanceHostPath = await sourceModule(
+		'src/lib/server/composeInstanceHostPath.ts',
+		'instance-hostpath.mjs'
+	);
+	instanceVerify = await sourceModule(
+		'src/lib/server/composeInstanceVerify.ts',
+		'instance-verify.mjs',
+		{
+			'./composeInstanceOverride.js': './instance-override.mjs'
+		}
+	);
+	instancePrepare = await sourceModule(
+		'src/lib/server/composeInstancePrepare.ts',
+		'instance-prepare.mjs',
+		{
+			'./composeInstanceAddresses.js': './instance-addresses.mjs',
+			'./composeInstanceFiles.js': './instance-files.mjs',
+			'./composeInstanceOverride.js': './instance-override.mjs',
+			'./composeInstances.js': './instance-store.mjs',
+			'./composeInstanceVerify.js': './instance-verify.mjs'
+		}
+	);
 	sandbox = await sourceModule('src/lib/server/composeSandbox.ts', 'sandbox.mjs', {
 		'./composeKinds.js': './compose-kinds.mjs',
 		'./kindDescriptor.js': './kind-descriptor.mjs',
@@ -185,6 +211,15 @@ export default {
 		'$lib/server/composeSandbox': './sandbox.mjs',
 		'$lib/server/composeImages': './images.mjs'
 	};
+	instanceListRoute = await sourceModule(
+		'src/routes/api/compose/instances/+server.ts',
+		'instance-list-route.mjs',
+		{
+			'@sveltejs/kit': './boundaries.mjs',
+			'$lib/server/composeSandbox': './sandbox.mjs',
+			'$lib/server/composeInstances': './instance-store.mjs'
+		}
+	);
 	inspectRoute = await sourceModule(
 		'src/routes/api/compose/+server.ts',
 		'inspect-route.mjs',
@@ -1569,6 +1604,7 @@ async function allocationFixture() {
 		canonicalRepoPath,
 		selection: { files: ['compose.yaml'], profiles: [] },
 		resolvedConfig: instanceFixture(),
+		kind: { kind: 'generic', presenter: 'generic', source: 'default' },
 		pool: { minSlot: 21, maxSlot: 23 },
 		getOccupancy: async () => ({ subnets: [], projects: [], volumeNames: [] })
 	};
@@ -1591,18 +1627,21 @@ test('instance store serializes parallel reservations and gives each retained vo
 	assert.doesNotMatch(raw, /secret-marker|APP_URL/);
 	assert.equal(
 		(
-			await instanceStore.setInstanceState(
+			await instanceStore.prepareReservedInstance(
 				input.workspaceRoot,
 				first.record.project,
-				'planned',
-				'ready'
+				async () => {}
 			)
 		).state,
 		'ready'
 	);
 	await assert.rejects(
-		instanceStore.setInstanceState(input.workspaceRoot, first.record.project, 'planned', 'ready'),
-		/state changed/
+		instanceStore.prepareReservedInstance(
+			input.workspaceRoot,
+			first.record.project,
+			async () => {}
+		),
+		/not ready for preparation/
 	);
 });
 
@@ -1829,6 +1868,12 @@ test('Compose config accepts the production instance override without a Docker d
 	assert.equal(actual.services.web.ports[0].published, undefined);
 	assert.equal(actual.services.web.labels['devcontainer-dashboard.instance'], 'example-i21');
 	assert.equal(actual.volumes.data.name, `devharbour_${identity}_data`);
+	instanceVerify.verifyInstanceConfig(actual, plan, identity);
+	actual.services.web.ports[0].host_ip = '0.0.0.0';
+	assert.throws(
+		() => instanceVerify.verifyInstanceConfig(actual, plan, identity),
+		/does not match/
+	);
 });
 
 test('allocation uses an interprocess lock and releases it on completion', async () => {
@@ -1878,10 +1923,10 @@ test('rendered files rewrite addresses only, refuse unverified host paths and st
 		declarations,
 		plan: result.plan,
 		kind: { kind: 'generic', presenter: 'generic', source: 'default' },
-		verifyHostPath: async () => false
+		hostPath: async () => undefined
 	};
 	await assert.rejects(instanceFiles.renderInstanceFiles(options), /Docker cannot resolve/);
-	options.verifyHostPath = async () => true;
+	options.hostPath = async (path) => path;
 	const mounts = await instanceFiles.renderInstanceFiles(options);
 	const content = await readFile(mounts.web[0].source, 'utf8');
 	assert.equal(content, 'db 10.231.21.20\nnot-an-address 192.168.20.2000\n');
@@ -1891,4 +1936,129 @@ test('rendered files rewrite addresses only, refuse unverified host paths and st
 	);
 	options.declarations = [{ ...declarations[0], from: { path: '../outside' } }];
 	await assert.rejects(instanceFiles.renderInstanceFiles(options), /invalid or inaccessible/);
+});
+
+test('instance bind files use the closest verified Docker host mount', () => {
+	const mounts = [
+		{ Type: 'bind', Source: '/host/work', Destination: '/workspaces' },
+		{ Type: 'volume', Source: '/var/lib/docker/volumes/x', Destination: '/workspaces/private' }
+	];
+	assert.equal(
+		instanceHostPath.instanceHostPath(
+			'/workspaces/.devharbour/instances/example/files/hosts',
+			mounts
+		),
+		'/host/work/.devharbour/instances/example/files/hosts'
+	);
+	assert.equal(instanceHostPath.instanceHostPath('/workspaces/private/file', mounts), undefined);
+	assert.equal(instanceHostPath.instanceHostPath('/other/file', mounts), undefined);
+	assert.equal(instanceHostPath.instanceHostPath('/workspaces/../other/file', mounts), undefined);
+});
+
+test('preparation marks a reservation ready only after Compose verifies the override', async () => {
+	let version;
+	try {
+		version = execFileSync('docker', ['compose', 'version', '--short'], {
+			encoding: 'utf8'
+		}).trim();
+	} catch {
+		return;
+	}
+	if (!instanceOverride.supportsInstanceOverrides(version)) return;
+	const input = await allocationFixture();
+	const sourcePath = join(input.canonicalRepoPath, 'compose.yaml');
+	await writeFile(
+		sourcePath,
+		`name: example\nservices:\n  web:\n    image: nginx\n    container_name: example-web\n    networks: { demo: { ipv4_address: 192.168.20.10 } }\n    ports: ['8080:80']\n    volumes: ['data:/data']\nnetworks:\n  demo:\n    ipam: { config: [{subnet: '192.168.20.0/24'}] }\nvolumes:\n  data: {}\n`
+	);
+	const config = () =>
+		JSON.parse(
+			execFileSync('docker', ['compose', '-f', sourcePath, 'config', '--format', 'json'], {
+				encoding: 'utf8'
+			})
+		);
+	input.resolvedConfig = config();
+	const reserved = await instanceStore.reserveInstance(input);
+	const ready = await instancePrepare.prepareInstance({
+		workspaceRoot: input.workspaceRoot,
+		project: reserved.record.project,
+		plan: reserved.plan,
+		kind: { kind: 'generic', presenter: 'generic', source: 'default' },
+		getComposeVersion: async () => version,
+		getSourceConfig: async () => config(),
+		getOccupancy: input.getOccupancy,
+		hostPath: async () => undefined,
+		checkConfig: async (record, override) =>
+			JSON.parse(
+				execFileSync(
+					'docker',
+					[
+						'compose',
+						'-p',
+						record.project,
+						'-f',
+						sourcePath,
+						'-f',
+						override,
+						'config',
+						'--format',
+						'json'
+					],
+					{ encoding: 'utf8' }
+				)
+			)
+	});
+	assert.equal(ready.state, 'ready');
+});
+
+test('failed preparation retains the reservation for recovery', async () => {
+	const input = await allocationFixture();
+	const reserved = await instanceStore.reserveInstance(input);
+	await assert.rejects(
+		instancePrepare.prepareInstance({
+			workspaceRoot: input.workspaceRoot,
+			project: reserved.record.project,
+			plan: reserved.plan,
+			kind: { kind: 'generic', presenter: 'generic', source: 'default' },
+			getComposeVersion: async () => '2.24.3',
+			getSourceConfig: async () => input.resolvedConfig,
+			getOccupancy: input.getOccupancy,
+			hostPath: async () => undefined,
+			checkConfig: async () => ({})
+		}),
+		/2.24.4/
+	);
+	const [record] = await instanceStore.listInstanceRecords(input.workspaceRoot);
+	assert.equal(record.state, 'failed');
+	assert.equal(record.slot, 21);
+	assert.equal((await instanceStore.reserveInstance(input)).record.slot, 22);
+});
+
+test('instance listing returns only safe summaries for the exact workspace selection', async () => {
+	const target = await sandbox.resolveComposeTarget(root, input());
+	await instanceStore.reserveInstance({
+		workspaceRoot: root,
+		canonicalRepoPath: target.canonicalRepoPath,
+		selection: target.selection,
+		resolvedConfig: instanceFixture(),
+		kind: { kind: 'generic', presenter: 'generic', source: 'default' },
+		pool: { minSlot: 21, maxSlot: 24 },
+		getOccupancy: async () => ({ subnets: [], projects: [], volumeNames: [] })
+	});
+	const url = new URL('http://localhost/api/compose/instances');
+	url.searchParams.set('repoPath', repo);
+	for (const file of target.selection.files) url.searchParams.append('file', file);
+	if (target.selection.envFile) url.searchParams.set('envFile', target.selection.envFile);
+	for (const profile of target.selection.profiles) url.searchParams.append('profile', profile);
+	const response = await instanceListRoute.GET({ url });
+	assert.equal(response.headers.get('cache-control'), 'no-store');
+	const body = await response.json();
+	assert.equal(body.instances.length, 1);
+	assert.equal(body.instances[0].project, 'example-i21');
+	assert.doesNotMatch(
+		JSON.stringify(body),
+		/sourceDigest|volumeIdentity|secret-marker|canonicalRepoPath/
+	);
+	url.searchParams.append('profile', 'different');
+	assert.deepEqual((await (await instanceListRoute.GET({ url })).json()).instances, []);
 });
