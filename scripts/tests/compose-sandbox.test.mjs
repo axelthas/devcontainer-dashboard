@@ -30,6 +30,10 @@ let sandbox;
 let kindDescriptor;
 let composeKinds;
 let instancePlan;
+let instanceStore;
+let instanceOccupancy;
+let instanceOverride;
+let instanceFiles;
 let runs;
 let inspectRoute;
 let runRoute;
@@ -133,6 +137,30 @@ export default {
 	instancePlan = await sourceModule('src/lib/server/composeInstancePlan.ts', 'instance-plan.mjs', {
 		'./composeInstanceAddresses.js': './instance-addresses.mjs'
 	});
+	instanceStore = await sourceModule('src/lib/server/composeInstances.ts', 'instance-store.mjs', {
+		'./composeInstancePlan.js': './instance-plan.mjs',
+		'./composeInstanceAddresses.js': './instance-addresses.mjs'
+	});
+	instanceOccupancy = await sourceModule(
+		'src/lib/server/composeInstanceOccupancy.ts',
+		'instance-occupancy.mjs',
+		{
+			'./composeInstanceAddresses.js': './instance-addresses.mjs',
+			'./composeInstances.js': './instance-store.mjs'
+		}
+	);
+	instanceOverride = await sourceModule(
+		'src/lib/server/composeInstanceOverride.ts',
+		'instance-override.mjs'
+	);
+	instanceFiles = await sourceModule(
+		'src/lib/server/composeInstanceFiles.ts',
+		'instance-files.mjs',
+		{
+			'./composeInstanceAddresses.js': './instance-addresses.mjs',
+			'./composeInstanceOverride.js': './instance-override.mjs'
+		}
+	);
 	sandbox = await sourceModule('src/lib/server/composeSandbox.ts', 'sandbox.mjs', {
 		'./composeKinds.js': './compose-kinds.mjs',
 		'./kindDescriptor.js': './kind-descriptor.mjs',
@@ -1470,7 +1498,7 @@ function instanceFixture() {
 test('instance planner remaps fixture offsets and scopes names without copying environment values', () => {
 	const config = instanceFixture();
 	const before = JSON.stringify(config);
-	const plan = instancePlan.planComposeInstance(config, 21);
+	const plan = instancePlan.planComposeInstance(config, 21, { volumeIdentity: 'a'.repeat(32) });
 	assert.equal(plan.project, 'example-i21');
 	assert.equal(plan.addressPlan.subnets[0].to, '10.231.21.0/24');
 	assert.deepEqual(plan.override.networks.demo.ipam.value.config, [
@@ -1496,7 +1524,7 @@ test('instance planner remaps fixture offsets and scopes names without copying e
 		{ target: 80, protocol: 'tcp', host_ip: '127.0.0.1' },
 		{ target: 443, protocol: 'tcp', host_ip: '127.0.0.1' }
 	]);
-	assert.equal(plan.override.volumes.data.name, 'example-i21_data');
+	assert.equal(plan.override.volumes.data.name, `devharbour_${'a'.repeat(32)}_data`);
 	assert.equal(plan.override.volumes.shared, undefined);
 	assert.match(plan.warnings[0], /APP_URL/);
 	assert.doesNotMatch(JSON.stringify(plan), /secret-marker/);
@@ -1504,7 +1532,8 @@ test('instance planner remaps fixture offsets and scopes names without copying e
 });
 
 test('instance planner refuses collisions, shared static addresses, unsupported namespaces and IPv6', () => {
-	const plan = instancePlan.planComposeInstance;
+	const plan = (fixture, slot, pool = {}) =>
+		instancePlan.planComposeInstance(fixture, slot, { volumeIdentity: 'a'.repeat(32), ...pool });
 	assert.throws(
 		() => plan(instanceFixture(), 21, { occupiedSubnets: ['10.231.0.0/16'] }),
 		/overlaps/
@@ -1527,4 +1556,339 @@ test('instance planner refuses collisions, shared static addresses, unsupported 
 	delete config.services.web.network_mode;
 	config.networks.demo.enable_ipv6 = true;
 	assert.throws(() => plan(config, 21), /IPv4-only/);
+});
+
+/** Allocate on a separate temporary root using a deterministic fake Docker snapshot. */
+async function allocationFixture() {
+	const workspaceRoot = await mkdtemp(join(temporary, 'instances-'));
+	const canonicalRepoPath = join(workspaceRoot, 'task', 'repo');
+	await mkdir(canonicalRepoPath, { recursive: true });
+	await writeFile(join(canonicalRepoPath, 'compose.yaml'), 'services: {}\n');
+	return {
+		workspaceRoot,
+		canonicalRepoPath,
+		selection: { files: ['compose.yaml'], profiles: [] },
+		resolvedConfig: instanceFixture(),
+		pool: { minSlot: 21, maxSlot: 23 },
+		getOccupancy: async () => ({ subnets: [], projects: [], volumeNames: [] })
+	};
+}
+
+test('instance store serializes parallel reservations and gives each retained volume its own identity', async () => {
+	const input = await allocationFixture();
+	const [first, second] = await Promise.all([
+		instanceStore.reserveInstance(input),
+		instanceStore.reserveInstance(input)
+	]);
+	assert.deepEqual([first.record.slot, second.record.slot].sort(), [21, 22]);
+	assert.notEqual(first.record.volumeIdentity, second.record.volumeIdentity);
+	assert.notEqual(first.plan.override.volumes.data.name, second.plan.override.volumes.data.name);
+	assert.equal((await instanceStore.listInstanceRecords(input.workspaceRoot)).length, 2);
+	const raw = await readFile(
+		join(input.workspaceRoot, '.devharbour/instances', first.record.project, 'instance.json'),
+		'utf8'
+	);
+	assert.doesNotMatch(raw, /secret-marker|APP_URL/);
+	assert.equal(
+		(
+			await instanceStore.setInstanceState(
+				input.workspaceRoot,
+				first.record.project,
+				'planned',
+				'ready'
+			)
+		).state,
+		'ready'
+	);
+	await assert.rejects(
+		instanceStore.setInstanceState(input.workspaceRoot, first.record.project, 'planned', 'ready'),
+		/state changed/
+	);
+});
+
+test('instance store excludes occupied networks and projects and rejects incomplete snapshots', async () => {
+	const input = await allocationFixture();
+	input.getOccupancy = async () => ({
+		subnets: ['10.231.21.0/24'],
+		projects: ['example-i22'],
+		volumeNames: []
+	});
+	assert.equal((await instanceStore.reserveInstance(input)).record.slot, 23);
+	const bad = await allocationFixture();
+	bad.getOccupancy = async () => ({ subnets: [], projects: [] });
+	await assert.rejects(instanceStore.reserveInstance(bad), /snapshot is incomplete/);
+});
+
+test('an existing lock file is reusable, but an unknown directory blocks allocation', async () => {
+	const input = await allocationFixture();
+	const root = await instanceStore.instanceRoot(input.workspaceRoot);
+	await writeFile(join(root, '.lock'), 'old process exited');
+	assert.equal((await instanceStore.reserveInstance(input)).record.slot, 21);
+	await mkdir(join(root, 'unfinished'));
+	await assert.rejects(instanceStore.reserveInstance(input), /record is invalid or inaccessible/);
+});
+
+test('managed volumes require an identity and different generations do not reuse names', () => {
+	const config = instanceFixture();
+	assert.throws(
+		() => instancePlan.planComposeInstance(config, 21),
+		/unique instance volume identity/
+	);
+	const first = instancePlan.planComposeInstance(config, 21, { volumeIdentity: 'a'.repeat(32) });
+	const second = instancePlan.planComposeInstance(config, 21, { volumeIdentity: 'b'.repeat(32) });
+	assert.notEqual(first.override.volumes.data.name, second.override.volumes.data.name);
+});
+
+test('Docker occupancy includes all networks, stopped projects and retained volumes', async () => {
+	const docker = {
+		listNetworks: async () => [
+			{
+				IPAM: { Config: [{ Subnet: '192.168.1.0/24' }, { Subnet: 'fd00::/64' }] },
+				Labels: { 'com.docker.compose.project': 'one' }
+			}
+		],
+		listContainers: async ({ all }) => {
+			assert.equal(all, true);
+			return [{ Labels: { 'com.docker.compose.project': 'two' }, State: 'exited' }];
+		},
+		listVolumes: async () => ({ Volumes: [{ Name: 'retained-data' }] })
+	};
+	assert.deepEqual(await instanceOccupancy.collectInstanceOccupancy(docker), {
+		subnets: ['192.168.1.0/24'],
+		projects: ['one', 'two'],
+		volumeNames: ['retained-data']
+	});
+	await assert.rejects(
+		instanceOccupancy.collectInstanceOccupancy({
+			...docker,
+			listNetworks: async () => [{ IPAM: { Config: [{}] } }]
+		}),
+		/IPAM is incomplete/
+	);
+	await assert.rejects(
+		instanceOccupancy.collectInstanceOccupancy({ ...docker, listVolumes: async () => ({}) }),
+		/snapshot is incomplete/
+	);
+});
+
+test('instance allocation rejects a repository outside its workspace', async () => {
+	const input = await allocationFixture();
+	input.canonicalRepoPath = await import('node:fs/promises').then(({ realpath }) =>
+		realpath(temporary)
+	);
+	await assert.rejects(instanceStore.reserveInstance(input), /inside the workspace/);
+});
+
+test('override writer includes every service label, escapes dollars and never copies environment values', async () => {
+	const fixture = instanceFixture();
+	fixture.services.other = { image: 'busybox', environment: { SECRET: 'private-secret' } };
+	fixture.services.web.container_name = 'example-web';
+	const plan = instancePlan.planComposeInstance(fixture, 21, { volumeIdentity: 'a'.repeat(32) });
+	const yaml = instanceOverride.composeInstanceOverrideYaml(plan, 'a'.repeat(32));
+	assert.match(yaml, /devcontainer-dashboard.instance/);
+	assert.match(yaml, /"other":/);
+	assert.match(yaml, /!override/);
+	assert.doesNotMatch(yaml, /private-secret|secret-marker/);
+	assert.throws(() => instanceOverride.composeInstanceOverrideYaml(plan, 'invalid'), /identity/);
+	const path = join(temporary, 'test-instance-override.yaml');
+	await instanceOverride.writeInstanceOverride(path, yaml);
+	assert.equal(await readFile(path, 'utf8'), yaml);
+});
+
+test('Compose version gate accepts supported releases and rejects unsupported or ambiguous versions', () => {
+	for (const version of ['2.24.4', 'v2.24.5-rc1', 'v2.25.0', '5.8.0'])
+		assert.equal(instanceOverride.supportsInstanceOverrides(version), true);
+	for (const version of ['2.24.3', '2.24.4-rc1', '2.9.9', '1.99.99', 'garbage', '2.24'])
+		assert.equal(instanceOverride.supportsInstanceOverrides(version), false);
+});
+
+test('instance Compose argv uses an explicit project and puts its override after the version override', () => {
+	const selection = { files: ['compose.yaml'], profiles: ['dev'], envFile: '.env' };
+	const instance = { projectName: 'example-i21', overrideFile: '/managed/instance override.yaml' };
+	const versionOverride = '/managed/version override.yaml';
+	const argv = commands.composeActionCommand(
+		'/repo with spaces',
+		selection,
+		'up',
+		['web'],
+		versionOverride,
+		instance
+	).args;
+	assert.deepEqual(argv, [
+		'compose',
+		'--project-directory',
+		'/repo with spaces',
+		'--project-name',
+		'example-i21',
+		'--file',
+		'/repo with spaces/compose.yaml',
+		'--file',
+		versionOverride,
+		'--file',
+		instance.overrideFile,
+		'--env-file',
+		'/repo with spaces/.env',
+		'--profile',
+		'dev',
+		'up',
+		'--detach',
+		'--pull',
+		'never',
+		'web'
+	]);
+	assert.deepEqual(
+		commands
+			.composeConfigCommand('/repo with spaces', selection, versionOverride, instance)
+			.args.slice(-3),
+		['config', '--format', 'json']
+	);
+	assert.deepEqual(
+		commands
+			.composeLogsCommand('/repo with spaces', selection, [], versionOverride, instance)
+			.args.slice(-4),
+		['logs', '--follow', '--tail', '200']
+	);
+});
+
+test('instance runs lock by project while an original run still locks its directory', async () => {
+	const target = await sandbox.resolveComposeTarget(root, input());
+	const a = { projectName: 'keflavik-i1', overrideFile: '/managed/a.yaml', slot: 1 };
+	const b = { projectName: 'keflavik-i2', overrideFile: '/managed/b.yaml', slot: 2 };
+	runs.startComposeRun('instance-a', target, 'solution', a.projectName, 'up', [], { instance: a });
+	runs.startComposeRun('instance-b', target, 'solution', b.projectName, 'up', [], { instance: b });
+	assert.throws(
+		() =>
+			runs.startComposeRun('duplicate', target, 'solution', a.projectName, 'up', [], {
+				instance: a
+			}),
+		runs.ComposeRunConflict
+	);
+	assert.throws(
+		() => runs.startComposeRun('original', target, 'solution', 'keflavik', 'up'),
+		runs.ComposeRunConflict
+	);
+	assert.deepEqual(state.spawns[0].options.composeInstance, { project: 'keflavik-i1', slot: 1 });
+	assert.ok(state.spawns[0].options.executable.args.includes('/managed/a.yaml'));
+});
+
+test('pull-and-start retains the instance identity in its follow-up', async () => {
+	const target = await sandbox.resolveComposeTarget(root, input());
+	const instance = { projectName: 'keflavik-i1', overrideFile: '/managed/a.yaml', slot: 1 };
+	runs.startComposeRun('instance-pull', target, 'solution', instance.projectName, 'up-pull', [], {
+		instance
+	});
+	state.exits.get('instance-pull')({ exitCode: 0, output: '' });
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(state.spawns.length, 2);
+	assert.deepEqual(state.spawns[1].options.composeInstance, {
+		project: instance.projectName,
+		slot: 1
+	});
+	assert.ok(state.spawns[1].options.executable.args.includes(instance.overrideFile));
+});
+
+test('Compose config accepts the production instance override without a Docker daemon', async () => {
+	let composeVersion;
+	try {
+		composeVersion = execFileSync('docker', ['compose', 'version', '--short'], {
+			encoding: 'utf8'
+		}).trim();
+	} catch {
+		return;
+	}
+	if (!instanceOverride.supportsInstanceOverrides(composeVersion)) return;
+	const dir = await mkdtemp(join(temporary, 'compose-config-'));
+	const file = join(dir, 'compose.yaml');
+	const override = join(dir, 'override.yaml');
+	await writeFile(
+		file,
+		`name: example\nservices:\n  web:\n    image: nginx\n    container_name: example-web\n    extra_hosts: ['db=192.168.20.20']\n    ports: ['8888:80']\n    networks:\n      demo: {ipv4_address: 192.168.20.10, aliases: [legacy]}\n    environment: {APP_URL: 'http://192.168.20.20/private-marker'}\n    volumes: ['data:/data']\nnetworks:\n  demo:\n    ipam:\n      config: [{subnet: '192.168.20.0/24', gateway: '192.168.20.1'}]\nvolumes:\n  data: {name: shared-data}\n`
+	);
+	const config = JSON.parse(
+		execFileSync('docker', ['compose', '-f', file, 'config', '--format', 'json'], {
+			encoding: 'utf8'
+		})
+	);
+	const identity = 'a'.repeat(32);
+	const plan = instancePlan.planComposeInstance(config, 21, { volumeIdentity: identity });
+	const yaml = instanceOverride.composeInstanceOverrideYaml(plan, identity);
+	assert.doesNotMatch(yaml, /private-marker|APP_URL/);
+	await instanceOverride.writeInstanceOverride(override, yaml);
+	const actual = JSON.parse(
+		execFileSync(
+			'docker',
+			['compose', '-p', plan.project, '-f', file, '-f', override, 'config', '--format', 'json'],
+			{ encoding: 'utf8' }
+		)
+	);
+	assert.equal(actual.networks.demo.ipam.config[0].subnet, '10.231.21.0/24');
+	assert.equal(actual.services.web.networks.demo.ipv4_address, '10.231.21.10');
+	assert.deepEqual(actual.services.web.networks.demo.aliases, ['legacy', 'example-web']);
+	assert.deepEqual(actual.services.web.extra_hosts, ['db=10.231.21.20']);
+	assert.equal(actual.services.web.ports[0].host_ip, '127.0.0.1');
+	assert.equal(actual.services.web.ports[0].published, undefined);
+	assert.equal(actual.services.web.labels['devcontainer-dashboard.instance'], 'example-i21');
+	assert.equal(actual.volumes.data.name, `devharbour_${identity}_data`);
+});
+
+test('allocation uses an interprocess lock and releases it on completion', async () => {
+	const input = await allocationFixture();
+	await instanceStore.withInstanceLock(input.workspaceRoot, async (directory) => {
+		assert.throws(() =>
+			execFileSync('flock', ['-xn', join(directory, '.lock'), 'true'], { stdio: 'ignore' })
+		);
+	});
+	const directory = await instanceStore.instanceRoot(input.workspaceRoot);
+	execFileSync('flock', ['-xn', join(directory, '.lock'), 'true'], { stdio: 'ignore' });
+});
+
+test('allocation rejects source file symlinks that escape the repository', async () => {
+	const input = await allocationFixture();
+	const other = join(input.workspaceRoot, 'other');
+	await mkdir(other);
+	await writeFile(join(other, 'compose.yaml'), 'services: {}\n');
+	await mkdir(join(input.canonicalRepoPath, 'subdir'));
+	await symlink(
+		join(other, 'compose.yaml'),
+		join(input.canonicalRepoPath, 'subdir', 'compose.yaml')
+	);
+	input.selection.files = ['subdir/compose.yaml'];
+	await assert.rejects(instanceStore.reserveInstance(input), /escapes the repository/);
+});
+
+test('rendered files rewrite addresses only, refuse unverified host paths and stay out of responses', async () => {
+	const input = await allocationFixture();
+	await writeFile(
+		join(input.canonicalRepoPath, 'hosts.txt'),
+		'db 192.168.20.20\nnot-an-address 192.168.20.2000\n'
+	);
+	const result = await instanceStore.reserveInstance(input);
+	const directory = join(input.workspaceRoot, '.devharbour/instances', result.record.project);
+	const declarations = [
+		{
+			id: 'hosts',
+			from: { path: 'hosts.txt' },
+			rewrite: 'addresses',
+			mount: { services: ['web'], target: '/etc/hosts' }
+		}
+	];
+	const options = {
+		canonicalRepoPath: input.canonicalRepoPath,
+		instanceDirectory: directory,
+		declarations,
+		plan: result.plan,
+		kind: { kind: 'generic', presenter: 'generic', source: 'default' },
+		verifyHostPath: async () => false
+	};
+	await assert.rejects(instanceFiles.renderInstanceFiles(options), /Docker cannot resolve/);
+	options.verifyHostPath = async () => true;
+	const mounts = await instanceFiles.renderInstanceFiles(options);
+	const content = await readFile(mounts.web[0].source, 'utf8');
+	assert.equal(content, 'db 10.231.21.20\nnot-an-address 192.168.20.2000\n');
+	assert.match(
+		instanceOverride.composeInstanceOverrideYaml(result.plan, result.record.volumeIdentity, mounts),
+		/"read_only":true/
+	);
+	options.declarations = [{ ...declarations[0], from: { path: '../outside' } }];
+	await assert.rejects(instanceFiles.renderInstanceFiles(options), /invalid or inaccessible/);
 });

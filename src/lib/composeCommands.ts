@@ -54,6 +54,12 @@ export interface ComposeSelection {
 	tag?: string;
 }
 
+/** Additional arguments for a server-validated managed instance. */
+export interface ComposeInstanceCommand {
+	projectName: string;
+	overrideFile: string;
+}
+
 /** One literal process invocation. */
 export interface ComposeCommand {
 	file: 'docker';
@@ -94,11 +100,14 @@ export function composeProjectDirectory(repoPath: string, selection: ComposeSele
 export function composeGlobalArgs(
 	repoPath: string,
 	selection: ComposeSelection,
-	overrideFile?: string
+	overrideFile?: string,
+	instance?: ComposeInstanceCommand
 ): string[] {
 	const args = ['compose', '--project-directory', composeProjectDirectory(repoPath, selection)];
+	if (instance) args.push('--project-name', instance.projectName);
 	for (const file of selection.files) args.push('--file', absolutePath(repoPath, file));
 	if (overrideFile) args.push('--file', overrideFile);
+	if (instance) args.push('--file', instance.overrideFile);
 	if (selection.envFile) args.push('--env-file', absolutePath(repoPath, selection.envFile));
 	for (const profile of selection.profiles) args.push('--profile', profile);
 	return args;
@@ -124,12 +133,13 @@ export function composeActionCommand(
 	selection: ComposeSelection,
 	action: ComposeAction,
 	services: string[] = [],
-	overrideFile?: string
+	overrideFile?: string,
+	instance?: ComposeInstanceCommand
 ): ComposeCommand {
 	return {
 		file: 'docker',
 		args: [
-			...composeGlobalArgs(repoPath, selection, overrideFile),
+			...composeGlobalArgs(repoPath, selection, overrideFile, instance),
 			...ACTION_ARGS[action],
 			...services
 		]
@@ -139,11 +149,18 @@ export function composeActionCommand(
 /** Build the argv that resolves and validates the effective configuration. */
 export function composeConfigCommand(
 	repoPath: string,
-	selection: ComposeSelection
+	selection: ComposeSelection,
+	overrideFile?: string,
+	instance?: ComposeInstanceCommand
 ): ComposeCommand {
 	return {
 		file: 'docker',
-		args: [...composeGlobalArgs(repoPath, selection), 'config', '--format', 'json']
+		args: [
+			...composeGlobalArgs(repoPath, selection, overrideFile, instance),
+			'config',
+			'--format',
+			'json'
+		]
 	};
 }
 
@@ -152,12 +169,13 @@ export function composeLogsCommand(
 	repoPath: string,
 	selection: ComposeSelection,
 	services: string[] = [],
-	overrideFile?: string
+	overrideFile?: string,
+	instance?: ComposeInstanceCommand
 ): ComposeCommand {
 	const tail = ['logs', '--follow', '--tail', '200', ...services];
 	return {
 		file: 'docker',
-		args: [...composeGlobalArgs(repoPath, selection, overrideFile), ...tail]
+		args: [...composeGlobalArgs(repoPath, selection, overrideFile, instance), ...tail]
 	};
 }
 

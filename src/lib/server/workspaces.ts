@@ -98,7 +98,9 @@ export async function loadWorkspaces(): Promise<LocalWorkspaceData[]> {
 	let taskDirs: string[];
 	try {
 		const entries = await readdir(WORKSPACE_ROOT, { withFileTypes: true });
-		taskDirs = entries.filter((e) => e.isDirectory()).map((e) => e.name);
+		taskDirs = entries
+			.filter((e) => e.isDirectory() && e.name !== '.devharbour')
+			.map((e) => e.name);
 	} catch {
 		return [];
 	}

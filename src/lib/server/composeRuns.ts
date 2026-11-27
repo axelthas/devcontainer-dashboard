@@ -11,7 +11,8 @@ import {
 	COMPOSE_ACTIONS,
 	composeActionCommand,
 	composeFollowUp,
-	type ComposeAction
+	type ComposeAction,
+	type ComposeInstanceCommand
 } from '../composeCommands.js';
 import type { ComposeTarget } from './composeSandbox.js';
 import { createPersistentSession, deletePersistentSession, isCancelledExit } from './terminal.js';
@@ -43,6 +44,7 @@ export interface ActiveComposeRun {
 	after?: 'up-pull';
 	/** Canonical project directory; one run per directory at a time. */
 	canonicalProjectDirectory?: string;
+	instanceProject?: string;
 	status: 'running' | 'success' | 'failed';
 	startedAt: string;
 	exitCode?: number;
@@ -75,6 +77,7 @@ const removals = g.__composeRemovals;
 export interface ComposeRunOptions {
 	overrideFile?: string;
 	after?: 'up-pull';
+	instance?: ComposeInstanceCommand & { slot: number };
 }
 
 /**
@@ -102,11 +105,21 @@ export function startComposeRun(
 ): ActiveComposeRun {
 	cleanupOldRuns();
 	if (removals.has(projectName)) throw new ComposeRunConflict();
+	if (
+		options.instance &&
+		(options.instance.projectName !== projectName ||
+			!/^[a-z0-9][a-z0-9_-]{0,127}$/.test(projectName) ||
+			!Number.isInteger(options.instance.slot) ||
+			options.instance.slot < 0 ||
+			options.instance.slot > 255)
+	)
+		throw new Error('Invalid Compose instance identity');
 	for (const existing of activeRuns.values()) {
 		if (
 			existing.status === 'running' &&
-			(existing.canonicalProjectDirectory === target.canonicalProjectDirectory ||
-				existing.projectName === projectName)
+			(existing.projectName === projectName ||
+				(existing.canonicalProjectDirectory === target.canonicalProjectDirectory &&
+					(!existing.instanceProject || !options.instance)))
 		) {
 			throw new ComposeRunConflict();
 		}
@@ -116,12 +129,17 @@ export function startComposeRun(
 		target.selection,
 		action,
 		services,
-		options.overrideFile
+		options.overrideFile,
+		options.instance
 	);
 
 	// Replace a finished entry for the same repository, so the row shows the newest run.
 	for (const [existingId, existing] of activeRuns) {
-		if (existing.repoPath === target.repoPath && existing.status !== 'running') {
+		if (
+			existing.repoPath === target.repoPath &&
+			existing.status !== 'running' &&
+			(!options.instance || existing.projectName === projectName)
+		) {
 			removeComposeRun(existingId);
 		}
 	}
@@ -138,6 +156,7 @@ export function startComposeRun(
 		...(options.overrideFile ? { overrideFile: options.overrideFile } : {}),
 		...(options.after ? { after: options.after } : {}),
 		canonicalProjectDirectory: target.canonicalProjectDirectory,
+		...(options.instance ? { instanceProject: projectName } : {}),
 		status: 'running',
 		startedAt: new Date().toISOString()
 	};
@@ -146,6 +165,9 @@ export function startComposeRun(
 	try {
 		createPersistentSession(id, undefined, target.projectDirectory, {
 			executable,
+			...(options.instance
+				? { composeInstance: { project: projectName, slot: options.instance.slot } }
+				: {}),
 			name: `${COMPOSE_ACTION_LABELS[action]} ${projectName}${run.tag ? ` ${run.tag}` : ''}`,
 			kind: 'compose',
 			maxOutputChars: RUN_LOG_MAX_CHARS,
@@ -162,9 +184,7 @@ export function startComposeRun(
 				if (run.status === 'failed') keepFailedRunLog(run, output);
 				// Leave the exit handler first; the follow-up replaces this run's session.
 				else
-					queueMicrotask(() =>
-						startFollowUp(run, target, repoName, projectName, output, options.overrideFile)
-					);
+					queueMicrotask(() => startFollowUp(run, target, repoName, projectName, output, options));
 			}
 		});
 	} catch (cause) {
@@ -186,14 +206,14 @@ function startFollowUp(
 	repoName: string,
 	projectName: string,
 	output: string,
-	overrideFile?: string
+	options: ComposeRunOptions
 ): void {
 	const next = composeFollowUp(run.action);
 	// A dismissed or replaced Pull starts nothing.
 	if (!next || activeRuns.get(run.id) !== run) return;
 	try {
 		startComposeRun(randomUUID(), target, repoName, projectName, next, run.services, {
-			overrideFile,
+			...options,
 			after: 'up-pull'
 		});
 	} catch (cause) {

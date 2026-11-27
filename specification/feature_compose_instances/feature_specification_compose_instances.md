@@ -82,8 +82,9 @@ must only display it.
   resolvable as a network alias on each instance network.
 - An instance publication binds to `127.0.0.1` and Docker allocates the host
   port. The original sandbox ports do not change.
-- A named volume with a fixed `name` gets the name `<instance>_<key>`. Other named
-  volumes are already scoped to the project.
+- Every non-external named volume uses a unique instance identity, separate from
+  the slot and project name. Reusing a slot must not attach a retained volume.
+  External volumes remain shared.
 - The server must not rewrite environment values. The plan lists only the names
   of variables whose value contains a source address.
 - The server must refuse an instance that needs an IPv6 subnet change.

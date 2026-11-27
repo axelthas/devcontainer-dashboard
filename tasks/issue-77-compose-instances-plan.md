@@ -3,7 +3,7 @@
 - Issue: [#77](https://github.com/axelthas/devharbour/issues/77)
 - Baseline: `2c567eb7b882059214d3d7b4de83637559cd808a` (`main`). Source is unchanged since the design review at
   8df870c; only documentation changed.
-- Status: In progress. Steps 0–3 complete; planner review pending.
+- Status: In progress. Steps 0–4 complete; steps 5–6 in progress; UI review pending.
 - References:
   [Compose instances (proposed)](../specification/feature_compose_instances/feature_specification_compose_instances.md),
   [Compose sandboxes](../specification/feature_compose_sandbox/feature_specification_compose_sandbox.md),
@@ -56,9 +56,8 @@ separate slice in the same PR. A presenter must not depend on the instance store
 - Gate instances at runtime on Compose 2.24.4 or later. Do not change the
   Compose version requirement for the original sandbox.
 
-Before integrating the store, settle the retained-volume case: reusing a slot
-must not silently attach a previous instance’s data. Treat retained resource
-identity separately from the slot, or refuse implicit adoption.
+Managed volumes use a unique, persistent identity that is separate from the
+slot. Reusing a slot must not attach a previous instance’s retained volumes.
 
 ## Prerequisites and stop conditions
 
@@ -152,6 +151,21 @@ No daemon was contacted. The production override writer is still step 5.
 2 existing Svelte warnings. Both production builds passed. Prettier, ESLint
 and `git diff --check` passed for the changed files. The full test suite and
 real-Docker lifecycle checks did not run.
+
+## Current implementation slice
+
+The store reserves under a kernel `flock` and records a fresh random volume
+identity for each instance. A reused slot cannot select an older managed volume.
+A malformed reservation or failed Docker snapshot blocks allocation. The Compose
+command builders and persistent run tracker support instance projects while
+preserving the original sandbox arguments and directory lock. The generated
+Compose override and rendered-file helpers are implemented but are not wired to
+an API or UI. No instance workflow is available yet.
+
+The remaining work includes bind-mount host verification, version enforcement
+at the API boundary, verified config and drift handling, complete lifecycle and
+reviewed removal, choice actions, and the UI. Do not mark the proposal current
+until those paths are implemented and tested.
 
 ## Acceptance checks
 

@@ -22,6 +22,8 @@ interface PersistentSessionOptions {
 	kind?: PersistentSessionKind;
 	/** Structured server-owned commands bypass shell parsing while keeping PTY lifecycle handling. */
 	executable?: { file: string; args: string[] };
+	/** Values supplied by the server for one validated Compose instance. */
+	composeInstance?: { project: string; slot: number };
 	maxOutputChars?: number;
 	onExit?: (exit: PersistentSessionExit) => void;
 }
@@ -122,6 +124,16 @@ export function createPersistentSession(
 	if (!Number.isSafeInteger(maxOutputChars) || maxOutputChars < 1 || maxOutputChars > 10_000_000)
 		throw new Error('Invalid terminal output limit');
 	const executable = options?.executable;
+	const instance = options?.composeInstance;
+	if (
+		instance &&
+		(options?.kind !== 'compose' ||
+			!/^[a-z0-9][a-z0-9_-]{0,127}$/.test(instance.project) ||
+			!Number.isInteger(instance.slot) ||
+			instance.slot < 0 ||
+			instance.slot > 255)
+	)
+		throw new Error('Invalid Compose instance identity');
 	const child = pty.spawn(
 		executable?.file ?? (command ? '/bin/bash' : (process.env.SHELL ?? '/bin/bash')),
 		executable?.args ?? (command ? ['-c', command] : []),
@@ -130,7 +142,12 @@ export function createPersistentSession(
 			cols: 120,
 			rows: 30,
 			cwd,
-			env: buildFilteredEnv()
+			env: {
+				...buildFilteredEnv(),
+				...(instance
+					? { DEVHARBOUR_INSTANCE: instance.project, DEVHARBOUR_SLOT: String(instance.slot) }
+					: {})
+			}
 		}
 	);
 	const session: PersistentSession = {

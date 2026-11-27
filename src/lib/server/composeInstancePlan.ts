@@ -59,6 +59,8 @@ export interface InstancePool {
 	/** IPv4 networks reserved by the operator, Docker, or other instance records. */
 	occupiedSubnets?: string[];
 	occupiedProjects?: string[];
+	/** Stable random identity for managed volume names; never reuse when a slot is reused. */
+	volumeIdentity?: string;
 }
 
 export class ComposeInstancePlanError extends Error {
@@ -329,7 +331,11 @@ export function planComposeInstance(
 	const servicePlans: ComposeInstancePlan['addressPlan']['services'] = [];
 	const warnings: string[] = [];
 	for (const [key, data] of entries(config.volumes)) {
-		if (record(data).external !== true) volumes[key] = { name: `${project}_${key}` };
+		if (record(data).external !== true) {
+			if (!pool.volumeIdentity || !/^[0-9a-f]{32}$/.test(pool.volumeIdentity))
+				refuse('A unique instance volume identity is required');
+			volumes[key] = { name: `devharbour_${pool.volumeIdentity}_${key}` };
+		}
 	}
 	for (const [key, data] of entries(config.services)) {
 		const service = record(data);
