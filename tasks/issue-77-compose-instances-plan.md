@@ -162,9 +162,11 @@ preserving the original sandbox arguments and directory lock. The generated
 Compose override and rendered-file helpers are implemented but are not wired to
 an API or UI. No instance workflow is available yet.
 
-The remaining work includes bind-mount host verification, version enforcement
-at the API boundary, verified config and drift handling, complete lifecycle and
-reviewed removal, choice actions, and the UI. Do not mark the proposal current
+Preparation helpers now validate source and descriptor digests, Compose version,
+host path mapping and the merged configuration. A read-only API lists safe
+selection-scoped summaries, and a removal preview checks resource ownership.
+The remaining work is to wire creation, lifecycle, safe removal and recovery,
+choice actions, and the UI. Real-Docker lifecycle checks remain unrun. Do not mark the proposal current
 until those paths are implemented and tested.
 
 ## Acceptance checks

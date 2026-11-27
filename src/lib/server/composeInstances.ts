@@ -132,7 +132,7 @@ export async function withInstanceLock<T>(
 }
 
 /** Write a bounded private record using a unique file and an atomic rename. */
-async function writeRecord(path: string, value: InstanceRecord): Promise<void> {
+async function writeInstanceRecord(path: string, value: InstanceRecord): Promise<void> {
 	const data = JSON.stringify(value, null, 2) + '\n';
 	if (Buffer.byteLength(data) > MAX_RECORD_BYTES) invalidRecord();
 	const temporary = join(dirname(path), `.instance-${randomUUID()}.tmp`);
@@ -154,7 +154,10 @@ async function writeRecord(path: string, value: InstanceRecord): Promise<void> {
 }
 
 /** Read and validate a record without following symlinks or accepting oversized files. */
-async function readRecord(directory: string, project: string): Promise<InstanceRecord> {
+export async function readInstanceRecord(
+	directory: string,
+	project: string
+): Promise<InstanceRecord> {
 	try {
 		const info = await lstat(directory);
 		if (!info.isDirectory() || info.isSymbolicLink()) invalidRecord();
@@ -217,7 +220,7 @@ async function recordsInRoot(root: string): Promise<InstanceRecord[]> {
 	for (const name of names) {
 		if (name === '.lock') continue;
 		if (!PROJECT.test(name)) invalidRecord();
-		records.push(await readRecord(join(root, name), name));
+		records.push(await readInstanceRecord(join(root, name), name));
 	}
 	return records;
 }
@@ -385,7 +388,7 @@ export async function reserveInstance(
 			const directory = join(root, plan.project);
 			// If interrupted before the record is written, the unknown directory blocks allocation.
 			await mkdir(directory, { mode: 0o700 });
-			await writeRecord(join(directory, 'instance.json'), record);
+			await writeInstanceRecord(join(directory, 'instance.json'), record);
 			return { record, plan };
 		}
 		throw new InstanceStoreError('No available instance slot in the selected pool');
@@ -409,11 +412,11 @@ export async function setInstanceState(
 		throw new InstanceStoreError('Invalid instance state transition');
 	return withInstanceLock(workspaceRoot, async (root) => {
 		const path = join(root, project, 'instance.json');
-		const record = await readRecord(dirname(path), project);
+		const record = await readInstanceRecord(dirname(path), project);
 		if (record.state !== from)
 			throw new InstanceStoreError('Instance state changed; retry the operation');
 		const updated: InstanceRecord = { ...record, state: to };
-		await writeRecord(path, updated);
+		await writeInstanceRecord(path, updated);
 		return updated;
 	});
 }
@@ -428,16 +431,16 @@ export async function prepareReservedInstance(
 	return withInstanceLock(workspaceRoot, async (root) => {
 		const directory = join(root, project);
 		const path = join(directory, 'instance.json');
-		const record = await readRecord(directory, project);
+		const record = await readInstanceRecord(directory, project);
 		if (record.state !== 'planned')
 			throw new InstanceStoreError('Instance is not ready for preparation');
 		try {
 			await prepare(record, directory);
 			const ready: InstanceRecord = { ...record, state: 'ready' };
-			await writeRecord(path, ready);
+			await writeInstanceRecord(path, ready);
 			return ready;
 		} catch (cause) {
-			await writeRecord(path, { ...record, state: 'failed' });
+			await writeInstanceRecord(path, { ...record, state: 'failed' });
 			throw cause;
 		}
 	});

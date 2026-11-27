@@ -42,6 +42,13 @@ export function verifyInstanceConfig(
 		const actual = object(networks[key]);
 		if (actual.name !== expected.name || (expected.external === false && actual.external === true))
 			fail();
+		const networkLabels = object(actual.labels);
+		if (
+			networkLabels[INSTANCE_LABEL] !== plan.project ||
+			networkLabels[SLOT_LABEL] !== String(plan.slot) ||
+			networkLabels[VOLUME_IDENTITY_LABEL] !== identity
+		)
+			fail();
 		if (expected.ipam) {
 			const ipam = object(actual.ipam);
 			const replacement = object(expected.ipam);

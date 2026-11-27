@@ -49,7 +49,20 @@ export function composeInstanceOverrideYaml(
 			}
 		};
 	}
-	const sections = { services, networks: plan.override.networks, volumes: plan.override.volumes };
+	const networks = Object.fromEntries(
+		Object.entries(plan.override.networks).map(([name, fields]) => [
+			name,
+			{
+				...fields,
+				labels: {
+					[INSTANCE_LABEL]: plan.project,
+					[SLOT_LABEL]: String(plan.slot),
+					[VOLUME_IDENTITY_LABEL]: volumeIdentity
+				}
+			}
+		])
+	);
+	const sections = { services, networks, volumes: plan.override.volumes };
 	const lines = ['# Managed by DevHarbour. Do not edit.'];
 	for (const [group, resources] of Object.entries(sections)) {
 		if (!Object.keys(resources).length) continue;

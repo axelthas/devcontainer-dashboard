@@ -37,6 +37,7 @@ let instanceFiles;
 let instanceHostPath;
 let instanceVerify;
 let instancePrepare;
+let instanceRemoval;
 let runs;
 let inspectRoute;
 let instanceListRoute;
@@ -205,6 +206,15 @@ export default {
 		'../imageReference.js': './image.mjs',
 		'./composeRuns.js': './runs.mjs'
 	});
+	instanceRemoval = await sourceModule(
+		'src/lib/server/composeInstanceRemoval.ts',
+		'instance-removal.mjs',
+		{
+			'./composeInstanceOverride.js': './instance-override.mjs',
+			'./composeInstances.js': './instance-store.mjs',
+			'./composeRemoval.js': './removal.mjs'
+		}
+	);
 	const routeReplacements = {
 		'@sveltejs/kit': './boundaries.mjs',
 		'$lib/server/docker': './boundaries.mjs',
@@ -2061,4 +2071,43 @@ test('instance listing returns only safe summaries for the exact workspace selec
 	);
 	url.searchParams.append('profile', 'different');
 	assert.deepEqual((await (await instanceListRoute.GET({ url })).json()).instances, []);
+});
+
+test('prepared instance removal preview requires owned resources and includes its directory', async () => {
+	const input = await allocationFixture();
+	const { record } = await instanceStore.reserveInstance(input);
+	const docker = {
+		listContainers: async () => [],
+		listNetworks: async () => [],
+		listVolumes: async () => [],
+		inspectNetwork: async () => ({ Containers: {} }),
+		stopContainer: async () => {
+			throw new Error('preview must not stop');
+		},
+		removeContainer: async () => {
+			throw new Error('preview must not remove');
+		},
+		removeNetwork: async () => {
+			throw new Error('preview must not remove');
+		}
+	};
+	const preview = await instanceRemoval.previewInstanceRemoval(
+		docker,
+		input.workspaceRoot,
+		record.project
+	);
+	assert.equal(preview.project, record.project);
+	assert.deepEqual(preview.files, ['instance.json']);
+	assert.deepEqual(preview.containers, []);
+	assert.match(preview.token, /^[0-9a-f]{64}$/);
+	const wrong = { ...docker, listContainers: async () => [{ Id: 'wrong', Labels: {} }] };
+	await assert.rejects(
+		instanceRemoval.previewInstanceRemoval(wrong, input.workspaceRoot, record.project),
+		/do not belong/
+	);
+	await writeFile(join(preview.directory, 'unexpected'), 'keep');
+	await assert.rejects(
+		instanceRemoval.previewInstanceRemoval(docker, input.workspaceRoot, record.project),
+		/unexpected contents/
+	);
 });

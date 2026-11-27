@@ -35,7 +35,9 @@ export interface RemovalDocker {
 			Labels?: Record<string, string>;
 		}[]
 	>;
-	listNetworks(options: { filters: { label: string[] } }): Promise<{ Id: string; Name: string }[]>;
+	listNetworks(options: {
+		filters: { label: string[] };
+	}): Promise<{ Id: string; Name: string; Labels?: Record<string, string> }[]>;
 	inspectNetwork(id: string): Promise<{ Containers?: Record<string, { Name?: string }> }>;
 	listVolumes(options: { filters: { label: string[] } }): Promise<{ Name: string }[]>;
 	stopContainer(id: string, seconds: number): Promise<void>;
@@ -196,7 +198,9 @@ export async function removeSandbox(
 /** Adapt a dockerode client to the operations that removal needs. */
 export function removalDocker(docker: {
 	listContainers: RemovalDocker['listContainers'];
-	listNetworks(options: object): Promise<{ Id: string; Name: string }[]>;
+	listNetworks(
+		options: object
+	): Promise<{ Id: string; Name: string; Labels?: Record<string, string> }[]>;
 	listVolumes(options: object): Promise<{ Volumes?: { Name: string }[] | null }>;
 	getContainer(id: string): {
 		stop(options: { t: number }): Promise<unknown>;
