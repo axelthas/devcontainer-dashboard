@@ -1,3 +1,4 @@
+import type { ChoiceOutcome } from '../stackKinds/types.js';
 /**
  * Server-only orchestration for Compose instances: create, review a plan, resolve a run target,
  * and run declared kind actions. Every input is revalidated here; routes only map errors.
@@ -307,10 +308,7 @@ function actionServices(action: KindAction, source: ComposeInstanceSource): stri
 
 export type ActionResult = 'ok' | 'partial' | 'failed';
 const g = globalThis as typeof globalThis & {
-	__kindActionState?: Map<
-		string,
-		Record<string, { value: string; at: string; result: ActionResult }>
-	>;
+	__kindActionState?: Map<string, Record<string, ChoiceOutcome>>;
 };
 const actionState = (g.__kindActionState ??= new Map());
 
@@ -331,11 +329,7 @@ export async function runKindAction(input: {
 	action: unknown;
 	option: unknown;
 	confirmed: unknown;
-}): Promise<{
-	project: string;
-	result: ActionResult;
-	services: { service: string; result: 'ok' | 'failed' }[];
-}> {
+}): Promise<ChoiceOutcome & { project: string }> {
 	const source = await loadComposeInstanceSource(input.target);
 	if (
 		typeof input.action !== 'string' ||
@@ -397,14 +391,21 @@ export async function runKindAction(input: {
 		const passed = results.filter((item) => item.result === 'ok').length;
 		const result: ActionResult =
 			passed === results.length ? 'ok' : passed > 0 ? 'partial' : 'failed';
+		const outcome: ChoiceOutcome = {
+			value: input.option,
+			at: new Date().toISOString(),
+			result,
+			services: results,
+			readBackPassed: !!action.readBack && result === 'ok'
+		};
 		// A failed action never replaces the stored value.
 		if (result !== 'failed') {
 			actionState.set(project, {
 				...kindActionState(project),
-				[input.action]: { value: input.option, at: new Date().toISOString(), result }
+				[input.action]: outcome
 			});
 		}
-		return { project, result, services: results };
+		return { project, ...outcome };
 	} finally {
 		release();
 	}

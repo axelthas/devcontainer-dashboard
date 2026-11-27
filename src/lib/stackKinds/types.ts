@@ -15,5 +15,38 @@ export interface KindDescriptor {
 	services?: Record<string, { role?: ServiceRole; endpoints?: KindEndpoint[] }>;
 	defaultServices?: string[];
 	panels?: string[];
-	actions?: { id: string; label: string; options: string[]; confirm: string[] }[];
+	actions?: {
+		id: string;
+		label: string;
+		options: string[];
+		optionLabels?: Record<string, string>;
+		confirm: string[];
+	}[];
+}
+
+/** Show a descriptor label or turn the literal option ID into readable text. */
+export function choiceLabel(
+	action: NonNullable<KindDescriptor['actions']>[number],
+	option: string
+): string {
+	const label =
+		action.optionLabels && Object.hasOwn(action.optionLabels, option)
+			? action.optionLabels[option]
+			: undefined;
+	if (label) return label;
+	const prefix = `${action.id}-`;
+	const words = (
+		option.startsWith(prefix) && option.length > prefix.length
+			? option.slice(prefix.length)
+			: option
+	).replaceAll('-', ' ');
+	return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+export interface ChoiceOutcome {
+	value: string;
+	at: string;
+	result: 'ok' | 'partial' | 'failed';
+	readBackPassed?: boolean;
+	services?: { service: string; result: 'ok' | 'failed' }[];
 }

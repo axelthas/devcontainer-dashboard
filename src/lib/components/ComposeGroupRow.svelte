@@ -149,7 +149,8 @@
 			: 'bg-[#e5e9f0]/50 opacity-80 hover:bg-[#e5e9f0] dark:bg-[#2e3440]/30 dark:hover:bg-[#2e3440]/50'}"
 	>
 		<button
-			class="flex min-w-0 flex-grow cursor-pointer items-center gap-3 border-none bg-transparent p-0 text-left"
+			class="flex min-w-0 flex-grow cursor-pointer flex-wrap items-center gap-2 border-none bg-transparent p-0 text-left"
+			aria-expanded={expanded}
 			onclick={() => (expanded = !expanded)}
 		>
 			<!-- Expand/collapse icon -->
@@ -168,7 +169,7 @@
 
 			<!-- Project name -->
 			<h4
-				class="truncate text-sm font-bold
+				class="min-w-0 text-sm font-bold [overflow-wrap:anywhere]
 					{anyRunning ? 'text-[#2e3440] dark:text-[#eceff4]' : 'text-[#4c566a] dark:text-[#d8dee9]/70'}"
 			>
 				{projectName}
@@ -176,46 +177,7 @@
 
 			<SandboxVersionChip project={projectName} containers={versionContainers} />
 			<StackKindChips {containers} {view} />
-
-			<!-- Running count badge -->
-			<span
-				class="rounded-full px-2 py-0.5 text-xs font-medium
-					{anyRunning
-					? 'border border-[#a3be8c]/20 bg-[#a3be8c]/15 text-[#a3be8c]'
-					: 'border border-[#4c566a]/20 bg-[#4c566a]/10 text-[#4c566a] dark:text-[#d8dee9]/50'}"
-			>
-				{runningCount}/{totalCount} running
-			</span>
 		</button>
-
-		{#if exposedCount > 0}
-			<span
-				class="hidden shrink-0 items-center gap-1.5 rounded-full border border-[#b48ead]/40 bg-[#b48ead]/10 px-2 py-0.5 text-xs font-medium text-[#b48ead] sm:flex"
-				title={`${exposedCount} of ${totalCount} containers publish ports on all host interfaces`}
-			>
-				<Globe size={12} />
-				{exposedCount} on all interfaces
-			</span>
-		{/if}
-
-		{#if networks.length > 0}
-			<span
-				class="hidden shrink-0 items-center gap-1.5 text-xs text-[#4f8584] sm:flex dark:text-[#8fbcbb]"
-				title={networks.map((network) => network.name).join(', ')}
-			>
-				<Network size={14} />
-				{networks.length}
-				{networks.length === 1 ? 'network' : 'networks'}
-			</span>
-		{/if}
-
-		<!-- Presenter actions, for example declared modes -->
-		{#if presenter.Actions && view}
-			{@const Actions = presenter.Actions}
-			<div class="flex flex-wrap items-center gap-2">
-				<Actions {view} {containers} onChanged={() => void loadView(projectName)} />
-			</div>
-		{/if}
 
 		<!-- Group actions -->
 		<div
@@ -272,6 +234,47 @@
 			</button>
 		</div>
 	</div>
+
+	<div class="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 pb-3">
+		<!-- Running count badge -->
+		<span
+			class="rounded-full px-2 py-0.5 text-xs font-medium
+					{anyRunning
+				? 'border border-[#a3be8c]/20 bg-[#a3be8c]/15 text-[#a3be8c]'
+				: 'border border-[#4c566a]/20 bg-[#4c566a]/10 text-[#4c566a] dark:text-[#d8dee9]/50'}"
+		>
+			{runningCount}/{totalCount} running
+		</span>
+
+		{#if exposedCount > 0}
+			<span
+				class="inline-flex items-center gap-1.5 rounded-full border border-[#b48ead]/40 bg-[#b48ead]/10 px-2 py-0.5 text-xs font-medium text-[#b48ead]"
+				title={`${exposedCount} of ${totalCount} containers publish ports on all host interfaces`}
+			>
+				<Globe size={12} />
+				{exposedCount} on all interfaces
+			</span>
+		{/if}
+
+		{#if networks.length > 0}
+			<span
+				class="inline-flex items-center gap-1.5 text-xs text-[#4f8584] dark:text-[#8fbcbb]"
+				title={networks.map((network) => network.name).join(', ')}
+			>
+				<Network size={14} />
+				{networks.length}
+				{networks.length === 1 ? 'network' : 'networks'}
+			</span>
+		{/if}
+	</div>
+	{#if presenter.Actions && view?.kind.actions?.length}
+		{@const Actions = presenter.Actions}
+		<div class="border-t border-[#d8dee9]/70 px-5 py-3 dark:border-[#4c566a]/70">
+			{#key view.project}
+				<Actions {view} {containers} onChanged={() => void loadView(projectName)} />
+			{/key}
+		</div>
+	{/if}
 
 	{#if removing && view?.instance}
 		<InstanceRemoveDialog

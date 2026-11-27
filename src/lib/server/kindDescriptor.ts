@@ -20,6 +20,7 @@ export class KindDescriptorError extends Error {
 export interface KindAction {
 	label: string;
 	options: string[];
+	optionLabels?: Record<string, string>;
 	confirm: string[];
 	services: string[] | { exceptRole: ServiceRole };
 	argv: string[];
@@ -177,7 +178,20 @@ function action(value: unknown): KindAction {
 		'readBack'
 	]);
 	if (item.type !== 'choice') invalid();
-	const options = list(item.options, (value) => id(value), 32, 1);
+	const entries = list(
+		item.options,
+		(value) => {
+			if (typeof value === 'string') return { value: id(value), label: undefined };
+			const option = object(value, ['value', 'label']);
+			return { value: id(option.value), label: text(option.label) };
+		},
+		32,
+		1
+	);
+	const options = entries.map((entry) => entry.value);
+	const optionLabels = Object.fromEntries(
+		entries.flatMap((entry) => (entry.label === undefined ? [] : [[entry.value, entry.label]]))
+	);
 	const confirm = item.confirm === undefined ? [] : list(item.confirm, (value) => id(value), 32);
 	if (
 		new Set(options).size !== options.length ||
@@ -187,6 +201,7 @@ function action(value: unknown): KindAction {
 	return {
 		label: text(item.label),
 		options,
+		...(Object.keys(optionLabels).length ? { optionLabels } : {}),
 		confirm,
 		services: Array.isArray(item.services)
 			? services(item.services)
@@ -302,12 +317,15 @@ export function parseKindDescriptor(value: unknown): ValidatedKind {
 			...(panels ? { panels } : {}),
 			...(actions
 				? {
-						actions: Object.entries(actions).map(([id, { label, options, confirm }]) => ({
-							id,
-							label,
-							options,
-							confirm
-						}))
+						actions: Object.entries(actions).map(
+							([id, { label, options, optionLabels, confirm }]) => ({
+								id,
+								label,
+								options,
+								...(optionLabels ? { optionLabels } : {}),
+								confirm
+							})
+						)
 					}
 				: {})
 		},

@@ -5,14 +5,14 @@
  */
 import type { Component } from 'svelte';
 import type { ComposeInstanceData, ContainerData } from '$lib/types';
-import type { KindDescriptor, PresenterId } from '$lib/stackKinds/types';
+import type { ChoiceOutcome, KindDescriptor, PresenterId } from '$lib/stackKinds/types';
 
 /** Response of GET /api/compose/stack. */
 export interface StackView {
 	project: string;
 	kind: KindDescriptor;
 	instance?: Omit<ComposeInstanceData, 'overrideFile' | 'actions'>;
-	actionState: Record<string, { value: string; at: string; result: 'ok' | 'partial' | 'failed' }>;
+	actionState: Record<string, ChoiceOutcome>;
 	/** Selection fields that an action request repeats; absent when the source is unknown */
 	request?: {
 		repoPath: string;

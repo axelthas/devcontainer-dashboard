@@ -1417,6 +1417,18 @@ function profileDescriptor() {
 	};
 }
 
+test('choice labels preserve literal option IDs and reject duplicate IDs', () => {
+	const validate = kindDescriptor.parseKindDescriptor;
+	const descriptor = profileDescriptor();
+	descriptor.actions.mode.options = ['one', { value: 'two', label: 'Second mode' }];
+	const parsed = validate(descriptor);
+	assert.deepEqual(parsed.actions.mode.options, ['one', 'two']);
+	assert.deepEqual(parsed.view.actions[0].optionLabels, { two: 'Second mode' });
+	assert.deepEqual(parsed.view.actions[0].confirm, ['two']);
+	descriptor.actions.mode.options[1].value = 'one';
+	assert.throws(() => validate(descriptor), /Invalid DevHarbour kind descriptor/);
+});
+
 test('kind descriptors reject unknown fields, invalid paths, interpolation and oversized values', () => {
 	const validate = kindDescriptor.parseKindDescriptor;
 	const parsed = validate(profileDescriptor());
@@ -2156,11 +2168,19 @@ test('declared actions accept only known options and run argv from the declarati
 	state.configCalls.length = 0;
 	const result = await run({ action: 'mode', option: 'one' });
 	assert.equal(result.result, 'ok');
+	assert.equal(result.readBackPassed, true);
+	assert.ok(Number.isFinite(Date.parse(result.at)));
 	assert.deepEqual(result.services, [{ service: 'web', result: 'ok' }]);
 	const execs = state.configCalls.filter((call) => call.args.includes('exec'));
 	assert.deepEqual(execs[0].args.slice(-5), ['exec', '-T', 'web', 'fixture-command', 'one']);
 	assert.deepEqual(execs[1].args.slice(-4), ['exec', '-T', 'web', 'fixture-readback']);
 	assert.equal(instanceService.kindActionState('keflavik').mode.value, 'one');
+	const config = JSON.parse(state.configResult.stdout);
+	delete config['x-devharbour'].actions.mode.readBack;
+	state.configResult = { stdout: JSON.stringify(config), stderr: '' };
+	const unverified = await run({ action: 'mode', option: 'one' });
+	assert.equal(unverified.result, 'ok');
+	assert.equal(unverified.readBackPassed, false);
 });
 
 /** A Docker fake with one owned container, network and volume. */

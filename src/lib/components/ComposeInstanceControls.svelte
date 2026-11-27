@@ -8,7 +8,7 @@
 	import { onDestroy } from 'svelte';
 	import { errorMessage, latestRequest, requestJson } from '$lib/requests';
 	import { composeQuery, type ComposeSelection } from '$lib/composeCommands';
-	import type { KindDescriptor } from '$lib/stackKinds/types';
+	import { choiceLabel, type KindDescriptor } from '$lib/stackKinds/types';
 	import type { ComposeInstanceData, ComposeInstanceRemovalPreview } from '$lib/types';
 	import RequestError from './RequestError.svelte';
 
@@ -280,27 +280,26 @@
 			<span class="font-semibold text-[#4c566a] dark:text-[#d8dee9]/70">{action.label}</span>
 			{#each action.options as option (option)}
 				{@const confirm = action.confirm.includes(option)}
-				{@const current = actionValues[action.id]?.value === option}
 				<button
 					type="button"
-					aria-pressed={current}
+					aria-label={pendingConfirm?.action === action.id && pendingConfirm.option === option
+						? `Confirm ${choiceLabel(action, option)}`
+						: choiceLabel(action, option)}
 					onclick={() => void runAction(action.id, option, confirm)}
 					disabled={disabled ||
 						busy !== null ||
 						target?.state === 'removing' ||
 						(target !== null && target.state !== 'ready')}
-					class="rounded-lg border px-2 py-0.5 font-medium disabled:opacity-50 {current
-						? 'border-[#5e81ac] bg-[#5e81ac] text-white'
-						: 'border-[#d8dee9] text-[#2e3440] dark:border-[#4c566a] dark:text-[#d8dee9]'}"
+					class="rounded-lg border border-[#d8dee9] px-2 py-0.5 font-medium text-[#2e3440] disabled:opacity-50 dark:border-[#4c566a] dark:text-[#d8dee9]"
 				>
 					{pendingConfirm?.action === action.id && pendingConfirm.option === option
-						? `Confirm ${option}`
-						: option}
+						? `Confirm ${choiceLabel(action, option)}`
+						: choiceLabel(action, option)}
 				</button>
 			{/each}
 			{#if actionValues[action.id]}
 				<span class="text-[#4c566a] dark:text-[#d8dee9]/60"
-					>last: {actionValues[action.id].result}</span
+					>Last request: {actionValues[action.id].result}</span
 				>
 			{/if}
 		</div>
