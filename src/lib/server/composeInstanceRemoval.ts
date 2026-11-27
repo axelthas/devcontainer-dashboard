@@ -1,11 +1,17 @@
 /** Preview removal without trusting names or following instance-directory symlinks. */
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
-import { open, readdir } from 'node:fs/promises';
+import { open, readdir, rmdir, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { INSTANCE_LABEL, VOLUME_IDENTITY_LABEL } from './composeInstanceOverride.js';
-import type { SandboxRemovalPreview } from '../types.js';
-import { readInstanceRecord, withInstanceLock, type InstanceRecord } from './composeInstances.js';
+import type { RemovalResult, SandboxRemovalPreview } from '../types.js';
+import { reserveProjectRemoval } from './composeRuns.js';
+import {
+	readInstanceRecord,
+	withInstanceLock,
+	writeInstanceRecord,
+	type InstanceRecord
+} from './composeInstances.js';
 import {
 	previewSandboxRemoval,
 	RemovalNotFoundError,
@@ -144,4 +150,123 @@ export async function previewInstanceRemoval(
 ) {
 	if (!PROJECT.test(project)) throw new Error('Invalid instance project');
 	return withInstanceLock(workspaceRoot, (root) => previewLocked(docker, root, project));
+}
+
+/** Remove only known managed entries through opened directory handles; unknown entries fail closed. */
+async function removeDirectory(root: string, project: string): Promise<void> {
+	const rootDir = await open(
+		root,
+		constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW
+	);
+	try {
+		const parent = `/proc/self/fd/${rootDir.fd}`;
+		const dir = await open(
+			join(parent, project),
+			constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW
+		);
+		try {
+			const target = `/proc/self/fd/${dir.fd}`;
+			const names = await readdir(target);
+			if (names.includes('files')) {
+				const sub = await open(
+					join(target, 'files'),
+					constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW
+				);
+				try {
+					const files = `/proc/self/fd/${sub.fd}`;
+					for (const name of await readdir(files)) {
+						if (!FILE_ID.test(name)) throw new Error('Instance directory has unexpected contents');
+						await unlink(join(files, name));
+					}
+				} finally {
+					await sub.close();
+				}
+				await rmdir(join(target, 'files'));
+			}
+			if (names.includes('override.yaml')) await unlink(join(target, 'override.yaml'));
+			// The record goes last, so an interrupted removal still blocks slot reuse.
+			await unlink(join(target, 'instance.json'));
+		} finally {
+			await dir.close();
+		}
+		await rmdir(join(parent, project));
+	} finally {
+		await rootDir.close();
+	}
+}
+
+/** Apply a fresh preview. Volumes stay. A partial result keeps the record and the slot. */
+export async function removeManagedInstance(
+	docker: RemovalDocker,
+	workspaceRoot: string,
+	project: string,
+	token: unknown
+): Promise<{ results: RemovalResult[]; released: boolean }> {
+	if (!PROJECT.test(project) || typeof token !== 'string' || !/^[a-f0-9]{64}$/.test(token))
+		throw new Error('Invalid instance removal request');
+	const release = reserveProjectRemoval(project);
+	try {
+		return await withInstanceLock(workspaceRoot, async (root) => {
+			const preview = await previewLocked(docker, root, project);
+			if (preview.token !== token)
+				throw new Error('The instance changed after the preview. Review it again.');
+			const directory = join(root, project);
+			const record: InstanceRecord = {
+				...(await readInstanceRecord(directory, project)),
+				state: 'removing'
+			};
+			await writeInstanceRecord(join(directory, 'instance.json'), record);
+			const results: RemovalResult[] = [];
+			for (const container of preview.containers) {
+				try {
+					if (container.state === 'running' || container.state === 'paused')
+						await docker.stopContainer(container.id, 10).catch(() => {});
+					await docker.removeContainer(container.id);
+					results.push({ kind: 'container', name: container.name, result: 'removed' });
+				} catch {
+					results.push({
+						kind: 'container',
+						name: container.name,
+						result: 'failed',
+						reason: 'Docker refused removal'
+					});
+				}
+			}
+			for (const network of preview.networks) {
+				if (network.attached.length > 0) {
+					results.push({
+						kind: 'network',
+						name: network.name,
+						result: 'kept',
+						reason: `${network.attached.join(', ')} attached`
+					});
+					continue;
+				}
+				try {
+					await docker.removeNetwork(network.id);
+					results.push({ kind: 'network', name: network.name, result: 'removed' });
+				} catch {
+					results.push({
+						kind: 'network',
+						name: network.name,
+						result: 'failed',
+						reason: 'Docker refused removal'
+					});
+				}
+			}
+			for (const volume of preview.volumes)
+				results.push({ kind: 'volume', name: volume, result: 'kept', reason: 'volumes are kept' });
+			// A kept or failed network still holds the subnet: keep the record and the slot.
+			if (
+				results.some(
+					(item) => item.result === 'failed' || (item.kind === 'network' && item.result === 'kept')
+				)
+			)
+				return { results, released: false };
+			await removeDirectory(root, project);
+			return { results, released: true };
+		});
+	} finally {
+		release();
+	}
 }

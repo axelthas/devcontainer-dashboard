@@ -1,8 +1,16 @@
-/** List reservations for a validated Compose selection without exposing instance records. */
+/** List, create, and review instances of one validated Compose selection. Responses hold summaries only. */
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import docker from '$lib/server/docker';
 import { resolveComposeTarget, ComposeTargetError } from '$lib/server/composeSandbox';
 import { listInstanceRecords } from '$lib/server/composeInstances';
+import {
+	createInstance,
+	instanceHttpStatus,
+	instanceSummary,
+	kindActionState,
+	reviewInstancePlan
+} from '$lib/server/composeInstanceService';
 
 const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT ?? '/workspaces';
 
@@ -32,16 +40,37 @@ export const GET: RequestHandler = async ({ url }) => {
 					item.canonicalRepoPath === target.canonicalRepoPath &&
 					sameSelection(item.selection, target.selection)
 			)
-			.map(({ project, slot, state, subnets, createdAt }) => ({
-				project,
-				slot,
-				state,
-				subnets,
-				createdAt
-			}));
+			.map((item) => ({ ...instanceSummary(item), actions: kindActionState(item.project) }));
 		return json({ instances }, { headers: { 'cache-control': 'no-store' } });
 	} catch (cause) {
 		if (cause instanceof ComposeTargetError) throw error(400, cause.message);
 		throw error(503, 'Could not read instance reservations');
+	}
+};
+
+export const POST: RequestHandler = async ({ request }) => {
+	const body = await request.json().catch(() => null);
+	if (!body || typeof body !== 'object') throw error(400, 'Invalid JSON body');
+	const { repoPath, files, envFile, profiles, tag, operation, project } = body as Record<
+		string,
+		unknown
+	>;
+	if (operation !== 'create' && operation !== 'review') throw error(400, 'Unsupported operation');
+	try {
+		const target = await resolveComposeTarget(WORKSPACE_ROOT, {
+			repoPath,
+			files,
+			envFile,
+			profiles,
+			tag
+		});
+		const result =
+			operation === 'create'
+				? await createInstance(docker as never, WORKSPACE_ROOT, target)
+				: await reviewInstancePlan(docker as never, WORKSPACE_ROOT, target, String(project ?? ''));
+		return json(result);
+	} catch (cause) {
+		const mapped = instanceHttpStatus(cause);
+		throw error(mapped.status, mapped.message);
 	}
 };

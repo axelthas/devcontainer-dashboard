@@ -132,7 +132,7 @@ export async function withInstanceLock<T>(
 }
 
 /** Write a bounded private record using a unique file and an atomic rename. */
-async function writeInstanceRecord(path: string, value: InstanceRecord): Promise<void> {
+export async function writeInstanceRecord(path: string, value: InstanceRecord): Promise<void> {
 	const data = JSON.stringify(value, null, 2) + '\n';
 	if (Buffer.byteLength(data) > MAX_RECORD_BYTES) invalidRecord();
 	const temporary = join(dirname(path), `.instance-${randomUUID()}.tmp`);
@@ -443,5 +443,73 @@ export async function prepareReservedInstance(
 			await writeInstanceRecord(path, { ...record, state: 'failed' });
 			throw cause;
 		}
+	});
+}
+
+/** Read one record under the lock. */
+export async function findInstanceRecord(
+	workspaceRoot: string,
+	project: string
+): Promise<InstanceRecord> {
+	if (!PROJECT.test(project)) throw new InstanceStoreError('Invalid instance project');
+	return withInstanceLock(workspaceRoot, (root) =>
+		readInstanceRecord(join(root, project), project)
+	);
+}
+
+export interface ReplanInstanceInput {
+	workspaceRoot: string;
+	project: string;
+	resolvedConfig: unknown;
+	pool?: InstancePool;
+	policy?: KindInstanceConfig;
+	kind: KindDescriptor;
+	getOccupancy: () => Promise<DockerOccupancy>;
+}
+
+/** Recompute a drifted plan on the same slot and volume identity; the result must be prepared again. */
+export async function replanInstance(
+	input: ReplanInstanceInput
+): Promise<{ record: InstanceRecord; plan: ComposeInstancePlan }> {
+	if (!PROJECT.test(input.project)) throw new InstanceStoreError('Invalid instance project');
+	return withInstanceLock(input.workspaceRoot, async (root) => {
+		const directory = join(root, input.project);
+		const record = await readInstanceRecord(directory, input.project);
+		if (record.state !== 'ready' && record.state !== 'failed')
+			throw new InstanceStoreError('Only a ready or failed instance can be planned again');
+		const others = (await recordsInRoot(root)).filter((item) => item.project !== record.project);
+		const occupancy = validateOccupancy(await input.getOccupancy());
+		const own = new Set(record.subnets);
+		const plan = planComposeInstance(
+			input.resolvedConfig,
+			record.slot,
+			{
+				...input.pool,
+				volumeIdentity: record.volumeIdentity,
+				occupiedSubnets: [
+					...(input.pool?.occupiedSubnets ?? []),
+					...occupancy.subnets.filter((item) => !own.has(item)),
+					...others.flatMap((item) => item.subnets)
+				],
+				occupiedProjects: [
+					...(input.pool?.occupiedProjects ?? []),
+					...others.map((item) => item.project)
+				]
+			},
+			input.policy
+		);
+		if (plan.project !== record.project)
+			throw new InstanceStoreError('The Compose project name changed; create a new instance');
+		const updated: InstanceRecord = {
+			...record,
+			state: 'planned',
+			sourceDigest: instanceDigest(input.resolvedConfig),
+			planDigest: instanceDigest(plan),
+			policyDigest: instanceDigest(input.policy ?? null),
+			kindDigest: instanceDigest(input.kind),
+			subnets: plan.addressPlan.subnets.map((item) => item.to)
+		};
+		await writeInstanceRecord(join(directory, 'instance.json'), updated);
+		return { record: updated, plan };
 	});
 }

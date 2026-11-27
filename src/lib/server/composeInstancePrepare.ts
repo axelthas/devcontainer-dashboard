@@ -29,13 +29,16 @@ export interface PrepareInstanceInput {
 	getOccupancy: () => Promise<DockerOccupancy>;
 	hostPath: (path: string) => Promise<string | undefined>;
 	checkConfig: (record: InstanceRecord, overridePath: string) => Promise<unknown>;
+	/** Set by re-plan: the same instance generation may keep its project, volumes and previous subnets. */
+	owned?: { subnets: string[] };
 }
 
 /** A new resource appearing after reservation must never be silently adopted. */
 function checkLiveResources(
 	record: InstanceRecord,
 	plan: ComposeInstancePlan,
-	snapshot: DockerOccupancy
+	snapshot: DockerOccupancy,
+	owned?: { subnets: string[] }
 ): void {
 	if (
 		!snapshot ||
@@ -44,17 +47,18 @@ function checkLiveResources(
 		!Array.isArray(snapshot.volumeNames)
 	)
 		throw new Error('Docker resource snapshot is incomplete');
-	if (snapshot.projects.includes(record.project))
+	if (!owned && snapshot.projects.includes(record.project))
 		throw new Error('Instance project is already in use');
 	const planned = record.subnets.map((value) => ipv4Range(value));
 	for (const network of snapshot.subnets) {
 		if (typeof network !== 'string') throw new Error('Docker resource snapshot is incomplete');
-		if (network.includes(':')) continue;
+		if (network.includes(':') || owned?.subnets.includes(network)) continue;
 		const range = ipv4Range(network);
 		if (!range || planned.some((item) => !item || overlaps(item, range)))
 			throw new Error('Instance subnet is already in use');
 	}
 	if (
+		!owned &&
 		Object.values(plan.override.volumes).some(
 			(item) => typeof item.name !== 'string' || snapshot.volumeNames.includes(item.name)
 		)
@@ -74,7 +78,7 @@ export async function prepareInstance(input: PrepareInstanceInput): Promise<Inst
 			instanceDigest(await input.getSourceConfig()) !== record.sourceDigest
 		)
 			throw new Error('The Compose source or instance plan changed; review the plan again');
-		checkLiveResources(record, input.plan, await input.getOccupancy());
+		checkLiveResources(record, input.plan, await input.getOccupancy(), input.owned);
 		const mounts = input.policy?.files?.length
 			? await renderInstanceFiles({
 					canonicalRepoPath: record.canonicalRepoPath,

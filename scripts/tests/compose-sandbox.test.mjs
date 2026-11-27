@@ -38,6 +38,7 @@ let instanceHostPath;
 let instanceVerify;
 let instancePrepare;
 let instanceRemoval;
+let instanceService;
 let runs;
 let inspectRoute;
 let instanceListRoute;
@@ -212,7 +213,23 @@ export default {
 		{
 			'./composeInstanceOverride.js': './instance-override.mjs',
 			'./composeInstances.js': './instance-store.mjs',
-			'./composeRemoval.js': './removal.mjs'
+			'./composeRemoval.js': './removal.mjs',
+			'./composeRuns.js': './runs.mjs'
+		}
+	);
+	instanceService = await sourceModule(
+		'src/lib/server/composeInstanceService.ts',
+		'instance-service.mjs',
+		{
+			'node:child_process': './boundaries.mjs',
+			'../composeCommands.js': './commands.mjs',
+			'./composeInstanceOccupancy.js': './instance-occupancy.mjs',
+			'./composeInstanceHostPath.js': './instance-hostpath.mjs',
+			'./composeInstanceOverride.js': './instance-override.mjs',
+			'./composeInstancePrepare.js': './instance-prepare.mjs',
+			'./composeInstances.js': './instance-store.mjs',
+			'./composeRuns.js': './runs.mjs',
+			'./composeSandbox.js': './sandbox.mjs'
 		}
 	);
 	const routeReplacements = {
@@ -227,7 +244,9 @@ export default {
 		{
 			'@sveltejs/kit': './boundaries.mjs',
 			'$lib/server/composeSandbox': './sandbox.mjs',
-			'$lib/server/composeInstances': './instance-store.mjs'
+			'$lib/server/composeInstances': './instance-store.mjs',
+			'$lib/server/docker': './boundaries.mjs',
+			'$lib/server/composeInstanceService': './instance-service.mjs'
 		}
 	);
 	inspectRoute = await sourceModule(
@@ -238,7 +257,8 @@ export default {
 	runRoute = await sourceModule('src/routes/api/compose/run/+server.ts', 'run-route.mjs', {
 		...routeReplacements,
 		'$lib/composeCommands': './commands.mjs',
-		'$lib/server/composeRuns': './runs.mjs'
+		'$lib/server/composeRuns': './runs.mjs',
+		'$lib/server/composeInstanceService': './instance-service.mjs'
 	});
 	tagsRoute = await sourceModule('src/routes/api/compose/tags/+server.ts', 'tags-route.mjs', {
 		'@sveltejs/kit': './boundaries.mjs',
@@ -2110,4 +2130,162 @@ test('prepared instance removal preview requires owned resources and includes it
 		instanceRemoval.previewInstanceRemoval(docker, input.workspaceRoot, record.project),
 		/unexpected contents/
 	);
+});
+
+/** Resolved config with one web service and the profile declaration. */
+function actionConfig() {
+	return {
+		stdout: JSON.stringify({
+			name: 'keflavik',
+			services: { web: { image: 'nginx', networks: { default: null } } },
+			networks: { default: { name: 'keflavik_default', ipam: {} } },
+			'x-devharbour': profileDescriptor()
+		}),
+		stderr: ''
+	};
+}
+
+test('declared actions accept only known options and run argv from the declaration', async () => {
+	const target = await sandbox.resolveComposeTarget(root, input());
+	state.configResult = actionConfig();
+	const run = (fields) =>
+		instanceService.runKindAction({ client: {}, workspaceRoot: root, target, ...fields });
+	await assert.rejects(run({ action: 'other', option: 'one' }), { status: 400 });
+	await assert.rejects(run({ action: 'mode', option: 'rm -rf' }), { status: 400 });
+	await assert.rejects(run({ action: 'mode', option: 'two' }), { status: 409 });
+	state.configCalls.length = 0;
+	const result = await run({ action: 'mode', option: 'one' });
+	assert.equal(result.result, 'ok');
+	assert.deepEqual(result.services, [{ service: 'web', result: 'ok' }]);
+	const execs = state.configCalls.filter((call) => call.args.includes('exec'));
+	assert.deepEqual(execs[0].args.slice(-5), ['exec', '-T', 'web', 'fixture-command', 'one']);
+	assert.deepEqual(execs[1].args.slice(-4), ['exec', '-T', 'web', 'fixture-readback']);
+	assert.equal(instanceService.kindActionState('keflavik').mode.value, 'one');
+});
+
+/** A Docker fake with one owned container, network and volume. */
+function ownedDocker(record, attached = {}) {
+	const labels = {
+		'devcontainer-dashboard.instance': record.project,
+		'devcontainer-dashboard.volume-identity': record.volumeIdentity,
+		'com.docker.compose.project': record.project,
+		'com.docker.compose.service': 'web'
+	};
+	const calls = [];
+	const world = {
+		containers: [
+			{
+				Id: 'c1'.padEnd(64, '0'),
+				Names: [`/${record.project}-web-1`],
+				State: 'running',
+				Image: 'nginx',
+				Labels: labels
+			}
+		],
+		networks: [{ Id: 'n1', Name: `${record.project}_demo`, Labels: labels }]
+	};
+	return {
+		calls,
+		client: {
+			listContainers: async () => world.containers,
+			listNetworks: async () => world.networks,
+			inspectNetwork: async () => ({ Containers: attached }),
+			listVolumes: async () => [{ Name: `devharbour_${record.volumeIdentity}_data` }],
+			stopContainer: async (id) => calls.push(['stop', id]),
+			removeContainer: async (id) => {
+				calls.push(['removeContainer', id]);
+				world.containers = [];
+			},
+			removeNetwork: async (id) => {
+				calls.push(['removeNetwork', id]);
+				world.networks = [];
+			}
+		}
+	};
+}
+
+test('instance removal keeps volumes and releases the slot only after full success', async () => {
+	const input = await allocationFixture();
+	const { record } = await instanceStore.reserveInstance(input);
+	const { calls, client } = ownedDocker(record);
+	const preview = await instanceRemoval.previewInstanceRemoval(
+		client,
+		input.workspaceRoot,
+		record.project
+	);
+	await assert.rejects(
+		instanceRemoval.removeManagedInstance(
+			client,
+			input.workspaceRoot,
+			record.project,
+			'f'.repeat(64)
+		),
+		/changed after the preview/
+	);
+	assert.equal(calls.length, 0);
+	const removed = await instanceRemoval.removeManagedInstance(
+		client,
+		input.workspaceRoot,
+		record.project,
+		preview.token
+	);
+	assert.equal(removed.released, true);
+	assert.deepEqual(
+		removed.results.map((item) => [item.kind, item.result]),
+		[
+			['container', 'removed'],
+			['network', 'removed'],
+			['volume', 'kept']
+		]
+	);
+	assert.ok(!calls.some(([name]) => /volume/i.test(name)));
+	assert.deepEqual(await instanceStore.listInstanceRecords(input.workspaceRoot), []);
+});
+
+test('a kept network holds the record and the slot', async () => {
+	const input = await allocationFixture();
+	const { record } = await instanceStore.reserveInstance(input);
+	const { client } = ownedDocker(record, { other: { Name: 'outside' } });
+	const preview = await instanceRemoval.previewInstanceRemoval(
+		client,
+		input.workspaceRoot,
+		record.project
+	);
+	const result = await instanceRemoval.removeManagedInstance(
+		client,
+		input.workspaceRoot,
+		record.project,
+		preview.token
+	);
+	assert.equal(result.released, false);
+	const [kept] = await instanceStore.listInstanceRecords(input.workspaceRoot);
+	assert.equal(kept.state, 'removing');
+	assert.equal(kept.slot, record.slot);
+});
+
+test('run route refuses unknown and drifted instances before any process starts', async () => {
+	state.configResult = { stdout: resolvedConfig(), stderr: '' };
+	await assert.rejects(
+		runRoute.POST(
+			postEvent({ ...input(), repoName: 'solution', action: 'up', instance: 'keflavik-i99' })
+		),
+		{ status: 404 }
+	);
+	const target = await sandbox.resolveComposeTarget(root, input());
+	const { record } = await instanceStore.reserveInstance({
+		workspaceRoot: root,
+		canonicalRepoPath: target.canonicalRepoPath,
+		selection: target.selection,
+		resolvedConfig: instanceFixture(),
+		kind: { kind: 'generic', presenter: 'generic', source: 'default' },
+		pool: { minSlot: 30, maxSlot: 40 },
+		getOccupancy: async () => ({ subnets: [], projects: [], volumeNames: [] })
+	});
+	await assert.rejects(
+		runRoute.POST(
+			postEvent({ ...input(), repoName: 'solution', action: 'up', instance: record.project })
+		),
+		{ status: 409 }
+	);
+	assert.equal(state.spawns.length, 0);
 });

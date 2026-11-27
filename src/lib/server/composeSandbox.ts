@@ -33,7 +33,8 @@ import {
 	readKindProfile,
 	resolveComposeKind
 } from './composeKinds.js';
-import { KindDescriptorError } from './kindDescriptor.js';
+import { KindDescriptorError, type ValidatedKind } from './kindDescriptor.js';
+import type { KindDescriptor } from '../stackKinds/types.js';
 import type {
 	ComposeInspection,
 	ComposeNetworkSummary,
@@ -698,5 +699,63 @@ export async function inspectComposeTarget(
 		selection: target.selection,
 		warnings,
 		...stack
+	};
+}
+
+/** Server-only source for instance operations: resolved config and the validated declaration. */
+export interface ComposeInstanceSource {
+	raw: unknown;
+	projectName: string;
+	services: string[];
+	kind: KindDescriptor;
+	declaration?: ValidatedKind;
+	overrideFile?: string;
+}
+
+/** Resolve the selection without live-stack classification. Never return `raw` to a client. */
+export async function loadComposeInstanceSource(
+	target: ComposeTarget,
+	run: ConfigRunner = runComposeConfig,
+	options: InspectOptions = {}
+): Promise<ComposeInstanceSource> {
+	const output = await run(target);
+	let raw: unknown;
+	try {
+		raw = JSON.parse(output.stdout);
+	} catch {
+		throw new ComposeConfigError('Compose returned unreadable configuration output');
+	}
+	const summary = summarizeComposeConfig(raw);
+	const tag = target.selection.tag;
+	let overrideFile: string | undefined;
+	if (tag) {
+		overrideFile = composeOverridePath(target, summary.projectName, options.overrideDirectory);
+		await (options.writeOverride ?? writeComposeOverride)(
+			overrideFile,
+			composeOverrideYaml(summary.services, tag)
+		);
+	}
+	const kind = await resolveComposeKind({
+		extension: composeKindExtension(raw),
+		literalExtension: async () =>
+			composeKindExtension(JSON.parse((await run(target, 'literal-kind')).stdout)),
+		operatorProfile: () =>
+			readKindProfile(
+				kindProfilePath(
+					target.canonicalRepoPath,
+					target.selection.files,
+					options.kindProfileDirectory
+				)
+			),
+		labels: [],
+		services: summary.services
+	});
+	return {
+		raw,
+		projectName: summary.projectName,
+		services: summary.services.map((service) => service.name),
+		kind: kind.view,
+		...(kind.declaration ? { declaration: kind.declaration } : {}),
+		...(overrideFile ? { overrideFile } : {})
 	};
 }
