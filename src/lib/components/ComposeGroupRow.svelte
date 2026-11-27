@@ -19,6 +19,7 @@
 	import ComposeNetworks from './ComposeNetworks.svelte';
 	import SandboxVersionChip from './SandboxVersionChip.svelte';
 	import StackKindChips from './stack/StackKindChips.svelte';
+	import ProfileGroups from './stack/ProfileGroups.svelte';
 	import InstanceRemoveDialog from './stack/InstanceRemoveDialog.svelte';
 	import { presenterFor, stackPresentation } from './stack/presenters';
 	import type { StackView } from './stack/types';
@@ -57,6 +58,7 @@
 		onConnectNetwork
 	}: Props = $props();
 
+	let showNetworks = $state(false);
 	let expanded = $state(false);
 	/** Presenter data for this project; null until loaded or when DevHarbour does not know the source. */
 	let view = $state<StackView | null>(null);
@@ -137,6 +139,24 @@
 		}
 	}
 </script>
+
+{#snippet containerRow(container: ContainerData)}
+	<div>
+		<SandboxRow
+			{container}
+			{vscodeSshHost}
+			{serviceProxyEnabled}
+			{servicePorts}
+			{serviceAccess}
+			{onRefresh}
+			{onOpenTerminal}
+		/>
+		{#if presenter.Row && view}
+			{@const Row = presenter.Row}
+			<Row {view} {container} />
+		{/if}
+	</div>
+{/snippet}
 
 <div>
 	{#if actionSummary}<p role="status" class="px-5 text-xs">{actionSummary}</p>{/if}
@@ -257,14 +277,27 @@
 		{/if}
 
 		{#if networks.length > 0}
-			<span
-				class="inline-flex items-center gap-1.5 text-xs text-[#4f8584] dark:text-[#8fbcbb]"
-				title={networks.map((network) => network.name).join(', ')}
-			>
-				<Network size={14} />
-				{networks.length}
-				{networks.length === 1 ? 'network' : 'networks'}
-			</span>
+			{#if presenter.id === 'profile' && onConnectNetwork}
+				<button
+					type="button"
+					aria-expanded={showNetworks}
+					onclick={() => (showNetworks = !showNetworks)}
+					class="inline-flex items-center gap-1.5 rounded px-1 text-xs text-[#4f8584] hover:underline dark:text-[#8fbcbb]"
+				>
+					<Network size={14} />
+					{networks.length}
+					{networks.length === 1 ? 'network' : 'networks'}
+				</button>
+			{:else}
+				<span
+					class="inline-flex items-center gap-1.5 text-xs text-[#4f8584] dark:text-[#8fbcbb]"
+					title={networks.map((network) => network.name).join(', ')}
+				>
+					<Network size={14} />
+					{networks.length}
+					{networks.length === 1 ? 'network' : 'networks'}
+				</span>
+			{/if}
 		{/if}
 	</div>
 	{#if presenter.Actions && view?.kind.actions?.length}
@@ -290,10 +323,14 @@
 		/>
 	{/if}
 
+	{#if presenter.id === 'profile' && showNetworks && networks.length > 0 && onConnectNetwork}
+		<ComposeNetworks {projectName} {networks} {devcontainers} {onConnectNetwork} />
+	{/if}
+
 	<!-- Expanded container list -->
 	{#if expanded}
 		<div class="bg-[#f0f4f8] dark:bg-[#2e3440]">
-			{#if networks.length > 0 && onConnectNetwork}
+			{#if presenter.id !== 'profile' && networks.length > 0 && onConnectNetwork}
 				<ComposeNetworks {projectName} {networks} {devcontainers} {onConnectNetwork} />
 			{/if}
 			{#if view}
@@ -301,25 +338,15 @@
 					<Panel {view} {containers} onChanged={() => void loadView(projectName)} />
 				{/each}
 			{/if}
-			<div class="divide-y divide-[#d8dee9]/60 dark:divide-[#4c566a]/60">
-				{#each containers as container (container.id)}
-					<div>
-						<SandboxRow
-							{container}
-							{vscodeSshHost}
-							{serviceProxyEnabled}
-							{servicePorts}
-							{serviceAccess}
-							{onRefresh}
-							{onOpenTerminal}
-						/>
-						{#if presenter.Row && view}
-							{@const Row = presenter.Row}
-							<Row {view} {container} />
-						{/if}
-					</div>
-				{/each}
-			</div>
+			{#if presenter.id === 'profile' && view}
+				<ProfileGroups {view} {containers} row={containerRow} />
+			{:else}
+				<div class="divide-y divide-[#d8dee9]/60 dark:divide-[#4c566a]/60">
+					{#each containers as container (container.id)}
+						{@render containerRow(container)}
+					{/each}
+				</div>
+			{/if}
 		</div>
 	{/if}
 </div>

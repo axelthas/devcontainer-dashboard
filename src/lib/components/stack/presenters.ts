@@ -6,6 +6,7 @@
 import type { ContainerData } from '$lib/types';
 import type { PresenterId } from '$lib/stackKinds/types';
 import ChoiceActions from './ChoiceActions.svelte';
+import AddressPanel from './AddressPanel.svelte';
 import EndpointChips from './EndpointChips.svelte';
 import type { StackPresenter } from './types';
 
@@ -13,7 +14,13 @@ const PRESENTERS: Record<PresenterId, StackPresenter> = {
 	generic: { id: 'generic', label: '', panels: [] },
 	web: { id: 'web', label: 'web stack', Row: EndpointChips, panels: [] },
 	database: { id: 'database', label: 'database stack', panels: [] },
-	profile: { id: 'profile', label: '', Actions: ChoiceActions, Row: EndpointChips, panels: [] }
+	profile: {
+		id: 'profile',
+		label: '',
+		Actions: ChoiceActions,
+		Row: EndpointChips,
+		panels: [AddressPanel]
+	}
 };
 
 /** Resolve a presenter id; anything unknown is generic. */

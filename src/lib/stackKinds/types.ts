@@ -7,6 +7,8 @@ export type KindEndpoint = {
 	label: string;
 	protocol: 'http' | 'https' | 'tcp' | 'udp';
 };
+export type KindGroups = Record<string, string[] | { role: ServiceRole }>;
+
 export interface KindDescriptor {
 	kind: string;
 	presenter: PresenterId;
@@ -15,6 +17,7 @@ export interface KindDescriptor {
 	services?: Record<string, { role?: ServiceRole; endpoints?: KindEndpoint[] }>;
 	defaultServices?: string[];
 	panels?: string[];
+	groups?: KindGroups;
 	actions?: {
 		id: string;
 		label: string;

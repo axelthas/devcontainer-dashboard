@@ -1429,6 +1429,15 @@ test('choice labels preserve literal option IDs and reject duplicate IDs', () =>
 	assert.throws(() => validate(descriptor), /Invalid DevHarbour kind descriptor/);
 });
 
+test('profiles can group declared services by name or role', () => {
+	const validate = kindDescriptor.parseKindDescriptor;
+	const descriptor = profileDescriptor();
+	descriptor.groups = { FDP: ['fdp-a', 'fdp-b'], Support: { role: 'support' } };
+	assert.deepEqual(validate(descriptor).view.groups, descriptor.groups);
+	descriptor.groups.Support.role = 'unknown';
+	assert.throws(() => validate(descriptor), /Invalid DevHarbour kind descriptor/);
+});
+
 test('kind descriptors reject unknown fields, invalid paths, interpolation and oversized values', () => {
 	const validate = kindDescriptor.parseKindDescriptor;
 	const parsed = validate(profileDescriptor());

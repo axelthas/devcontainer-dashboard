@@ -280,11 +280,21 @@ export function parseKindDescriptor(value: unknown): ValidatedKind {
 		'defaults',
 		'instances',
 		'actions',
-		'panels'
+		'panels',
+		'groups'
 	]);
 	if (item.schema !== 1) invalid();
 	const actions =
 		item.actions === undefined ? undefined : map(item.actions, (key) => id(key), action);
+	const groups =
+		item.groups === undefined
+			? undefined
+			: map(
+					item.groups,
+					(key) => id(key, KEY),
+					(value) =>
+						Array.isArray(value) ? services(value) : { role: role(object(value, ['role']).role) }
+				);
 	const panels =
 		item.panels === undefined
 			? undefined
@@ -315,6 +325,7 @@ export function parseKindDescriptor(value: unknown): ValidatedKind {
 				? { defaultServices: services(object(item.defaults, ['services']).services) }
 				: {}),
 			...(panels ? { panels } : {}),
+			...(groups ? { groups } : {}),
 			...(actions
 				? {
 						actions: Object.entries(actions).map(
