@@ -3,7 +3,7 @@
 - Issue: [#77](https://github.com/axelthas/devharbour/issues/77)
 - Baseline: `2c567eb7b882059214d3d7b4de83637559cd808a` (`main`). Source is unchanged since the design review at
   8df870c; only documentation changed.
-- Status: In progress. Steps 0–9 implemented; UI review pending (step 9 stop). Step 10 waits for the review.
+- Status: In progress. Steps 0–9 implemented, including the presenter split. Step 10 in progress.
 - References:
   [Compose instances (proposed)](../specification/feature_compose_instances/feature_specification_compose_instances.md),
   [Compose sandboxes](../specification/feature_compose_sandbox/feature_specification_compose_sandbox.md),
@@ -174,9 +174,12 @@ until those paths are implemented and tested.
 - The Sandbox panel has Target, New instance, Review plan, Remove instance and
   declared choice actions. The original sandbox keeps the baseline behavior.
 - Docker Services shows the kind and the instance slot from container labels.
-  The full Header, Row, Actions and Panels split of `ComposeGroupRow.svelte` is
-  not done: the generic group renders every kind. Decide at the review whether
-  that split is needed before release.
+- `ComposeGroupRow.svelte` is the shared shell. It reads `/api/compose/stack`
+  and renders the presenter's Actions in the header, its Panels and its
+  per-container Row in the expanded list. The `generic` presenter adds nothing,
+  so the group renders as on the baseline. `profile` adds choice actions and an
+  addresses panel; `web` and `database` add endpoint chips. An instance project
+  opens the instance Remove dialog instead of the sandbox Remove dialog.
 - The address pool comes from `DEVHARBOUR_INSTANCE_POOL` and
   `DEVHARBOUR_INSTANCE_RESERVED`. Settings integration is open.
 - Declared action results are kept in process memory only.

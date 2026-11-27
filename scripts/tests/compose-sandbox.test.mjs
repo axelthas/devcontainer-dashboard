@@ -2289,3 +2289,31 @@ test('run route refuses unknown and drifted instances before any process starts'
 	);
 	assert.equal(state.spawns.length, 0);
 });
+
+test('stack description gives presenter data without execution details', async () => {
+	state.configResult = actionConfig();
+	const target = await sandbox.resolveComposeTarget(root, input());
+	const { record } = await instanceStore.reserveInstance({
+		workspaceRoot: root,
+		canonicalRepoPath: target.canonicalRepoPath,
+		selection: target.selection,
+		resolvedConfig: JSON.parse(actionConfig().stdout),
+		kind: { kind: 'fixture-stack', presenter: 'profile', source: 'compose' },
+		pool: { minSlot: 50, maxSlot: 60 },
+		getOccupancy: async () => ({ subnets: [], projects: [], volumeNames: [] })
+	});
+	const view = await instanceService.describeStack(root, record.project);
+	assert.equal(view.kind.kind, 'fixture-stack');
+	assert.equal(view.kind.presenter, 'profile');
+	assert.equal(view.instance.slot, record.slot);
+	assert.equal(view.request.instance, record.project);
+	assert.doesNotMatch(
+		JSON.stringify(view),
+		/fixture-command|fixture-readback|private-hosts|volumeIdentity|sourceDigest/
+	);
+	assert.equal(
+		(await instanceService.describeStack(root, 'unknown-stack')).kind.presenter,
+		'generic'
+	);
+	await assert.rejects(instanceService.describeStack(root, '../x'), { status: 400 });
+});

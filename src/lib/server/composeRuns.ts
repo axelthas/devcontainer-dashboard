@@ -12,7 +12,8 @@ import {
 	composeActionCommand,
 	composeFollowUp,
 	type ComposeAction,
-	type ComposeInstanceCommand
+	type ComposeInstanceCommand,
+	type ComposeSelection
 } from '../composeCommands.js';
 import type { ComposeTarget } from './composeSandbox.js';
 import { createPersistentSession, deletePersistentSession, isCancelledExit } from './terminal.js';
@@ -33,6 +34,8 @@ export interface ActiveComposeRun {
 	repoName: string;
 	action: ComposeAction;
 	files: string[];
+	/** Full selection of the run; lets Docker Services resolve the project's kind. */
+	selection?: ComposeSelection;
 	/** Services passed to Compose; empty means every service. */
 	services: string[];
 	projectName?: string;
@@ -150,6 +153,7 @@ export function startComposeRun(
 		repoName,
 		action,
 		files: [...target.selection.files],
+		selection: structuredClone(target.selection),
 		services: [...services],
 		projectName,
 		...(target.selection.tag ? { tag: target.selection.tag } : {}),

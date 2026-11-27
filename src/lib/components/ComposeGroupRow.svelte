@@ -11,7 +11,7 @@
 		Globe,
 		Trash2
 	} from 'lucide-svelte';
-	import { errorMessage, requestJson } from '$lib/requests';
+	import { errorMessage, latestRequest, requestJson } from '$lib/requests';
 	import RequestError from './RequestError.svelte';
 	import type { ContainerData, NetworkData, ServiceAccess, ServicePortPolicy } from '$lib/types';
 	import { containerExposure } from '$lib/publishedPorts';
@@ -19,6 +19,10 @@
 	import ComposeNetworks from './ComposeNetworks.svelte';
 	import SandboxVersionChip from './SandboxVersionChip.svelte';
 	import StackKindChips from './stack/StackKindChips.svelte';
+	import InstanceRemoveDialog from './stack/InstanceRemoveDialog.svelte';
+	import { presenterFor, stackPresentation } from './stack/presenters';
+	import type { StackView } from './stack/types';
+
 	import SandboxRemoveDialog from './SandboxRemoveDialog.svelte';
 
 	interface Props {
@@ -54,6 +58,32 @@
 	}: Props = $props();
 
 	let expanded = $state(false);
+	/** Presenter data for this project; null until loaded or when DevHarbour does not know the source. */
+	let view = $state<StackView | null>(null);
+	const viewReads = latestRequest();
+	const presenter = $derived(
+		presenterFor(view?.kind.presenter ?? stackPresentation(containers).presenter.id)
+	);
+
+	/** Load kind metadata for the presenter; a failure keeps the generic presenter. */
+	async function loadView(project: string) {
+		try {
+			await viewReads.run(
+				(signal) =>
+					requestJson<StackView>(`/api/compose/stack?project=${encodeURIComponent(project)}`, {
+						signal
+					}),
+				(value) => (view = value)
+			);
+		} catch {
+			view = null;
+		}
+	}
+
+	$effect(() => {
+		void loadView(projectName);
+		return () => viewReads.cancel();
+	});
 	let removing = $state(false);
 	let loadingAction = $state<string | null>(null);
 	let actionError = $state('');
@@ -145,7 +175,7 @@
 			</h4>
 
 			<SandboxVersionChip project={projectName} containers={versionContainers} />
-			<StackKindChips {containers} />
+			<StackKindChips {containers} {view} />
 
 			<!-- Running count badge -->
 			<span
@@ -177,6 +207,14 @@
 				{networks.length}
 				{networks.length === 1 ? 'network' : 'networks'}
 			</span>
+		{/if}
+
+		<!-- Presenter actions, for example declared modes -->
+		{#if presenter.Actions && view}
+			{@const Actions = presenter.Actions}
+			<div class="flex flex-wrap items-center gap-2">
+				<Actions {view} {containers} onChanged={() => void loadView(projectName)} />
+			</div>
 		{/if}
 
 		<!-- Group actions -->
@@ -227,15 +265,21 @@
 				class="rounded-lg p-1.5 text-[#4c566a] transition-colors hover:bg-[#e5e9f0] hover:text-[#bf616a] disabled:cursor-not-allowed disabled:opacity-50 dark:text-[#d8dee9] dark:hover:bg-[#3b4252] dark:hover:text-[#bf616a]"
 				disabled={loadingAction !== null}
 				onclick={() => (removing = true)}
-				title="Remove sandbox…"
-				aria-label={`Remove sandbox ${projectName}`}
+				title={view?.instance ? 'Remove instance…' : 'Remove sandbox…'}
+				aria-label={`${view?.instance ? 'Remove instance' : 'Remove sandbox'} ${projectName}`}
 			>
 				<Trash2 size={16} />
 			</button>
 		</div>
 	</div>
 
-	{#if removing}
+	{#if removing && view?.instance}
+		<InstanceRemoveDialog
+			project={projectName}
+			onClose={() => (removing = false)}
+			onRemoved={() => void onRefresh().catch(() => {})}
+		/>
+	{:else if removing}
 		<SandboxRemoveDialog
 			project={projectName}
 			onClose={() => (removing = false)}
@@ -249,17 +293,28 @@
 			{#if networks.length > 0 && onConnectNetwork}
 				<ComposeNetworks {projectName} {networks} {devcontainers} {onConnectNetwork} />
 			{/if}
+			{#if view}
+				{#each presenter.panels as Panel, index (index)}
+					<Panel {view} {containers} onChanged={() => void loadView(projectName)} />
+				{/each}
+			{/if}
 			<div class="divide-y divide-[#d8dee9]/60 dark:divide-[#4c566a]/60">
 				{#each containers as container (container.id)}
-					<SandboxRow
-						{container}
-						{vscodeSshHost}
-						{serviceProxyEnabled}
-						{servicePorts}
-						{serviceAccess}
-						{onRefresh}
-						{onOpenTerminal}
-					/>
+					<div>
+						<SandboxRow
+							{container}
+							{vscodeSshHost}
+							{serviceProxyEnabled}
+							{servicePorts}
+							{serviceAccess}
+							{onRefresh}
+							{onOpenTerminal}
+						/>
+						{#if presenter.Row && view}
+							{@const Row = presenter.Row}
+							<Row {view} {container} />
+						{/if}
+					</div>
 				{/each}
 			</div>
 		</div>

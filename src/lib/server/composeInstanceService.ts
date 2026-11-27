@@ -13,6 +13,7 @@ import { INSTANCE_LABEL, VOLUME_IDENTITY_LABEL } from './composeInstanceOverride
 import { prepareInstance } from './composeInstancePrepare.js';
 import {
 	findInstanceRecord,
+	listInstanceRecords,
 	instanceDigest,
 	instanceRoot,
 	replanInstance,
@@ -20,14 +21,17 @@ import {
 	type InstanceRecord
 } from './composeInstances.js';
 import type { InstancePool } from './composeInstancePlan.js';
-import { reserveProjectRemoval } from './composeRuns.js';
+import { getActiveComposeRuns, reserveProjectRemoval } from './composeRuns.js';
 import {
 	composeEnvironment,
 	loadComposeInstanceSource,
+	resolveComposeTarget,
 	type ComposeInstanceSource,
 	type ComposeTarget
 } from './composeSandbox.js';
 import type { KindAction } from './kindDescriptor.js';
+import type { ComposeSelection } from '../composeCommands.js';
+import type { KindDescriptor } from '../stackKinds/types.js';
 
 const CHECK_TIMEOUT_MS = 30_000;
 const ACTION_TIMEOUT_MS = 60_000;
@@ -431,4 +435,66 @@ export function instanceHttpStatus(cause: unknown): {
 		status: 503,
 		message: 'Could not complete the instance operation. Check Docker availability.'
 	};
+}
+
+/** What Docker Services needs to present one project. Client-safe. */
+export interface StackDescription {
+	project: string;
+	kind: KindDescriptor;
+	instance?: InstanceSummary;
+	actionState: ReturnType<typeof kindActionState>;
+	/** Fields that a declared action request must repeat; absent when the source is unknown */
+	request?: { repoPath: string; instance?: string } & ComposeSelection;
+}
+
+const GENERIC: KindDescriptor = { kind: 'generic', presenter: 'generic', source: 'default' };
+
+/**
+ * Describe a project by its instance record or by the newest DevHarbour run of that project.
+ * A project that DevHarbour did not start has no known selection and uses the generic presenter.
+ */
+export async function describeStack(
+	workspaceRoot: string,
+	project: unknown
+): Promise<StackDescription> {
+	if (typeof project !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,127}$/.test(project))
+		throw new InstanceRequestError(400, 'Invalid project');
+	const record = (await listInstanceRecords(workspaceRoot)).find(
+		(item) => item.project === project
+	);
+	const run = record
+		? undefined
+		: getActiveComposeRuns()
+				.filter((item) => item.projectName === project && item.selection && !item.instanceProject)
+				.sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0];
+	const repoPath = record?.canonicalRepoPath ?? run?.repoPath;
+	const selection = record?.selection ?? run?.selection;
+	if (!repoPath || !selection)
+		return { project, kind: GENERIC, actionState: kindActionState(project) };
+	try {
+		const target = await resolveComposeTarget(workspaceRoot, { repoPath, ...selection });
+		const source = await loadComposeInstanceSource(target);
+		// An original sandbox must still resolve to this project name.
+		if (!record && source.projectName !== project)
+			return { project, kind: GENERIC, actionState: kindActionState(project) };
+		return {
+			project,
+			kind: source.kind,
+			...(record ? { instance: instanceSummary(record) } : {}),
+			actionState: kindActionState(project),
+			request: {
+				repoPath: target.repoPath,
+				...target.selection,
+				...(record ? { instance: project } : {})
+			}
+		};
+	} catch {
+		// A moved repository or a broken file: present the stack, but offer no declared actions.
+		return {
+			project,
+			kind: GENERIC,
+			...(record ? { instance: instanceSummary(record) } : {}),
+			actionState: kindActionState(project)
+		};
+	}
 }
