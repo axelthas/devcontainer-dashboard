@@ -42,10 +42,12 @@
 	import { IMAGE_TAG_PATTERN, sandboxVersion } from '$lib/imageReference';
 	import type {
 		ComposeInspection,
+		ComposeInstanceData,
 		ComposeRunData,
 		ComposeTagListing,
 		RepositoryData
 	} from '$lib/types';
+	import ComposeInstanceControls from './ComposeInstanceControls.svelte';
 	import RequestError from './RequestError.svelte';
 	import SandboxRemoveDialog from './SandboxRemoveDialog.svelte';
 	import TerminalTab from './TerminalTab.svelte';
@@ -155,12 +157,18 @@
 	});
 
 	const run = $derived(repo.composeRun);
+	/** Selected instance; null means the original sandbox, which behaves as before. */
+	let target = $state<ComposeInstanceData | null>(null);
+	const instanceArgs = $derived(
+		target ? { projectName: target.project, overrideFile: target.overrideFile } : undefined
+	);
 	/** Actions need a check of exactly the current selection. */
 	const fresh = $derived(inspection !== null && inspectedKey === selectionKey);
 	const blocked = $derived(
 		!fresh ||
 			!tagValid ||
-			inspection?.ownership === 'other' ||
+			(!target && inspection?.ownership === 'other') ||
+			(target !== null && target.state !== 'ready') ||
 			run?.status === 'running' ||
 			starting !== null
 	);
@@ -208,7 +216,8 @@
 								selection,
 								action,
 								actionServices(action),
-								overrideFile
+								overrideFile,
+								instanceArgs
 							)
 						)
 					)
@@ -417,6 +426,7 @@
 					repoName: repo.name,
 					action,
 					...selection,
+					...(target ? { instance: target.project } : {}),
 					...(services.length > 0 ? { services } : {})
 				})
 			});
@@ -458,8 +468,10 @@
 		if (!inspection || !fresh) return;
 		onOpenTerminal(
 			generateId(),
-			shellCommand(composeLogsCommand(repo.path, selection, serviceArgs, overrideFile)),
-			`Logs ${inspection.projectName}`,
+			shellCommand(
+				composeLogsCommand(repo.path, selection, serviceArgs, overrideFile, instanceArgs)
+			),
+			`Logs ${target?.project ?? inspection.projectName}`,
 			inspection.projectDirectory
 		);
 	}
@@ -688,6 +700,18 @@
 		</div>
 	{/if}
 
+	{#if inspection && fresh}
+		<ComposeInstanceControls
+			repoPath={repo.path}
+			{selection}
+			projectName={inspection.projectName}
+			kind={inspection.kind}
+			disabled={run?.status === 'running' || starting !== null}
+			bind:target
+			onChanged={runExited}
+		/>
+	{/if}
+
 	<RequestError message={inspectError} onRetry={() => void inspect()} />
 	<RequestError message={actionError} />
 
@@ -860,7 +884,10 @@
 		<button
 			type="button"
 			onclick={() => (removing = true)}
-			disabled={!fresh || inspection?.ownership !== 'this' || run?.status === 'running'}
+			disabled={!fresh ||
+				target !== null ||
+				inspection?.ownership !== 'this' ||
+				run?.status === 'running'}
 			class="flex items-center gap-1 rounded-lg border border-[#d8dee9] bg-white px-2.5 py-1 text-xs font-medium text-[#bf616a] transition-colors hover:bg-[#e5e9f0] disabled:cursor-not-allowed disabled:opacity-50 dark:border-[#4c566a] dark:bg-[#2e3440] dark:hover:bg-[#434c5e]"
 			title="Remove the containers and project networks. Volumes, images, and source files stay."
 		>

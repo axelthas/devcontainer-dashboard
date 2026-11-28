@@ -1,3 +1,4 @@
+import type { KindDescriptor } from './stackKinds/types.js';
 export interface ContainerData {
 	id: string;
 	name: string;
@@ -29,6 +30,11 @@ export interface ContainerData {
 	composeWorkingDir?: string;
 	/** Sandbox tag from the `devcontainer-dashboard.sandbox.tag` label that DevHarbour writes */
 	sandboxTag?: string;
+	/** Slot of a DevHarbour Compose instance, from its instance labels */
+	composeInstanceSlot?: number;
+	/** Kind and built-in presenter from the `devcontainer-dashboard.kind` labels */
+	composeKind?: string;
+	composePresenter?: 'generic' | 'web' | 'database' | 'profile';
 	/** Docker networks of the container, sorted by name. Empty or missing when unknown. */
 	networks?: ContainerNetwork[];
 	/** Networks and seats declared in devcontainer.json under customizations.devcontainer-dashboard */
@@ -200,6 +206,7 @@ export interface ComposeStackContainer {
 
 /** Result of resolving one Compose selection and comparing it with live Docker state. */
 export interface ComposeInspection {
+	kind: KindDescriptor;
 	projectName: string;
 	/** Absolute project directory used for relative paths and the default `.env` */
 	projectDirectory: string;
@@ -388,4 +395,28 @@ export interface RepoRefsResponse {
 	/** Ordered refs. Undefined when `git for-each-ref` fails; `refsError` then explains why. */
 	refs?: GitRefs;
 	refsError?: string;
+}
+
+/** One instance of a Compose selection, as GET /api/compose/instances returns it. */
+export interface ComposeInstanceData {
+	project: string;
+	slot: number;
+	state: 'planned' | 'ready' | 'failed' | 'removing';
+	subnets: string[];
+	createdAt: string;
+	/** Managed override file, the last `--file` of every instance command */
+	overrideFile: string;
+	/** Last stored value of each declared action; process memory only */
+	actions: Record<string, { value: string; at: string; result: 'ok' | 'partial' | 'failed' }>;
+}
+
+/** Preview of one instance removal. */
+export interface ComposeInstanceRemovalPreview {
+	project: string;
+	state: ComposeInstanceData['state'];
+	files: string[];
+	containers: RemovalContainer[];
+	networks: RemovalNetwork[];
+	volumes: string[];
+	token: string;
 }

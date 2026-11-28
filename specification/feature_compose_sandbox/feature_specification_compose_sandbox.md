@@ -30,8 +30,8 @@ its sandbox.
 The service selection controls which services build, start, or appear in the
 log stream. All services are selected by default. Dependencies of selected
 services stay included. A service outside the selection keeps its state unless
-stopped explicitly. The browser remembers deselected services for the sandbox
-kind, defined by repository name and ordered file selection. Newly added services
+stopped explicitly. The browser remembers deselected services for the selection
+key, defined by repository name and ordered file selection. Newly added services
 therefore start selected.
 
 - **Build** builds selected services.
@@ -55,6 +55,13 @@ Removal is separate from stopping. Review the target and current Docker
 resources before confirming. A stale preview requires a fresh review. Removal
 keeps volumes, images, source files, and shared networks. The sandbox does not
 provide arbitrary Compose command entry or a volume removal action.
+
+### Run more copies of a sandbox
+
+The Sandbox panel can also create instances of the selection. Each instance is
+a separate Compose project with its own subnets, container names, and published
+ports. The panel **Target** control selects the original sandbox or an
+instance. See [Compose instances](../feature_compose_instances/feature_specification_compose_instances.md).
 
 ## Interfaces and constraints
 

@@ -11,13 +11,19 @@
 		Globe,
 		Trash2
 	} from 'lucide-svelte';
-	import { errorMessage, requestJson } from '$lib/requests';
+	import { errorMessage, latestRequest, requestJson } from '$lib/requests';
 	import RequestError from './RequestError.svelte';
 	import type { ContainerData, NetworkData, ServiceAccess, ServicePortPolicy } from '$lib/types';
 	import { containerExposure } from '$lib/publishedPorts';
 	import SandboxRow from './SandboxRow.svelte';
 	import ComposeNetworks from './ComposeNetworks.svelte';
 	import SandboxVersionChip from './SandboxVersionChip.svelte';
+	import StackKindChips from './stack/StackKindChips.svelte';
+	import ProfileGroups from './stack/ProfileGroups.svelte';
+	import InstanceRemoveDialog from './stack/InstanceRemoveDialog.svelte';
+	import { presenterFor, stackPresentation } from './stack/presenters';
+	import type { StackView } from './stack/types';
+
 	import SandboxRemoveDialog from './SandboxRemoveDialog.svelte';
 
 	interface Props {
@@ -52,7 +58,34 @@
 		onConnectNetwork
 	}: Props = $props();
 
+	let showNetworks = $state(false);
 	let expanded = $state(false);
+	/** Presenter data for this project; null until loaded or when DevHarbour does not know the source. */
+	let view = $state<StackView | null>(null);
+	const viewReads = latestRequest();
+	const presenter = $derived(
+		presenterFor(view?.kind.presenter ?? stackPresentation(containers).presenter.id)
+	);
+
+	/** Load kind metadata for the presenter; a failure keeps the generic presenter. */
+	async function loadView(project: string) {
+		try {
+			await viewReads.run(
+				(signal) =>
+					requestJson<StackView>(`/api/compose/stack?project=${encodeURIComponent(project)}`, {
+						signal
+					}),
+				(value) => (view = value)
+			);
+		} catch {
+			view = null;
+		}
+	}
+
+	$effect(() => {
+		void loadView(projectName);
+		return () => viewReads.cancel();
+	});
 	let removing = $state(false);
 	let loadingAction = $state<string | null>(null);
 	let actionError = $state('');
@@ -107,6 +140,24 @@
 	}
 </script>
 
+{#snippet containerRow(container: ContainerData)}
+	<div>
+		<SandboxRow
+			{container}
+			{vscodeSshHost}
+			{serviceProxyEnabled}
+			{servicePorts}
+			{serviceAccess}
+			{onRefresh}
+			{onOpenTerminal}
+		/>
+		{#if presenter.Row && view}
+			{@const Row = presenter.Row}
+			<Row {view} {container} />
+		{/if}
+	</div>
+{/snippet}
+
 <div>
 	{#if actionSummary}<p role="status" class="px-5 text-xs">{actionSummary}</p>{/if}
 	<div class="px-5"><RequestError message={actionError} /></div>
@@ -118,7 +169,8 @@
 			: 'bg-[#e5e9f0]/50 opacity-80 hover:bg-[#e5e9f0] dark:bg-[#2e3440]/30 dark:hover:bg-[#2e3440]/50'}"
 	>
 		<button
-			class="flex min-w-0 flex-grow cursor-pointer items-center gap-3 border-none bg-transparent p-0 text-left"
+			class="flex min-w-0 flex-grow cursor-pointer flex-wrap items-center gap-2 border-none bg-transparent p-0 text-left"
+			aria-expanded={expanded}
 			onclick={() => (expanded = !expanded)}
 		>
 			<!-- Expand/collapse icon -->
@@ -137,45 +189,15 @@
 
 			<!-- Project name -->
 			<h4
-				class="truncate text-sm font-bold
+				class="min-w-0 text-sm font-bold [overflow-wrap:anywhere]
 					{anyRunning ? 'text-[#2e3440] dark:text-[#eceff4]' : 'text-[#4c566a] dark:text-[#d8dee9]/70'}"
 			>
 				{projectName}
 			</h4>
 
 			<SandboxVersionChip project={projectName} containers={versionContainers} />
-
-			<!-- Running count badge -->
-			<span
-				class="rounded-full px-2 py-0.5 text-xs font-medium
-					{anyRunning
-					? 'border border-[#a3be8c]/20 bg-[#a3be8c]/15 text-[#a3be8c]'
-					: 'border border-[#4c566a]/20 bg-[#4c566a]/10 text-[#4c566a] dark:text-[#d8dee9]/50'}"
-			>
-				{runningCount}/{totalCount} running
-			</span>
+			<StackKindChips {containers} {view} />
 		</button>
-
-		{#if exposedCount > 0}
-			<span
-				class="hidden shrink-0 items-center gap-1.5 rounded-full border border-[#b48ead]/40 bg-[#b48ead]/10 px-2 py-0.5 text-xs font-medium text-[#b48ead] sm:flex"
-				title={`${exposedCount} of ${totalCount} containers publish ports on all host interfaces`}
-			>
-				<Globe size={12} />
-				{exposedCount} on all interfaces
-			</span>
-		{/if}
-
-		{#if networks.length > 0}
-			<span
-				class="hidden shrink-0 items-center gap-1.5 text-xs text-[#4f8584] sm:flex dark:text-[#8fbcbb]"
-				title={networks.map((network) => network.name).join(', ')}
-			>
-				<Network size={14} />
-				{networks.length}
-				{networks.length === 1 ? 'network' : 'networks'}
-			</span>
-		{/if}
 
 		<!-- Group actions -->
 		<div
@@ -225,15 +247,75 @@
 				class="rounded-lg p-1.5 text-[#4c566a] transition-colors hover:bg-[#e5e9f0] hover:text-[#bf616a] disabled:cursor-not-allowed disabled:opacity-50 dark:text-[#d8dee9] dark:hover:bg-[#3b4252] dark:hover:text-[#bf616a]"
 				disabled={loadingAction !== null}
 				onclick={() => (removing = true)}
-				title="Remove sandbox…"
-				aria-label={`Remove sandbox ${projectName}`}
+				title={view?.instance ? 'Remove instance…' : 'Remove sandbox…'}
+				aria-label={`${view?.instance ? 'Remove instance' : 'Remove sandbox'} ${projectName}`}
 			>
 				<Trash2 size={16} />
 			</button>
 		</div>
 	</div>
 
-	{#if removing}
+	<div class="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 pb-3">
+		<!-- Running count badge -->
+		<span
+			class="rounded-full px-2 py-0.5 text-xs font-medium
+					{anyRunning
+				? 'border border-[#a3be8c]/20 bg-[#a3be8c]/15 text-[#a3be8c]'
+				: 'border border-[#4c566a]/20 bg-[#4c566a]/10 text-[#4c566a] dark:text-[#d8dee9]/50'}"
+		>
+			{runningCount}/{totalCount} running
+		</span>
+
+		{#if exposedCount > 0}
+			<span
+				class="inline-flex items-center gap-1.5 rounded-full border border-[#b48ead]/40 bg-[#b48ead]/10 px-2 py-0.5 text-xs font-medium text-[#b48ead]"
+				title={`${exposedCount} of ${totalCount} containers publish ports on all host interfaces`}
+			>
+				<Globe size={12} />
+				{exposedCount} on all interfaces
+			</span>
+		{/if}
+
+		{#if networks.length > 0}
+			{#if presenter.id === 'profile' && onConnectNetwork}
+				<button
+					type="button"
+					aria-expanded={showNetworks}
+					onclick={() => (showNetworks = !showNetworks)}
+					class="inline-flex items-center gap-1.5 rounded px-1 text-xs text-[#4f8584] hover:underline dark:text-[#8fbcbb]"
+				>
+					<Network size={14} />
+					{networks.length}
+					{networks.length === 1 ? 'network' : 'networks'}
+				</button>
+			{:else}
+				<span
+					class="inline-flex items-center gap-1.5 text-xs text-[#4f8584] dark:text-[#8fbcbb]"
+					title={networks.map((network) => network.name).join(', ')}
+				>
+					<Network size={14} />
+					{networks.length}
+					{networks.length === 1 ? 'network' : 'networks'}
+				</span>
+			{/if}
+		{/if}
+	</div>
+	{#if presenter.Actions && view?.kind.actions?.length}
+		{@const Actions = presenter.Actions}
+		<div class="border-t border-[#d8dee9]/70 px-5 py-3 dark:border-[#4c566a]/70">
+			{#key view.project}
+				<Actions {view} {containers} onChanged={() => void loadView(projectName)} />
+			{/key}
+		</div>
+	{/if}
+
+	{#if removing && view?.instance}
+		<InstanceRemoveDialog
+			project={projectName}
+			onClose={() => (removing = false)}
+			onRemoved={() => void onRefresh().catch(() => {})}
+		/>
+	{:else if removing}
 		<SandboxRemoveDialog
 			project={projectName}
 			onClose={() => (removing = false)}
@@ -241,25 +323,30 @@
 		/>
 	{/if}
 
+	{#if presenter.id === 'profile' && showNetworks && networks.length > 0 && onConnectNetwork}
+		<ComposeNetworks {projectName} {networks} {devcontainers} {onConnectNetwork} />
+	{/if}
+
 	<!-- Expanded container list -->
 	{#if expanded}
 		<div class="bg-[#f0f4f8] dark:bg-[#2e3440]">
-			{#if networks.length > 0 && onConnectNetwork}
+			{#if presenter.id !== 'profile' && networks.length > 0 && onConnectNetwork}
 				<ComposeNetworks {projectName} {networks} {devcontainers} {onConnectNetwork} />
 			{/if}
-			<div class="divide-y divide-[#d8dee9]/60 dark:divide-[#4c566a]/60">
-				{#each containers as container (container.id)}
-					<SandboxRow
-						{container}
-						{vscodeSshHost}
-						{serviceProxyEnabled}
-						{servicePorts}
-						{serviceAccess}
-						{onRefresh}
-						{onOpenTerminal}
-					/>
+			{#if view}
+				{#each presenter.panels as Panel, index (index)}
+					<Panel {view} {containers} onChanged={() => void loadView(projectName)} />
 				{/each}
-			</div>
+			{/if}
+			{#if presenter.id === 'profile' && view}
+				<ProfileGroups {view} {containers} row={containerRow} />
+			{:else}
+				<div class="divide-y divide-[#d8dee9]/60 dark:divide-[#4c566a]/60">
+					{#each containers as container (container.id)}
+						{@render containerRow(container)}
+					{/each}
+				</div>
+			{/if}
 		</div>
 	{/if}
 </div>

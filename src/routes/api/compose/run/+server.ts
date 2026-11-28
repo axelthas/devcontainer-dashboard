@@ -14,6 +14,7 @@ import {
 } from '$lib/server/composeSandbox';
 import { localImageInfo } from '$lib/server/composeImages';
 import { ComposeRunConflict, removeComposeRun, startComposeRun } from '$lib/server/composeRuns';
+import { instanceHttpStatus, resolveInstanceRun } from '$lib/server/composeInstanceService';
 
 const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT ?? '/workspaces';
 
@@ -21,7 +22,7 @@ export const POST: RequestHandler = async ({ request }) => {
 	const body = await request.json().catch(() => null);
 	if (!body || typeof body !== 'object') throw error(400, 'Invalid JSON body');
 	const fields = body as Record<string, unknown>;
-	const { repoPath, repoName, files, envFile, profiles, tag, action, services } = fields;
+	const { repoPath, repoName, files, envFile, profiles, tag, action, services, instance } = fields;
 	if (typeof repoName !== 'string' || !repoName.trim() || repoName.length > 200) {
 		throw error(400, 'repoName is required');
 	}
@@ -59,7 +60,17 @@ export const POST: RequestHandler = async ({ request }) => {
 		if (cause instanceof ComposeTargetError) throw error(400, cause.message);
 		throw cause;
 	}
-	if (inspection.ownership === 'other') {
+	// An instance runs under its own project; the original project's ownership does not apply.
+	let instanceRun: Awaited<ReturnType<typeof resolveInstanceRun>> | undefined;
+	if (instance !== undefined) {
+		try {
+			instanceRun = await resolveInstanceRun(docker as never, WORKSPACE_ROOT, target, instance);
+		} catch (cause) {
+			const mapped = instanceHttpStatus(cause);
+			throw error(mapped.status, mapped.message);
+		}
+	}
+	if (!instanceRun && inspection.ownership === 'other') {
 		throw error(
 			409,
 			`Project "${inspection.projectName}" already has containers from ${inspection.otherWorkingDirs.join(', ')}. ` +
@@ -83,15 +94,18 @@ export const POST: RequestHandler = async ({ request }) => {
 			randomUUID(),
 			target,
 			repoName.trim(),
-			inspection.projectName,
+			instanceRun?.record.project ?? inspection.projectName,
 			action,
 			selectedServices,
-			{ overrideFile: inspection.overrideFile }
+			{
+				overrideFile: inspection.overrideFile,
+				...(instanceRun ? { instance: instanceRun.instance } : {})
+			}
 		);
 		return json({
 			id: run.id,
 			repoPath: run.repoPath,
-			projectName: inspection.projectName,
+			projectName: instanceRun?.record.project ?? inspection.projectName,
 			...(run.tag ? { tag: run.tag } : {})
 		});
 	} catch (cause) {
