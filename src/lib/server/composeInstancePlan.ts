@@ -42,6 +42,8 @@ export interface ComposeInstancePlan {
 			loopbackPorts: PortOverride[];
 		}[];
 	};
+	/** Original static Compose service IPv4 addresses and their instance addresses. */
+	endpointAddresses: Record<string, string>;
 	/** Structured server-only overlay; the writer emits replacement nodes with !override. */
 	override: {
 		networks: Record<string, Entry>;
@@ -239,28 +241,21 @@ function planNetworks(
 	return { networks, mappings, shared };
 }
 
-/** Remap a host destination only if it belongs to a source network. */
-function remapHostDestination(value: unknown, mappings: SubnetMapping[]): string {
-	if (typeof value !== 'string') refuse('Unsupported extra_hosts address');
-	const bare = value.startsWith('[') && value.endsWith(']') ? value.slice(1, -1) : value;
-	if (bare !== 'host-gateway' && !isIP(bare)) refuse('Unsupported extra_hosts address');
-	const address = ipv4(bare);
-	const source =
-		address === undefined
-			? undefined
-			: mappings.find(({ from, source }) => from && contains(source, address));
-	return source ? remapHost(bare, source) : value;
-}
-
 /** Remap normalized Compose list or map forms without collapsing duplicate hosts. */
-function extraHosts(value: unknown, mappings: SubnetMapping[]): Entry | string[] | undefined {
-	if (value === undefined || !mappings.some(({ from }) => from)) return undefined;
+function extraHosts(
+	value: unknown,
+	endpoints: Record<string, string>
+): Entry | string[] | undefined {
+	if (value === undefined || !Object.keys(endpoints).length) return undefined;
 	let changed = false;
-	const remap = (address: unknown) => {
-		const next = remapHostDestination(address, mappings);
+	function remap(address: unknown): string {
+		if (typeof address !== 'string') refuse('Unsupported extra_hosts address');
+		const bare = address.startsWith('[') && address.endsWith(']') ? address.slice(1, -1) : address;
+		if (bare !== 'host-gateway' && !isIP(bare)) refuse('Unsupported extra_hosts address');
+		const next = endpoints[bare] ?? address;
 		changed ||= next !== address;
 		return next;
-	};
+	}
 	const result = Array.isArray(value)
 		? value.map((entry: unknown) => {
 				if (typeof entry !== 'string') refuse('Unsupported extra_hosts entry');
@@ -328,6 +323,8 @@ export function planComposeInstance(
 	const { networks, mappings, shared } = planNetworks(config, slot, project, pool, policy);
 	const services: Record<string, Entry> = Object.create(null);
 	const volumes: Record<string, Entry> = Object.create(null);
+	const endpointAddresses: Record<string, string> = Object.create(null);
+	const serviceEntries = entries(config.services);
 	const servicePlans: ComposeInstancePlan['addressPlan']['services'] = [];
 	const warnings: string[] = [];
 	for (const [key, data] of entries(config.volumes)) {
@@ -337,7 +334,7 @@ export function planComposeInstance(
 			volumes[key] = { name: `devharbour_${pool.volumeIdentity}_${key}` };
 		}
 	}
-	for (const [key, data] of entries(config.services)) {
+	for (const [key, data] of serviceEntries) {
 		const service = record(data);
 		if (
 			service.network_mode !== undefined &&
@@ -366,13 +363,12 @@ export function planComposeInstance(
 				if (!mapping) refuse('A fixed address needs a remappable subnet on its instance network');
 				addresses[network] = remapHost(attachment.ipv4_address, mapping);
 				patch.ipv4_address = addresses[network];
+				endpointAddresses[attachment.ipv4_address as string] = addresses[network];
 			}
 			if (typeof oldName === 'string' && !shared.has(network)) patch.aliases = [oldName];
 			if (Object.keys(patch).length) attachments[network] = patch;
 		}
 		if (Object.keys(attachments).length) override.networks = attachments;
-		const hosts = extraHosts(service.extra_hosts, mappings);
-		if (hosts) override.extra_hosts = replace(hosts);
 		const loopbackPorts = planPorts(service.ports);
 		if (loopbackPorts.length) override.ports = replace(loopbackPorts);
 		for (const [name, value] of Object.entries(record(service.environment))) {
@@ -394,9 +390,15 @@ export function planComposeInstance(
 			loopbackPorts
 		});
 	}
+	// A service can refer to an endpoint declared later in the Compose file.
+	for (const [key, data] of serviceEntries) {
+		const hosts = extraHosts(record(data).extra_hosts, endpointAddresses);
+		if (hosts) (services[key] ??= {}).extra_hosts = replace(hosts);
+	}
 	return {
 		project,
 		slot,
+		endpointAddresses,
 		addressPlan: {
 			subnets: mappings.map(({ network, from, to }) => ({ network, from, to })),
 			services: servicePlans

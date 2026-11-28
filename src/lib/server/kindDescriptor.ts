@@ -34,7 +34,7 @@ export interface KindInstanceConfig {
 	files?: {
 		id: string;
 		from: { path: string };
-		rewrite: 'addresses';
+		rewrite: 'addresses' | 'subnet-addresses';
 		mount: { target: string; services?: string[]; role?: ServiceRole };
 	}[];
 }
@@ -252,7 +252,10 @@ function instanceConfig(value: unknown): KindInstanceConfig {
 				return {
 					id: id(file.id),
 					from: { path: path(object(file.from, ['path']).path, false) },
-					rewrite: oneOf(file.rewrite, ['addresses']),
+					rewrite: oneOf(file.rewrite === undefined ? 'addresses' : file.rewrite, [
+						'addresses',
+						'subnet-addresses'
+					]),
 					mount: {
 						target: path(mount.target, true),
 						...(mount.services !== undefined

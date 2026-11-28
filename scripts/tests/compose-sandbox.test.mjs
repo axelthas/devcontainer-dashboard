@@ -1417,6 +1417,18 @@ function profileDescriptor() {
 	};
 }
 
+test('instance files default to known endpoints and require explicit subnet rewrite', () => {
+	const descriptor = profileDescriptor();
+	const file = descriptor.instances.files[0];
+	delete file.rewrite;
+	const validate = kindDescriptor.parseKindDescriptor;
+	assert.equal(validate(descriptor).instances.files[0].rewrite, 'addresses');
+	file.rewrite = 'subnet-addresses';
+	assert.equal(validate(descriptor).instances.files[0].rewrite, 'subnet-addresses');
+	file.rewrite = null;
+	assert.throws(() => validate(descriptor), /Invalid DevHarbour kind descriptor/);
+});
+
 test('choice labels preserve literal option IDs and reject duplicate IDs', () => {
 	const validate = kindDescriptor.parseKindDescriptor;
 	const descriptor = profileDescriptor();
@@ -1572,10 +1584,17 @@ function instanceFixture() {
 			web: {
 				container_name: 'example-web',
 				networks: { demo: { ipv4_address: '192.168.20.10' }, shared: null },
-				extra_hosts: ['db=192.168.20.20', 'mirror:192.168.20.21', 'local=::1'],
+				extra_hosts: [
+					'db=192.168.20.20',
+					'mirror:192.168.20.21',
+					'local=::1',
+					'gateway=host-gateway'
+				],
 				ports: [{ target: 80, published: '8888' }, { target: 443 }],
 				environment: { APP_URL: 'http://192.168.20.20/secret-marker' }
-			}
+			},
+			db: { networks: { demo: { ipv4_address: '192.168.20.20' } } },
+			support: { networks: { demo: null }, extra_hosts: ['mirror=192.168.20.21'] }
 		},
 		volumes: { data: { name: 'shared-data' }, shared: { external: true } }
 	};
@@ -1603,9 +1622,11 @@ test('instance planner remaps fixture offsets and scopes names without copying e
 	assert.equal(plan.override.services.web.networks.shared, undefined);
 	assert.deepEqual(plan.override.services.web.extra_hosts.value, [
 		'db=10.231.21.20',
-		'mirror=10.231.21.21',
-		'local=::1'
+		'mirror=192.168.20.21',
+		'local=::1',
+		'gateway=host-gateway'
 	]);
+	assert.equal(plan.override.services.support?.extra_hosts, undefined);
 	assert.deepEqual(plan.override.services.web.ports.value, [
 		{ target: 80, protocol: 'tcp', host_ip: '127.0.0.1' },
 		{ target: 443, protocol: 'tcp', host_ip: '127.0.0.1' }
@@ -1892,7 +1913,7 @@ test('Compose config accepts the production instance override without a Docker d
 	const override = join(dir, 'override.yaml');
 	await writeFile(
 		file,
-		`name: example\nservices:\n  web:\n    image: nginx\n    container_name: example-web\n    extra_hosts: ['db=192.168.20.20']\n    ports: ['8888:80']\n    networks:\n      demo: {ipv4_address: 192.168.20.10, aliases: [legacy]}\n    environment: {APP_URL: 'http://192.168.20.20/private-marker'}\n    volumes: ['data:/data']\nnetworks:\n  demo:\n    ipam:\n      config: [{subnet: '192.168.20.0/24', gateway: '192.168.20.1'}]\nvolumes:\n  data: {name: shared-data}\n`
+		`name: example\nservices:\n  web:\n    image: nginx\n    container_name: example-web\n    extra_hosts: ['db=192.168.20.20']\n    ports: ['8888:80']\n    networks:\n      demo: {ipv4_address: 192.168.20.10, aliases: [legacy]}\n    environment: {APP_URL: 'http://192.168.20.20/private-marker'}\n    volumes: ['data:/data']\n  db:\n    image: nginx\n    networks: {demo: {ipv4_address: 192.168.20.20}}\nnetworks:\n  demo:\n    ipam:\n      config: [{subnet: '192.168.20.0/24', gateway: '192.168.20.1'}]\nvolumes:\n  data: {name: shared-data}\n`
 	);
 	const config = JSON.parse(
 		execFileSync('docker', ['compose', '-f', file, 'config', '--format', 'json'], {
@@ -1956,7 +1977,7 @@ test('rendered files rewrite addresses only, refuse unverified host paths and st
 	const input = await allocationFixture();
 	await writeFile(
 		join(input.canonicalRepoPath, 'hosts.txt'),
-		'db 192.168.20.20\nnot-an-address 192.168.20.2000\n'
+		'192.168.20.20 db db-alias\n192.168.20.21 outside\n127.0.0.1 localhost\n192.168.20.2000 invalid\n'
 	);
 	const result = await instanceStore.reserveInstance(input);
 	const directory = join(input.workspaceRoot, '.devharbour/instances', result.record.project);
@@ -1966,6 +1987,12 @@ test('rendered files rewrite addresses only, refuse unverified host paths and st
 			from: { path: 'hosts.txt' },
 			rewrite: 'addresses',
 			mount: { services: ['web'], target: '/etc/hosts' }
+		},
+		{
+			id: 'startup-hosts',
+			from: { path: 'hosts.txt' },
+			rewrite: 'subnet-addresses',
+			mount: { services: ['db'], target: '/opt/example/hosts-template' }
 		}
 	];
 	const options = {
@@ -1980,7 +2007,18 @@ test('rendered files rewrite addresses only, refuse unverified host paths and st
 	options.hostPath = async (path) => path;
 	const mounts = await instanceFiles.renderInstanceFiles(options);
 	const content = await readFile(mounts.web[0].source, 'utf8');
-	assert.equal(content, 'db 10.231.21.20\nnot-an-address 192.168.20.2000\n');
+	assert.equal(
+		content,
+		'10.231.21.20 db db-alias\n192.168.20.21 outside\n127.0.0.1 localhost\n192.168.20.2000 invalid\n'
+	);
+	assert.equal(mounts.support, undefined);
+	assert.equal(mounts.web[0].target, '/etc/hosts');
+	assert.equal(mounts.db[0].target, '/opt/example/hosts-template');
+	assert.match(await readFile(mounts.db[0].source, 'utf8'), /10\.231\.21\.21 outside/);
+	assert.match(
+		await readFile(join(input.canonicalRepoPath, 'hosts.txt'), 'utf8'),
+		/^192\.168\.20\.20/
+	);
 	assert.match(
 		instanceOverride.composeInstanceOverrideYaml(result.plan, result.record.volumeIdentity, mounts),
 		/"read_only":true/

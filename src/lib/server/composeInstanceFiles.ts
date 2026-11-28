@@ -53,8 +53,15 @@ async function sourceFile(repo: string, relativePath: string): Promise<string> {
 	}
 }
 
-/** Rewrite standalone dotted IPv4 addresses while preserving their host offset. */
-export function rewriteInstanceAddresses(text: string, plan: ComposeInstancePlan): string {
+/** Rewrite standalone IPv4 tokens. Subnet offsets require explicit opt-in. */
+export function rewriteInstanceAddresses(
+	text: string,
+	plan: ComposeInstancePlan,
+	mode: FileDeclaration['rewrite'] = 'addresses'
+): string {
+	const tokens = /(?<![\d.])\d{1,3}(?:\.\d{1,3}){3}(?![\d.])/g;
+	if (mode === 'addresses')
+		return text.replace(tokens, (token) => plan.endpointAddresses[token] ?? token);
 	const mappings = plan.addressPlan.subnets
 		.filter((entry) => entry.from)
 		.map((entry) => ({ source: ipv4Range(entry.from), target: ipv4Range(entry.to) }));
@@ -64,7 +71,7 @@ export function rewriteInstanceAddresses(text: string, plan: ComposeInstancePlan
 		)
 	)
 		invalid('Invalid address plan');
-	return text.replace(/(?<![\d.])\d{1,3}(?:\.\d{1,3}){3}(?![\d.])/g, (token) => {
+	return text.replace(tokens, (token) => {
 		const value = ipv4(token);
 		const match =
 			value === undefined
@@ -123,7 +130,11 @@ export async function renderInstanceFiles(options: {
 		const source = await options.hostPath(path);
 		if (!source || !isAbsolute(source)) invalid('Docker cannot resolve the instance file path');
 		const contents = await sourceFile(options.canonicalRepoPath, declaration.from.path);
-		await writeInstanceOverride(path, rewriteInstanceAddresses(contents, options.plan), 0o644);
+		await writeInstanceOverride(
+			path,
+			rewriteInstanceAddresses(contents, options.plan, declaration.rewrite),
+			0o644
+		);
 		for (const service of targetServices) {
 			const list = (mounts[service] ??= []);
 			if (list.some((mount) => mount.target === declaration.mount.target))

@@ -78,7 +78,8 @@ displays the result.
   server refuses an instance when a shared external network has fixed service
   addresses.
 - A fixed service address keeps its host part in the new subnet.
-- `extra_hosts` values use the same address map, in both the `=` and `:` forms.
+- In `extra_hosts`, only addresses of known static Compose service endpoints
+  change. Unmapped addresses, IPv6 and `host-gateway` stay as declared.
 - A fixed `container_name` becomes `<instance>-<service>`. The old name stays
   resolvable as a network alias on each instance network.
 - An instance publication binds to `127.0.0.1` and Docker allocates the host
@@ -194,10 +195,25 @@ x-devharbour:
       readBack: [example-mode, --show]
 ```
 
-An instance file comes from a repository path. The server renders it with the
-address map at digit and dot boundaries into the instance directory and mounts
-it read-only at an absolute container path. DevHarbour does not run repository
-scripts to render files.
+DevHarbour does not mount or edit `/etc/hosts` by default. Docker continues to
+create it. An `instances.files` declaration applies only to the selected
+services and is independent of the stack kind or presenter:
+
+- For a service with a custom, static hosts file, set `mount.target` to
+  `/etc/hosts`. The replacement must include all entries the service needs.
+  Use this only if the service does not write to `/etc/hosts`.
+- For a service that writes `/etc/hosts` at startup or during a mode change,
+  declare each input template and use the path the service reads as the mount
+  target. Leave the live `/etc/hosts` writable. Different solutions can declare
+  different paths, services, and templates.
+
+Each source is a repository-relative text file. `rewrite: addresses` (the
+default) replaces only known static Compose service IPv4 addresses.
+`rewrite: subnet-addresses` explicitly enables subnet-wide rewriting by host
+offset. Use it only if all addresses in the remapped subnet belong to the
+instance. Other addresses are unchanged. The server writes the copy under
+its instance directory and mounts it read-only. It does not edit the source
+file or run repository scripts.
 
 ### Present a stack
 
